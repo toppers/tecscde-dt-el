@@ -1,0 +1,26 @@
+{
+  "name": "tecscde-dt-el",
+  "version": "0.1.0",
+  "description": "TECSCDE desktop app, Electron-specific implementation, per TECSCDE-DT-EL内部仕様 (design alternative alongside tecscde-js and tecscde-ts).",
+  "type": "module",
+  "license": "ISC",
+  "author": "ykominami@gmail.com",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "tsc -p tsconfig.renderer.json --noEmit",
+    "build": "npm run build:renderer && npm run build:main",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "depcruise": "depcruise src --config .dependency-cruiser.cjs",
+    "check": "npm run build && npm test && npm run depcruise"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "dependency-cruiser": "^16.9.0"
+  }
+}

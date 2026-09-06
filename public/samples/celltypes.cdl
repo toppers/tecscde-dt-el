@@ -1,0 +1,21 @@
+// サンプル: セルタイプ定義（参照専用ファイルとして読み込む想定、外部仕様8.1.2）。
+// TECSCDE-TSは本ファイルを「兄弟ファイル」として読み込み、セルタイプの
+// ポート構成のみを参照する（4.2.2: 編集対象としない）。
+
+signature sLog;
+signature sSensor;
+
+celltype tLogger {
+  entry_port sLog eLog;
+  attribute level;
+}
+
+celltype tSensor {
+  entry_port sSensor eRead;
+}
+
+celltype tController {
+  call_port sLog cLog;
+  call_port sSensor cSensor;
+  attribute intervalMs;
+}
