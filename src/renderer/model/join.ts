@@ -43,4 +43,13 @@ export class Join {
     if (!next) return this;
     return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, next);
   }
+
+  /**
+   * 経路（bars）を差し替えた新しい Join を返す（内部仕様4.5 — セル移動・ポート移動に伴う
+   * autoRouteBars による経路再計算を、コマンド層が呼び出すための最小プリミティブ）。
+   * 結合の両端（cport/eport の対応関係）は変えない。
+   */
+  withBars(bars: readonly Bar[]): Join {
+    return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, bars);
+  }
 }
