@@ -1,9 +1,9 @@
 // [[TECSCDE-DT-EL内部仕様]] 第7章7.4節・第10章: 起動処理・BrowserWindow生成・
 // コマンドライン引数/open-fileの処理。
 //
-// 注意（未検証・unverified）: このファイルは spec 通りの構造で書かれているが、
-// GUI環境がないこの開発環境では `electron .` による実際の起動確認はできていない。
-// [[work/active/TECSCDE-DT-EL実装]] の Notes を参照。
+// `electron .` による起動は 2026-09-08 に Electron 44 で確認済み
+// （4プロセス構成で起動、preload も ESM でロード成功）。
+// 詳細・残課題は [[work/active/TECSCDE-DT-EL実装]] の Notes を参照。
 
 import { app, BrowserWindow } from "electron";
 import { fileURLToPath } from "node:url";
@@ -31,10 +31,15 @@ function createWindow(): BrowserWindow {
     width: 1280,
     height: 800,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      // sandbox: 未検証（第11章11.2節#1）。既定値（false）のまま。
+      // 第11章11.2節#1の決定（2026-09-08）: preload を ESM（`.mjs`）で書く方針を
+      // 採ったため、sandbox は false。Electron のサンドボックス化された preload は
+      // ESM import を使えず、ESM preload には sandbox: false が必須。
+      // contextIsolation: true と nodeIntegration: false は維持しているので、
+      // renderer から Node/Electron API へ触れる経路は依然 contextBridge 経由のみ。
+      sandbox: false,
     },
   });
 

@@ -22,7 +22,19 @@ vi.mock("electron", () => ({
   clipboard: { writeText, readText },
 }));
 
-await import("../../src/preload/index.js");
+// preload は ESM（第11章11.2節#1の決定）のため、`clipboard` だけは
+// `createRequire(import.meta.url)("electron")` で CJS 版から取得している
+// （ESMの`electron`は preload 向けに clipboard を名前付きエクスポートしないため）。
+// この経路は vitest の vi.mock("electron") を通らないので、createRequire 自体をモックする。
+vi.mock("node:module", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:module")>()),
+  createRequire: () => (id: string) => {
+    if (id === "electron") return { clipboard: { writeText, readText } };
+    throw new Error(`unexpected require(${id})`);
+  },
+}));
+
+await import("../../src/preload/index.mjs");
 
 // preload は import 時（＝各 it より前）に一度だけ exposeInMainWorld を呼ぶ。
 // vitest 5 は既定で各テスト前に mock の呼び出し履歴をクリアするため、
