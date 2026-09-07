@@ -3,11 +3,11 @@
 // CopyCommand/PasteCommand/CutCommand から利用する（第4章）。
 
 export class ClipboardGateway {
-  writeText(text: string): void {
-    window.tecscde.clipboard.writeText(text);
+  writeText(text: string): Promise<void> {
+    return window.tecscde.clipboard.writeText(text);
   }
 
-  readText(): string {
+  readText(): Promise<string> {
     return window.tecscde.clipboard.readText();
   }
 }

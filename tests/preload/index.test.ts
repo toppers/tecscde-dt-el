@@ -7,10 +7,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
-const invoke = vi.fn();
-const writeText = vi.fn();
-const readText = vi.fn().mockReturnValue("clip-content");
-const exposeInMainWorld = vi.fn();
+// vi.mock はファイル先頭へホイストされるため、その factory が参照する mock は
+// vi.hoisted で同じくホイストして TDZ を避ける（第11章11.4節#2の残課題対応）。
+const { invoke, writeText, readText, exposeInMainWorld } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  writeText: vi.fn(),
+  readText: vi.fn().mockResolvedValue("clip-content"),
+  exposeInMainWorld: vi.fn(),
+}));
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld },
@@ -20,11 +24,16 @@ vi.mock("electron", () => ({
 
 await import("../../src/preload/index.js");
 
+// preload は import 時（＝各 it より前）に一度だけ exposeInMainWorld を呼ぶ。
+// vitest 5 は既定で各テスト前に mock の呼び出し履歴をクリアするため、
+// この一度きりの呼び出しはモジュールスコープで捕捉しておく。
+const exposeCalls = exposeInMainWorld.mock.calls;
+expect(exposeCalls).toHaveLength(1);
+const [exposedKey, exposedApiObject] = exposeCalls[0]! as [string, TecscdeApi];
+expect(exposedKey).toBe("tecscde");
+
 function exposedApi(): TecscdeApi {
-  expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
-  const [key, api] = exposeInMainWorld.mock.calls[0]!;
-  expect(key).toBe("tecscde");
-  return api as TecscdeApi;
+  return exposedApiObject;
 }
 
 describe("preload", () => {
@@ -58,10 +67,10 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("tecsgen:version");
   });
 
-  it("clipboard.writeText/readText bridge directly to Electron's clipboard (no ipcMain, 2.4節)", () => {
-    exposedApi().clipboard.writeText("hello");
+  it("clipboard.writeText/readText bridge directly to Electron's clipboard (no ipcMain, 2.4節)", async () => {
+    await exposedApi().clipboard.writeText("hello");
     expect(writeText).toHaveBeenCalledWith("hello");
-    expect(exposedApi().clipboard.readText()).toBe("clip-content");
+    await expect(exposedApi().clipboard.readText()).resolves.toBe("clip-content");
     expect(invoke).not.toHaveBeenCalledWith(expect.stringContaining("clipboard"));
   });
 });

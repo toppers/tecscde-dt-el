@@ -20,8 +20,8 @@ const api: TecscdeApi = {
   // clipboardはipcMainを介さず、preloadから直接ブリッジできる
   // （Electronのclipboardモジュールはpreloadコンテキストで直接利用可能なため）
   clipboard: {
-    writeText: (text: string): void => clipboard.writeText(text),
-    readText: (): string => clipboard.readText(),
+    writeText: (text: string): Promise<void> => clipboard.writeText(text),
+    readText: (): Promise<string> => clipboard.readText(),
   },
 };
 

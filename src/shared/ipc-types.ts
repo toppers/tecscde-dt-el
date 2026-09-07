@@ -34,7 +34,7 @@ export interface TecscdeApi {
     version(): Promise<string | null>;
   };
   readonly clipboard: {
-    writeText(text: string): void;
-    readText(): string;
+    writeText(text: string): Promise<void>;
+    readText(): Promise<string>;
   };
 }
