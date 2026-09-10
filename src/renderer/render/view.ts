@@ -28,6 +28,8 @@ export interface CanvasView {
   readonly hiddenRegionIds: ReadonlySet<RegionId>;
 }
 
+// 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
+// これはそのフィルタ無し・ズーム100%の既定値であり、`ViewState.initial()` の射影と一致する。
 export function defaultCanvasView(): CanvasView {
   return { zoom: 1, gridVisible: false, showSignatureNames: false, hiddenRegionIds: new Set() };
 }
