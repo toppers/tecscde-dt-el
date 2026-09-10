@@ -20,6 +20,7 @@ export const W_CODES = {
   REQUIRE_PORT_HIDDEN: "W-REQUIRE-PORT-HIDDEN",
   LAYOUT_PARSE_ERROR: "W-LAYOUT-PARSE-ERROR",
   NEWER_FORMAT: "W-NEWER-FORMAT",
+  UNRESOLVED_REF_FILE: "W-UNRESOLVED-REF-FILE",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -72,5 +73,18 @@ export function requirePortHidden(cellName: string, count: number, cellId: CellI
     code: W_CODES.REQUIRE_PORT_HIDDEN,
     message: `セル \`${cellName}\` には require 指定で図に表示されない呼び口が ${count} 個あります`,
     relatedCellId: cellId,
+  };
+}
+
+/**
+ * 8.3表で唯一モジュールH（整合性チェック実行時）が生成する警告。
+ * `__tool_info__("tecsgen")` の `direct_import` に記録されている参照ファイルが、
+ * 今回のセッションで読み込まれていない場合に出る。
+ */
+export function unresolvedReferenceFile(fileName: string): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.UNRESOLVED_REF_FILE,
+    message: `参照専用ファイル \`${fileName}\` は未解決です（再度ファイル選択してください）`,
   };
 }
