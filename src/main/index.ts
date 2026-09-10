@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { registerIpcHandlers } from "./ipc.js";
+import type { OpenResult } from "../shared/ipc-types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,17 +48,28 @@ function createWindow(): BrowserWindow {
   const tecsgenRunner = new TecsgenRunner();
   registerIpcHandlers(fileService, tecsgenRunner);
 
-  // renderer/ 側のビルド成果物は未セットアップ（第11章の対象外）。
-  // 実装が進んだらここで index.html をロードし、pendingOpenPath を
-  // renderer初期化完了後にIPCで送る（7.4節）。
-  void win.loadFile(join(__dirname, "../renderer/index.html")).catch(() => {
-    // renderer未ビルドの間は起動確認のみを目的とし、読み込み失敗は無視する。
+  // モジュールG（renderer HTMLシェル）の成果物。`npm run build:renderer` が esbuild で
+  // dist/renderer/{index.html,renderer.js} を出力する。
+  win.loadFile(join(__dirname, "../renderer/index.html")).catch((err: unknown) => {
+    console.error("renderer の読み込みに失敗しました（build:renderer 未実行の可能性）:", err);
   });
 
-  win.webContents.once("did-finish-load", () => {
-    if (pendingOpenPath) {
-      win.webContents.send("app:pendingOpenPath", pendingOpenPath);
-      pendingOpenPath = null;
+  // 7.4節: renderer 初期化完了後、起動ドキュメントを一度だけ送る。
+  // コマンドライン引数／ファイル関連付けがあればそのファイル、無ければ samples。
+  win.webContents.once("did-finish-load", async () => {
+    try {
+      let data: OpenResult;
+      if (pendingOpenPath) {
+        data = await fileService.openPath(pendingOpenPath);
+        pendingOpenPath = null;
+      } else {
+        const samples = join(app.getAppPath(), "public", "samples");
+        data = await fileService.openPaths([join(samples, "celltypes.cdl"), join(samples, "main.cde")]);
+      }
+      win.webContents.send("app:bootstrap", data);
+    } catch (err) {
+      console.error("起動ドキュメントの読み込みに失敗しました:", err);
+      win.webContents.send("app:bootstrap", null);
     }
   });
 

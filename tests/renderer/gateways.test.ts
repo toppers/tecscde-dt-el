@@ -24,6 +24,7 @@ function stubApi(): TecscdeApi {
       writeText: vi.fn(),
       readText: vi.fn().mockReturnValue(""),
     },
+    onBootstrap: vi.fn(),
   };
 }
 

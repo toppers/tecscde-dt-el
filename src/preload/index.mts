@@ -31,6 +31,10 @@ const api: TecscdeApi = {
     writeText: (text: string): Promise<void> => clipboard.writeText(text),
     readText: (): Promise<string> => clipboard.readText(),
   },
+  // 第7章7.4節: main が did-finish-load 後に一度だけ送る起動ドキュメント。
+  onBootstrap: (listener: (data: OpenResult | null) => void): void => {
+    ipcRenderer.once("app:bootstrap", (_event, data: OpenResult | null) => listener(data));
+  },
 };
 
 contextBridge.exposeInMainWorld("tecscde", api);

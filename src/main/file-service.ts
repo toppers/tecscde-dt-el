@@ -26,6 +26,14 @@ export class FileService {
     return this.readPaths([path]);
   }
 
+  /**
+   * 複数パスをダイアログを介さずに読み込む（8.1.2: 最後が編集対象、他は参照専用）。
+   * 起動時の samples 読み込み（celltypes.cdl ＋ main.cde）で使う。
+   */
+  async openPaths(paths: readonly string[]): Promise<OpenResult> {
+    return this.readPaths(paths);
+  }
+
   private async readPaths(paths: readonly string[]): Promise<OpenResult> {
     const contents = await Promise.all(paths.map((p) => fs.readFile(p, "utf-8")));
     const editablePath = paths[paths.length - 1]!; // 最後に選択したファイルを編集対象とする

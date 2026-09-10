@@ -9,8 +9,9 @@ import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 // vi.mock はファイル先頭へホイストされるため、その factory が参照する mock は
 // vi.hoisted で同じくホイストして TDZ を避ける（第11章11.4節#2の残課題対応）。
-const { invoke, writeText, readText, exposeInMainWorld } = vi.hoisted(() => ({
+const { invoke, once, writeText, readText, exposeInMainWorld } = vi.hoisted(() => ({
   invoke: vi.fn(),
+  once: vi.fn(),
   writeText: vi.fn(),
   readText: vi.fn().mockResolvedValue("clip-content"),
   exposeInMainWorld: vi.fn(),
@@ -18,7 +19,7 @@ const { invoke, writeText, readText, exposeInMainWorld } = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld },
-  ipcRenderer: { invoke },
+  ipcRenderer: { invoke, once },
   clipboard: { writeText, readText },
 }));
 
@@ -84,5 +85,16 @@ describe("preload", () => {
     expect(writeText).toHaveBeenCalledWith("hello");
     await expect(exposedApi().clipboard.readText()).resolves.toBe("clip-content");
     expect(invoke).not.toHaveBeenCalledWith(expect.stringContaining("clipboard"));
+  });
+
+  it("onBootstrap registers a one-shot listener on the app:bootstrap channel (7.4節)", () => {
+    const listener = vi.fn();
+    exposedApi().onBootstrap(listener);
+    expect(once).toHaveBeenCalledWith("app:bootstrap", expect.any(Function));
+
+    // 受信ハンドラは (event, data) を剥がして listener(data) を呼ぶ。
+    const received = once.mock.calls.at(-1)![1] as (e: unknown, d: unknown) => void;
+    received({}, { editable: { path: "x.cde", content: "" }, references: [] });
+    expect(listener).toHaveBeenCalledWith({ editable: { path: "x.cde", content: "" }, references: [] });
   });
 });

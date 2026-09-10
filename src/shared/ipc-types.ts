@@ -37,4 +37,10 @@ export interface TecscdeApi {
     writeText(text: string): Promise<void>;
     readText(): Promise<string>;
   };
+  /**
+   * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・
+   * ファイル関連付けで開かれた場合はそのファイル、指定が無ければ samples。読み込み
+   * 失敗時は null。renderer は受け取ったリスナへ一度だけ渡す。
+   */
+  readonly onBootstrap: (listener: (data: OpenResult | null) => void) => void;
 }
