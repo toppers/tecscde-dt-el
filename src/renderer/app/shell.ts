@@ -16,8 +16,10 @@ import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
+import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import { AppGestureHost } from "./gesture-host";
 import { baseName, openViaDialog, save, saveAs } from "./file-actions";
+import { pasteFromClipboard } from "./clipboard-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import type { AppStore } from "./store";
 
@@ -28,6 +30,8 @@ export interface AppShellOptions {
   readonly root: ParentNode;
   readonly store: AppStore;
   readonly gateway: FileGateway;
+  /** 第4章4.1節: Copy/Cut/PasteのOSクリップボード連携。 */
+  readonly clipboard: ClipboardGateway;
   /** window 相当（キーボード・スクロール・beforeunload の結線先）。既定は globalThis の window。 */
   readonly win?: Window;
 }
@@ -41,6 +45,7 @@ function requireEl<T extends Element>(root: ParentNode, selector: string): T {
 export class AppShell {
   private readonly store: AppStore;
   private readonly gateway: FileGateway;
+  private readonly clipboard: ClipboardGateway;
   private readonly win: Window;
 
   private readonly svg: SVGSVGElement;
@@ -68,6 +73,7 @@ export class AppShell {
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
     this.gateway = opts.gateway;
+    this.clipboard = opts.clipboard;
     this.win = opts.win ?? (globalThis as unknown as { window: Window }).window;
 
     const { root } = opts;
@@ -276,6 +282,18 @@ export class AppShell {
         case "o":
           e.preventDefault();
           void openViaDialog(this.store, this.gateway);
+          break;
+        case "c":
+          e.preventDefault();
+          this.store.copySelection(this.clipboard);
+          break;
+        case "x":
+          e.preventDefault();
+          this.store.cutSelection(this.clipboard);
+          break;
+        case "v":
+          e.preventDefault();
+          void pasteFromClipboard(this.store, this.clipboard);
           break;
         case "=":
         case "+":

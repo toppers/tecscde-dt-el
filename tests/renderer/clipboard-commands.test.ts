@@ -53,11 +53,9 @@ describe("CopyCommand", () => {
 });
 
 describe("CutCommand", () => {
-  it("copies to the clipboard, then cascades delete like DeleteCommand", () => {
+  it("cascades delete like DeleteCommand (clipboard write is not its responsibility, see file header)", () => {
     const doc = loadDoc();
-    const clipboard = fakeClipboard();
-    const next = new CutCommand([CONTROLLER], [], clipboard).apply(doc);
-    expect(clipboard.written).toBe(serializeCellsAsCdl(doc, [CONTROLLER]));
+    const next = new CutCommand([CONTROLLER], []).apply(doc);
     expect(next.getCell(CONTROLLER)).toBeUndefined();
     expect(next.joinCount).toBe(0);
     expect(() => assertInvariants(next)).not.toThrow();
@@ -65,10 +63,18 @@ describe("CutCommand", () => {
 
   it("can cut a join directly (independent of any cell)", () => {
     const doc = loadDoc();
-    const clipboard = fakeClipboard();
-    const next = new CutCommand([], [JOIN_CLOG], clipboard).apply(doc);
+    const next = new CutCommand([], [JOIN_CLOG]).apply(doc);
     expect(next.joinCount).toBe(1);
     expect(next.getCell(CONTROLLER)!.findCPort("cLog")!.joinId).toBeNull();
+  });
+
+  it("apply() has no clipboard side effect even when replayed several times via History", () => {
+    // history.commit()を経由すると、`current`へのアクセスのたびにapply()が再実行される
+    // （4.3節: pastをinitialから毎回再生するため）。CutCommandがクリップボード書き込みを
+    // 持たないことを、複数回current を読んでも副作用が起きない形で確認する。
+    const doc = loadDoc();
+    const cmd = new CutCommand([CONTROLLER], []);
+    expect(cmd.apply(doc)).toEqual(cmd.apply(doc)); // 同じ入力に対し常に同じ出力（純粋関数）
   });
 });
 

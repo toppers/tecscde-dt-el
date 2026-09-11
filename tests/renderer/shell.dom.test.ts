@@ -13,7 +13,9 @@ import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
+import { SelectionState } from "../../src/renderer/render/view";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
+import type { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway";
 import { AppStore } from "../../src/renderer/app/store";
 import { AppShell } from "../../src/renderer/app/shell";
 
@@ -33,6 +35,17 @@ const noopGateway = {
   saveAs: async () => null,
   export: async () => undefined,
 } as unknown as FileGateway;
+
+function fakeClipboard() {
+  let clipboardText = "";
+  return {
+    writeText: (text: string) => {
+      clipboardText = text;
+      return Promise.resolve();
+    },
+    readText: () => Promise.resolve(clipboardText),
+  } as unknown as ClipboardGateway;
+}
 
 const BODY_HTML = `
   <div id="app">
@@ -63,13 +76,13 @@ const BODY_HTML = `
 
 let mounted: AppShell | undefined;
 
-function mountShell(): { shell: AppShell; store: AppStore } {
+function mountShell(clipboard: ClipboardGateway = fakeClipboard()): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
   const store = new AppStore(loadDoc());
-  const shell = new AppShell({ root: document, store, gateway: noopGateway, win: window });
+  const shell = new AppShell({ root: document, store, gateway: noopGateway, clipboard, win: window });
   shell.start();
   mounted = shell;
-  return { shell, store };
+  return { shell, store, clipboard };
 }
 
 describe("AppShell — DOM wiring", () => {
@@ -174,5 +187,55 @@ describe("AppShell — DOM wiring", () => {
   it("dispose() unwires listeners without throwing", () => {
     const { shell } = mountShell();
     expect(() => shell.dispose()).not.toThrow();
+  });
+
+  it("Ctrl+C copies the selection to the clipboard without changing the document or history", () => {
+    const clipboard = fakeClipboard();
+    const { store } = mountShell(clipboard);
+    const controller = asCellId("cController1");
+    store.setSelection(SelectionState.ofCells([controller]));
+    const before = store.getDocument();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true }));
+
+    expect(store.getDocument()).toBe(before);
+    expect(store.canUndo).toBe(false);
+  });
+
+  it("Ctrl+X cuts the selection as one undoable command", () => {
+    const { store } = mountShell();
+    const controller = asCellId("cController1");
+    store.setSelection(SelectionState.ofCells([controller]));
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true }));
+
+    expect(store.getDocument().getCell(controller)).toBeUndefined();
+    expect(store.canUndo).toBe(true);
+  });
+
+  it("Ctrl+C then Ctrl+V pastes a copy of the selected cell via the app-internal clipboard", async () => {
+    const { store } = mountShell();
+    const controller = asCellId("cController1");
+    store.setSelection(SelectionState.ofCells([controller]));
+    const before = store.getDocument().cellCount;
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true }));
+    await Promise.resolve(); // pasteFromClipboard() は readText() の解決を待つ非同期処理
+
+    expect(store.getDocument().cellCount).toBe(before + 1);
+    expect(store.canUndo).toBe(true); // Pasteは通常のコマンドとして履歴に載る
+  });
+
+  it("ignores Ctrl+C/X/V while focus is on a text input (native copy/paste takes over)", () => {
+    const { store } = mountShell();
+    const controller = asCellId("cController1");
+    store.setSelection(SelectionState.ofCells([controller]));
+    const select = document.querySelector<HTMLSelectElement>("#celltype-select")!;
+    select.focus();
+
+    select.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
+
+    expect(store.getDocument().getCell(controller)).toBeDefined();
   });
 });

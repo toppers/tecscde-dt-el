@@ -6,6 +6,7 @@
 // コマンドライン引数・ファイル関連付けの経路。引数が無ければ samples を送る）。
 
 import { FileGateway } from "./gateways/file-gateway";
+import { ClipboardGateway } from "./gateways/clipboard-gateway";
 import { AppStore } from "./app/store";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
@@ -17,7 +18,8 @@ function main(): void {
 
   const store = new AppStore();
   const gateway = new FileGateway();
-  const shell = new AppShell({ root: document, store, gateway, win: window });
+  const clipboard = new ClipboardGateway();
+  const shell = new AppShell({ root: document, store, gateway, clipboard, win: window });
   shell.start();
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。

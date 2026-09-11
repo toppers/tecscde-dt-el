@@ -1,14 +1,22 @@
 // [[TECSCDE-DT-EL内部仕様]] 第4章4.1節: Copy/Cut/PasteとOSクリップボード連携。
 //
-// 設計上の差分（内部仕様4.1節のスケッチからの変更点）:
+// 設計上の差分1（内部仕様4.1節のスケッチからの変更点）:
 // 実際に実装済みの`ClipboardGateway`（gateways/clipboard-gateway.ts、2026-09-07）は
 // Electron 44のclipboardモジュール自体が非同期化されたことに伴い、`readText()`が
 // `Promise<string>`を返す（内部仕様4.1節のスケッチが想定した同期`string`ではない）。
 // 一方`Command.apply()`は同期シグネチャ（第4章4.2節）であり、コマンドの内部でawaitできない。
-// そのため本実装では、OSクリップボードの「読み取り」はコマンド外（呼び出し側=将来のモジュールG／
+// そのため本実装では、OSクリップボードの「読み取り」はコマンド外（呼び出し側=モジュールG／
 // AppStore）で先に済ませ、`PasteCommand`には解決済みのテキストを渡す形にする。
-// 「書き込み」（Copy/Cut）は結果を待つ必要がない発火のみの操作なので、`ClipboardGateway`を
-// そのままコンストラクタで受け取り、`apply()`内でawaitせず呼び出す（fire-and-forget）。
+//
+// 設計上の差分2: `CutCommand`はOSクリップボードへの書き込みを`apply()`の中で行わない
+// （TS内部仕様4.5節のスケッチと異なる）。`History.current`は`past`を毎回`initial`から
+// 再生する（4.3節、O(履歴長)）ため、`apply()`内に副作用を持つコマンドを`history.commit()`
+// すると、その副作用が`current`を読むたび（=ほぼ毎回の`render()`）に再実行されてしまう。
+// これは冪等（同じテキストを書くだけ）とはいえ無駄かつ壊れやすい前提であるため、
+// クリップボードへの書き込みは呼び出し側（`AppStore.cutSelection`）が`apply()`を通さず
+// 1回だけ行い、`CutCommand`自体は`DeleteCommand`と同じ純粋な削除のみを行う
+// （`kind`/`summary`が"Cut"である点だけが差分）。`CopyCommand`は`history.commit()`を
+// 経由しない特殊呼び出しのため、この問題は生じない（`apply()`は呼び出し側が直接1回だけ呼ぶ）。
 
 import { Command } from "./command";
 import { DeleteCommand, instantiateCPorts, instantiateEPorts, DEFAULT_CELL_WIDTH_MM, DEFAULT_CELL_HEIGHT_MM } from "./cell-commands";
@@ -139,8 +147,10 @@ export class PasteCommand extends Command {
 }
 
 /**
- * 外部仕様6.7.2・TS内部仕様4.5節: CopyCommand相当（OSクリップボードへの書き込み）と
- * DeleteCommand相当（カスケード削除）を1コマンドに合成する。
+ * 外部仕様6.7.2・TS内部仕様4.5節: `DeleteCommand`相当のカスケード削除を`kind: "Cut"`として
+ * 履歴に残す。OSクリップボードへの書き込みは含まない——ファイル冒頭「設計上の差分2」のとおり、
+ * `history.commit()`で繰り返し再生されるコマンドに副作用を持たせないため、呼び出し側
+ * （`AppStore.cutSelection`）が`apply()`を通さず1回だけ`serializeCellsAsCdl`+`writeText`する。
  */
 export class CutCommand extends Command {
   readonly kind = "Cut";
@@ -149,14 +159,12 @@ export class CutCommand extends Command {
   constructor(
     private readonly cellIds: readonly CellId[],
     private readonly joinIds: readonly JoinId[],
-    private readonly clipboard: Pick<ClipboardGateway, "writeText">,
   ) {
     super();
     this.summary = `cut ${cellIds.length} cell(s), ${joinIds.length} join(s)`;
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
-    void this.clipboard.writeText(serializeCellsAsCdl(doc, this.cellIds));
     return new DeleteCommand(this.cellIds, this.joinIds).apply(doc);
   }
 }

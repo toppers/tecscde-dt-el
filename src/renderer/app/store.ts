@@ -9,15 +9,20 @@
 
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
+import { CopyCommand, CutCommand, PasteCommand } from "../commands";
 import {
   DiagnosticsCollector,
   DiagnosticReport,
   checkIntegrity,
   type Diagnostic,
 } from "../diagnostics";
+import { serializeCellsAsCdl } from "../cdl/fragment";
+import type { Cell } from "../model/cell";
+import type { CellId } from "../model/ids";
 import { TecscdeDocument } from "../model/document";
 import { SelectionState } from "../render/view";
 import { ViewState } from "../view-state/view-state";
+import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 
 export type InputMode = "select" | "newCell";
 
@@ -34,6 +39,11 @@ export class AppStore {
   private savedAtPastLength = 0;
   /** モジュールB がロード時に出した一過性の診断。編集では再導出されないので保持する。 */
   private loadDiagnostics: readonly Diagnostic[] = [];
+  /**
+   * 第4章4.1節: アプリ内クリップボード（コピー時点のCellスナップショット）。
+   * OSクリップボードと並行して保持し、貼り付け時はこちらを優先する（外部仕様6.7.2）。
+   */
+  private appClipboard: readonly Cell[] = [];
   private readonly listeners = new Set<StoreListener>();
 
   constructor(
@@ -105,6 +115,51 @@ export class AppStore {
   dispatch(command: Command): void {
     this.historyState = this.historyState.commit(command);
     this.notify();
+  }
+
+  /**
+   * 第4章4.1節: 選択セルをアプリ内クリップボードへスナップショットし、OSクリップボードへも
+   * CDL断片として書き込む。`CopyCommand`は履歴を作らない特殊なコマンドのため`dispatch()`を
+   * 経由せず`apply()`を直接1回だけ呼ぶ（[[TECSCDE-DT-EL PasteCommand非同期クリップボード決定]]）。
+   */
+  copySelection(clipboard: Pick<ClipboardGateway, "writeText">): void {
+    const ids = [...this.selectionState.cellIds];
+    if (ids.length === 0) return;
+    const doc = this.getDocument();
+    this.appClipboard = this.snapshotCells(doc, ids);
+    new CopyCommand(ids, clipboard).apply(doc);
+  }
+
+  /**
+   * 第4章4.1節: コピーと同じスナップショット＋OS書き込みを行った上で、カスケード削除を
+   * 1つのUndo単位として確定する。クリップボード書き込みは`CutCommand.apply()`の中では行わない
+   * （history.commit()により繰り返し再生されるため。clipboard-commands.tsのファイル冒頭参照）。
+   */
+  cutSelection(clipboard: Pick<ClipboardGateway, "writeText">): void {
+    const cellIds = [...this.selectionState.cellIds];
+    const joinIds = [...this.selectionState.joinIds];
+    if (cellIds.length === 0 && joinIds.length === 0) return;
+    const doc = this.getDocument();
+    this.appClipboard = this.snapshotCells(doc, cellIds);
+    void clipboard.writeText(serializeCellsAsCdl(doc, cellIds));
+    this.dispatch(new CutCommand(cellIds, joinIds));
+    this.setSelection(SelectionState.empty());
+  }
+
+  /**
+   * 第4章4.1節: アプリ内クリップボードを優先し、空の場合のみOSクリップボードのCDL断片を試みる。
+   * OSクリップボードの読み取り自体は非同期のため、呼び出し側（モジュールG）が
+   * `ClipboardGateway.readText()`を先に解決してから渡す。
+   */
+  pasteClipboard(osClipboardText: string | undefined): void {
+    this.dispatch(new PasteCommand(this.appClipboard, osClipboardText));
+  }
+
+  private snapshotCells(doc: TecscdeDocument, ids: readonly CellId[]): readonly Cell[] {
+    return ids.flatMap((id) => {
+      const cell = doc.getCell(id);
+      return cell ? [cell] : [];
+    });
   }
 
   undo(): void {
