@@ -4,8 +4,8 @@
 // （複数の発生源からの診断を1件のレポートにまとめる、外部仕様8.3.2）をクラスで表現する。
 //
 // 発生源はモジュールB（`CdlDocumentLoader` のパース診断）、モジュールH 自身の
-// `checkIntegrity`（integrity.ts）、そして将来はモジュールI（tecsgen 実行結果、9.4節の
-// `TecsgenResultParser` — 未実装）。`DiagnosticsCollector` は呼び出し元が renderer の
+// `checkIntegrity`（integrity.ts）、モジュールI（tecsgen 実行結果、9.4節の
+// `TecsgenResultParser`）。`DiagnosticsCollector` は呼び出し元が renderer の
 // 純粋計算結果か IPC の戻り値かを区別しない（DT-EL内部仕様 第8章）。
 //
 // このモジュールは renderer プロセスで完結し、`electron` へは触れない。

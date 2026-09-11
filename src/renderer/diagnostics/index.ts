@@ -5,3 +5,4 @@
 export type { Diagnostic, Severity, SourceLocation } from "./types";
 export { DiagnosticsCollector, DiagnosticReport } from "./collector";
 export { checkIntegrity } from "./integrity";
+export { TecsgenResultParser, TECSGEN_CODES } from "./tecsgen-result-parser";
