@@ -124,7 +124,8 @@ const BODY_HTML = `
     <div id="statusbar">
       <span id="status-pos"></span>
       <span id="status-zoom"></span>
-      <span id="status-diag"></span>
+      <button id="status-diag" type="button"></button>
+      <div id="diagnostics-panel" hidden></div>
       <span id="status-file"></span>
     </div>
   </div>
@@ -255,6 +256,45 @@ describe("AppShell — DOM wiring", () => {
     expect(document.querySelector("#status-diag")!.textContent).toContain(
       `${report.errorCount} エラー / ${report.warningCount} 警告`,
     );
+  });
+
+  it("diagnostics panel is hidden until #status-diag is clicked, then lists the diagnostics (第8章8.4節)", () => {
+    const { store } = mountShell();
+    const text = [
+      "cell tUndefinedType cFoo {",
+      "}",
+      '__tool_info__("tecsgen") {',
+      '  "direct_import": ["missing.cdl"]',
+      "}",
+      "",
+    ].join("\n");
+    const { document: doc, diagnostics } = CdlDocumentLoader.loadSingle(text, "broken.cde");
+    store.loadDocument(doc, "broken.cde", diagnostics);
+
+    const panel = document.querySelector<HTMLElement>("#diagnostics-panel")!;
+    expect(panel.hidden).toBe(true);
+
+    document.querySelector<HTMLButtonElement>("#status-diag")!.click();
+
+    expect(panel.hidden).toBe(false);
+    const items = panel.querySelectorAll(".diag-item");
+    expect(items.length).toBe(store.getReport().items.length);
+    expect(items[0]!.textContent).toContain(store.getReport().items[0]!.code);
+  });
+
+  it("clicking a diagnostic with a relatedCellId selects that cell (8.4節: 検索ジャンプ機構の再利用)", () => {
+    const { store } = mountShell();
+    const text = ["cell tUndefinedType cFoo {", "}", ""].join("\n");
+    const { document: doc, diagnostics } = CdlDocumentLoader.loadSingle(text, "broken.cde");
+    store.loadDocument(doc, "broken.cde", diagnostics);
+
+    document.querySelector<HTMLButtonElement>("#status-diag")!.click();
+    const jumpable = document.querySelector<HTMLElement>(".diag-jumpable")!;
+    expect(jumpable).not.toBeNull();
+
+    jumpable.click();
+
+    expect(store.selection.cellIds.has(asCellId("cFoo"))).toBe(true);
   });
 
   it("dispose() unwires listeners without throwing", () => {

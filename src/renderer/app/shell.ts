@@ -8,7 +8,7 @@
 //
 // スコープ: キャンバス・open/save/saveAs・Undo/Redo・ズーム・グリッド・ステータスバー・
 // キーボード・Copy/Cut/Paste、およびモジュールG次段のパレット／プロパティパネル／
-// 検索ボックス／ナビゲータパネル（2026-09-11、各パネルは専用クラスへ委譲する）。
+// 検索ボックス／ナビゲータパネル／診断パネル（2026-09-11・09-12、各パネルは専用クラスへ委譲する）。
 
 import { GestureController } from "../render/gesture-controller";
 import { SvgRenderer } from "../render/svg-renderer";
@@ -27,6 +27,7 @@ import { PaletteView } from "./palette";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { NavigatorView } from "./navigator-panel";
+import { DiagnosticsPanelView } from "./diagnostics-panel";
 import type { AppStore } from "./store";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
@@ -62,7 +63,6 @@ export class AppShell {
   private readonly toolbar: HTMLElement;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
-  private readonly statusDiag: HTMLElement;
   private readonly statusFile: HTMLElement;
 
   private readonly renderer: SvgRenderer;
@@ -74,6 +74,7 @@ export class AppShell {
   private readonly propertyPanel: PropertyPanelView;
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
+  private readonly diagnosticsPanel: DiagnosticsPanelView;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -95,7 +96,6 @@ export class AppShell {
     this.toolbar = requireEl<HTMLElement>(root, "#toolbar");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
-    this.statusDiag = requireEl<HTMLElement>(root, "#status-diag");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
 
     this.renderer = new SvgRenderer(this.svg);
@@ -110,6 +110,11 @@ export class AppShell {
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
+    this.diagnosticsPanel = new DiagnosticsPanelView(
+      requireEl<HTMLButtonElement>(root, "#status-diag"),
+      requireEl<HTMLElement>(root, "#diagnostics-panel"),
+      this.store,
+    );
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -144,6 +149,7 @@ export class AppShell {
     this.propertyPanel.render();
     this.searchBox.render();
     this.navigator.render();
+    this.diagnosticsPanel.render();
   }
 
   private syncScrollFromPan(doc: TecscdeDocument): void {
@@ -258,11 +264,7 @@ export class AppShell {
     this.statusFile.textContent = path
       ? `${baseName(path)}${this.store.isDirty() ? " •" : ""}`
       : "(未保存)";
-    // モジュールH: 診断の件数だけ表示する（一覧パネル・ジャンプ機構は G の次段、8.4節）。
-    const report = this.store.getReport();
-    this.statusDiag.textContent = report.isEmpty
-      ? ""
-      : `⚠ ${report.errorCount} エラー / ${report.warningCount} 警告`;
+    // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
   }
 
   private updateStatusPos(p: Point | undefined): void {
