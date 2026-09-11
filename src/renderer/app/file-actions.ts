@@ -24,7 +24,8 @@ export function applyOpenResult(store: AppStore, result: OpenResult): void {
     { text: result.editable.content, fileName: baseName(result.editable.path), editable: true },
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
-  store.loadDocument(document, result.editable.path, diagnostics);
+  const referenceFilePaths = result.references.map((r) => r.path);
+  store.loadDocument(document, result.editable.path, diagnostics, referenceFilePaths);
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));

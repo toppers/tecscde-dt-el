@@ -7,6 +7,7 @@
 
 import { FileGateway } from "./gateways/file-gateway";
 import { ClipboardGateway } from "./gateways/clipboard-gateway";
+import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { AppStore } from "./app/store";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
@@ -19,7 +20,8 @@ function main(): void {
   const store = new AppStore();
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
-  const shell = new AppShell({ root: document, store, gateway, clipboard, win: window });
+  const tecsgen = new TecsgenGateway();
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, win: window });
   shell.start();
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。

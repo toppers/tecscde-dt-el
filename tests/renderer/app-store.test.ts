@@ -108,3 +108,54 @@ describe("AppStore — subscription & loadDocument", () => {
     expect(store.filePath).toBe("fresh.cde");
   });
 });
+
+describe("AppStore — 第9章9.5節: tecsgen連携の状態", () => {
+  it("loadDocument records reference file paths, defaulting to empty", () => {
+    const store = new AppStore(loadDoc());
+    expect(store.getReferenceFilePaths()).toEqual([]);
+
+    store.loadDocument(loadDoc(), "main.cde", [], ["/proj/celltypes.cdl"]);
+    expect(store.getReferenceFilePaths()).toEqual(["/proj/celltypes.cdl"]);
+  });
+
+  it("loadDocument clears any previous tecsgen diagnostics (they belong to the old file)", () => {
+    const store = new AppStore(loadDoc());
+    store.setTecsgenDiagnostics([{ severity: "error", code: "G1015", message: "boom" }]);
+    expect(store.getReport().errorCount).toBe(1);
+
+    store.loadDocument(loadDoc(), "other.cde");
+    expect(store.getReport().errorCount).toBe(0);
+  });
+
+  it("setTecsgenDiagnostics merges into getReport() alongside load diagnostics and checkIntegrity", () => {
+    const store = new AppStore(loadDoc());
+    expect(store.getReport().isEmpty).toBe(true);
+
+    store.setTecsgenDiagnostics([
+      { severity: "error", code: "G1015", message: "boom" },
+      { severity: "warning", code: "S1042", message: "not joined" },
+    ]);
+    const report = store.getReport();
+    expect(report.errorCount).toBe(1);
+    expect(report.warningCount).toBe(1);
+  });
+
+  it("setGenerating toggles isGenerating and notifies subscribers, no-op when unchanged", () => {
+    const store = new AppStore(loadDoc());
+    let calls = 0;
+    store.subscribe(() => {
+      calls += 1;
+    });
+
+    store.setGenerating(true);
+    expect(store.isGenerating).toBe(true);
+    expect(calls).toBe(1);
+
+    store.setGenerating(true); // unchanged: no extra notification
+    expect(calls).toBe(1);
+
+    store.setGenerating(false);
+    expect(store.isGenerating).toBe(false);
+    expect(calls).toBe(2);
+  });
+});

@@ -17,9 +17,11 @@ import type { TecscdeDocument } from "../model/document";
 import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
+import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { AppGestureHost } from "./gesture-host";
 import { baseName, openViaDialog, save, saveAs } from "./file-actions";
 import { pasteFromClipboard } from "./clipboard-actions";
+import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
 import { PropertyPanelView } from "./property-panel";
@@ -36,6 +38,8 @@ export interface AppShellOptions {
   readonly gateway: FileGateway;
   /** 第4章4.1節: Copy/Cut/PasteのOSクリップボード連携。 */
   readonly clipboard: ClipboardGateway;
+  /** 第9章9.5節: tecsgenの「実行(Generate)」操作。 */
+  readonly tecsgen: TecsgenGateway;
   /** window 相当（キーボード・スクロール・beforeunload の結線先）。既定は globalThis の window。 */
   readonly win?: Window;
 }
@@ -50,6 +54,7 @@ export class AppShell {
   private readonly store: AppStore;
   private readonly gateway: FileGateway;
   private readonly clipboard: ClipboardGateway;
+  private readonly tecsgen: TecsgenGateway;
   private readonly win: Window;
 
   private readonly svg: SVGSVGElement;
@@ -81,6 +86,7 @@ export class AppShell {
     this.store = opts.store;
     this.gateway = opts.gateway;
     this.clipboard = opts.clipboard;
+    this.tecsgen = opts.tecsgen;
     this.win = opts.win ?? (globalThis as unknown as { window: Window }).window;
 
     const { root } = opts;
@@ -209,9 +215,21 @@ export class AppShell {
       case "searchPrev":
         this.searchBox.prev();
         break;
+      case "generate":
+        void generate(this.store, this.gateway, this.tecsgen);
+        break;
+      case "copyTecsgenCommand":
+        this.copyTecsgenCommand();
+        break;
       default:
         break;
     }
+  }
+
+  /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */
+  private copyTecsgenCommand(): void {
+    const commandLine = tecsgenCommandLine(this.store);
+    if (commandLine) void this.clipboard.writeText(commandLine);
   }
 
   private zoomBy(factor: number, anchor?: Point): void {
@@ -222,6 +240,9 @@ export class AppShell {
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
+    const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
+    this.setDisabled("[data-action='generate']", !canGenerate);
+    this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
   }
 
   private setDisabled(selector: string, disabled: boolean): void {

@@ -16,6 +16,8 @@ import { MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway";
+import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
+import type { TecsgenResult } from "../../src/shared/ipc-types";
 import { AppStore } from "../../src/renderer/app/store";
 import { AppShell } from "../../src/renderer/app/shell";
 
@@ -36,6 +38,19 @@ const noopGateway = {
   export: async () => undefined,
 } as unknown as FileGateway;
 
+function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, string]> } {
+  const saveCalls: Array<[string, string]> = [];
+  const gateway = {
+    open: async () => null,
+    save: async (path: string, content: string) => {
+      saveCalls.push([path, content]);
+    },
+    saveAs: async () => null,
+    export: async () => undefined,
+  } as unknown as FileGateway;
+  return { gateway, saveCalls };
+}
+
 function fakeClipboard() {
   let clipboardText = "";
   return {
@@ -45,6 +60,24 @@ function fakeClipboard() {
     },
     readText: () => Promise.resolve(clipboardText),
   } as unknown as ClipboardGateway;
+}
+
+function fakeTecsgen(result: Partial<TecsgenResult> = {}): { gateway: TecsgenGateway; calls: string[][] } {
+  const calls: string[][] = [];
+  const gateway = {
+    generate: (args: readonly string[]) => {
+      calls.push([...args]);
+      return Promise.resolve<TecsgenResult>({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        executableFound: true,
+        ...result,
+      });
+    },
+    version: () => Promise.resolve(null),
+  } as unknown as TecsgenGateway;
+  return { gateway, calls };
 }
 
 const BODY_HTML = `
@@ -60,6 +93,8 @@ const BODY_HTML = `
       <button data-action="zoomIn" type="button">＋</button>
       <button data-action="toggleGrid" type="button">グリッド</button>
       <button data-action="toggleNavigator" type="button">ナビゲータ</button>
+      <button data-action="generate" type="button">実行</button>
+      <button data-action="copyTecsgenCommand" type="button">コマンドをコピー</button>
       <div id="search-box">
         <input type="search" id="search-input" />
         <span id="search-count"></span>
@@ -100,10 +135,12 @@ let mounted: AppShell | undefined;
 function mountShell(
   clipboard: ClipboardGateway = fakeClipboard(),
   doc: TecscdeDocument = loadDoc(),
+  gateway: FileGateway = noopGateway,
+  tecsgen: TecsgenGateway = fakeTecsgen().gateway,
 ): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
   const store = new AppStore(doc);
-  const shell = new AppShell({ root: document, store, gateway: noopGateway, clipboard, win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, win: window });
   shell.start();
   mounted = shell;
   return { shell, store, clipboard };
@@ -404,6 +441,86 @@ describe("AppShell — DOM wiring", () => {
       const paperRect = document.querySelector(".navigator-paper")!;
       expect(paperRect.getAttribute("width")).toBe(String(width));
       expect(paperRect.getAttribute("height")).toBe(String(height));
+    });
+  });
+
+  describe("Generate (第9章9.5節)", () => {
+    it("the generate/copy buttons are disabled until a file has been loaded", () => {
+      mountShell();
+      expect(document.querySelector<HTMLButtonElement>("[data-action='generate']")!.disabled).toBe(true);
+      expect(document.querySelector<HTMLButtonElement>("[data-action='copyTecsgenCommand']")!.disabled).toBe(true);
+    });
+
+    it("clicking Generate does nothing when no file is loaded (no path to run tecsgen against)", () => {
+      const tecsgen = fakeTecsgen();
+      mountShell(fakeClipboard(), loadDoc(), noopGateway, tecsgen.gateway);
+
+      document.querySelector<HTMLButtonElement>("[data-action='generate']")!.click();
+
+      expect(tecsgen.calls).toEqual([]);
+    });
+
+    it("clicking Generate builds args from tool-info + reference paths + the editing path, and enables the button once a file is loaded", async () => {
+      const tecsgen = fakeTecsgen();
+      const { store } = mountShell(fakeClipboard(), loadDoc(), noopGateway, tecsgen.gateway);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde", [], ["C:/proj/celltypes.cdl"]);
+
+      const generateBtn = document.querySelector<HTMLButtonElement>("[data-action='generate']")!;
+      expect(generateBtn.disabled).toBe(false);
+
+      generateBtn.click();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(tecsgen.calls).toHaveLength(1);
+      const args = tecsgen.calls[0]!;
+      expect(args[args.length - 1]).toBe("C:/proj/main.cde");
+      expect(args).toContain("C:/proj/celltypes.cdl");
+    });
+
+    it("auto-saves dirty content before generating, so tecsgen reads the current state", async () => {
+      const { gateway, saveCalls } = fakeFileGateway();
+      const tecsgen = fakeTecsgen();
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway, tecsgen.gateway);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde", [], []);
+      store.dispatch(new MoveCellsCommand([asCellId("cController1")], 1, 0));
+      expect(store.isDirty()).toBe(true);
+
+      document.querySelector<HTMLButtonElement>("[data-action='generate']")!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(saveCalls).toHaveLength(1);
+      expect(store.isDirty()).toBe(false);
+      expect(tecsgen.calls).toHaveLength(1);
+    });
+
+    it("converts a non-zero tecsgen result into diagnostics visible via getReport()", async () => {
+      const tecsgen = fakeTecsgen({ stdout: "main.cde:1:1: error: G1016 syntax error near '$1'\n" });
+      const { store } = mountShell(fakeClipboard(), loadDoc(), noopGateway, tecsgen.gateway);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde", [], []);
+
+      document.querySelector<HTMLButtonElement>("[data-action='generate']")!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.getReport().errorCount).toBe(1);
+      expect(document.querySelector("#status-diag")!.textContent).toContain("1 エラー");
+    });
+
+    it("copyTecsgenCommand writes the built command line to the OS clipboard", () => {
+      const clipboard = fakeClipboard();
+      const { store } = mountShell(clipboard, loadDoc());
+      store.loadDocument(loadDoc(), "C:/proj/main.cde", [], ["C:/proj/celltypes.cdl"]);
+
+      document.querySelector<HTMLButtonElement>("[data-action='copyTecsgenCommand']")!.click();
+
+      return clipboard.readText().then((text) => {
+        expect(text.startsWith("tecsgen ")).toBe(true);
+        expect(text).toContain("C:/proj/celltypes.cdl");
+        expect(text.endsWith("C:/proj/main.cde")).toBe(true);
+      });
     });
   });
 });

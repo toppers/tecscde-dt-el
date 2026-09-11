@@ -44,6 +44,16 @@ export class AppStore {
    * OSクリップボードと並行して保持し、貼り付け時はこちらを優先する（外部仕様6.7.2）。
    */
   private appClipboard: readonly Cell[] = [];
+  /**
+   * 第9章9.5節: 今回のセッションで参照専用として読み込んだファイルの実パス。
+   * `TecscdeDocument.referenceFiles`はbasenameのみ保持するため（8.2.2）、
+   * `TecsgenCommandBuilder`が実際に`execFile`へ渡せる形はここでのみ保持する。
+   */
+  private referenceFilePaths: readonly string[] = [];
+  /** 第9章9.4節: 直近のtecsgen実行結果から変換した診断。次のGenerateまで保持する。 */
+  private tecsgenDiagnostics: readonly Diagnostic[] = [];
+  /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
+  private generating = false;
   private readonly listeners = new Set<StoreListener>();
 
   constructor(
@@ -84,6 +94,15 @@ export class AppStore {
     return this.path;
   }
 
+  /** 第9章9.5節: `TecsgenCommandBuilder`が参照専用ファイルの実パスとして使う。 */
+  getReferenceFilePaths(): readonly string[] {
+    return this.referenceFilePaths;
+  }
+
+  get isGenerating(): boolean {
+    return this.generating;
+  }
+
   get canUndo(): boolean {
     return this.historyState.canUndo;
   }
@@ -106,6 +125,7 @@ export class AppStore {
     const collector = new DiagnosticsCollector();
     collector.reportAll(this.loadDiagnostics);
     collector.reportAll(checkIntegrity(this.getDocument()));
+    collector.reportAll(this.tecsgenDiagnostics);
     return collector.toReport();
   }
 
@@ -202,12 +222,29 @@ export class AppStore {
     document: TecscdeDocument,
     path: string | null,
     loadDiagnostics: readonly Diagnostic[] = [],
+    referenceFilePaths: readonly string[] = [],
   ): void {
     this.historyState = History.begin(document);
     this.selectionState = SelectionState.empty();
     this.path = path;
     this.savedAtPastLength = 0;
     this.loadDiagnostics = loadDiagnostics;
+    this.referenceFilePaths = referenceFilePaths;
+    // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
+    this.tecsgenDiagnostics = [];
+    this.notify();
+  }
+
+  /** 第9章9.5節: Generate実行の開始／終了。ツールバーの二重起動防止に使う。 */
+  setGenerating(generating: boolean): void {
+    if (generating === this.generating) return;
+    this.generating = generating;
+    this.notify();
+  }
+
+  /** 第9章9.4節: `TecsgenResultParser.parse()`の結果を反映する。`getReport()`へ合流する。 */
+  setTecsgenDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.tecsgenDiagnostics = diagnostics;
     this.notify();
   }
 
