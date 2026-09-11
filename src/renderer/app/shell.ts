@@ -6,9 +6,9 @@
 // `GestureController`/`ViewState` を初めて実 DOM 上で動かす層である
 // （[[TECSCDE-DT-EL実装]] 「次のステップ」）。
 //
-// スコープは最小シェル: キャンバス・open/save/saveAs・Undo/Redo・ズーム・グリッド・
-// モード切替・ステータスバー・キーボード。パレット／プロパティパネル／検索ボックス／
-// ナビゲータパネルは次段（2026-09-10 のユーザー確認）。
+// スコープ: キャンバス・open/save/saveAs・Undo/Redo・ズーム・グリッド・ステータスバー・
+// キーボード・Copy/Cut/Paste、およびモジュールG次段のパレット／プロパティパネル／
+// 検索ボックス／ナビゲータパネル（2026-09-11、各パネルは専用クラスへ委譲する）。
 
 import { GestureController } from "../render/gesture-controller";
 import { SvgRenderer } from "../render/svg-renderer";
@@ -21,6 +21,10 @@ import { AppGestureHost } from "./gesture-host";
 import { baseName, openViaDialog, save, saveAs } from "./file-actions";
 import { pasteFromClipboard } from "./clipboard-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
+import { PaletteView } from "./palette";
+import { PropertyPanelView } from "./property-panel";
+import { SearchBoxView } from "./search-box";
+import { NavigatorView } from "./navigator-panel";
 import type { AppStore } from "./store";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
@@ -55,12 +59,16 @@ export class AppShell {
   private readonly statusZoom: HTMLElement;
   private readonly statusDiag: HTMLElement;
   private readonly statusFile: HTMLElement;
-  private readonly modeCheckbox: HTMLInputElement;
-  private readonly celltypeSelect: HTMLSelectElement;
 
   private readonly renderer: SvgRenderer;
   /** ドラッグ FSM。DOM 結線は `attach` 済み。テストはこの公開メソッドを直接叩ける。 */
   readonly gesture: GestureController;
+
+  /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
+  private readonly palette: PaletteView;
+  private readonly propertyPanel: PropertyPanelView;
+  private readonly searchBox: SearchBoxView;
+  private readonly navigator: NavigatorView;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -68,7 +76,6 @@ export class AppShell {
   private applyingScroll = false;
   /** scroll ハンドラ由来の setView で、続く render() のスクロール同期を1回だけ抑止する。 */
   private suppressScrollSync = false;
-  private celltypeSelectSig = "";
 
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
@@ -84,8 +91,6 @@ export class AppShell {
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusDiag = requireEl<HTMLElement>(root, "#status-diag");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
-    this.modeCheckbox = requireEl<HTMLInputElement>(root, "#mode-newcell");
-    this.celltypeSelect = requireEl<HTMLSelectElement>(root, "#celltype-select");
 
     this.renderer = new SvgRenderer(this.svg);
     const host = new AppGestureHost(
@@ -94,6 +99,11 @@ export class AppShell {
       (p) => this.updateStatusPos(p),
     );
     this.gesture = new GestureController(this.renderer, host);
+
+    this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store);
+    this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
+    this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
+    this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -122,9 +132,12 @@ export class AppShell {
       joinPreview: this.gesture.currentJoinPreview(),
     });
     this.syncScrollFromPan(doc);
-    this.refreshCelltypeSelect(doc);
     this.refreshToolbarState();
     this.refreshStatus();
+    this.palette.render();
+    this.propertyPanel.render();
+    this.searchBox.render();
+    this.navigator.render();
   }
 
   private syncScrollFromPan(doc: TecscdeDocument): void {
@@ -155,18 +168,6 @@ export class AppShell {
     };
     this.toolbar.addEventListener("click", onClick);
     this.disposers.push(() => this.toolbar.removeEventListener("click", onClick));
-
-    const onModeChange = (): void => {
-      this.store.setMode(this.modeCheckbox.checked ? "newCell" : "select");
-    };
-    this.modeCheckbox.addEventListener("change", onModeChange);
-    this.disposers.push(() => this.modeCheckbox.removeEventListener("change", onModeChange));
-
-    const onCelltypeChange = (): void => {
-      this.store.setActiveCelltype(this.celltypeSelect.value || undefined);
-    };
-    this.celltypeSelect.addEventListener("change", onCelltypeChange);
-    this.disposers.push(() => this.celltypeSelect.removeEventListener("change", onCelltypeChange));
   }
 
   /** ツールバー／キーボード共通のコマンド入口。 */
@@ -199,6 +200,15 @@ export class AppShell {
       case "toggleGrid":
         this.store.setView(this.store.view.toggleGrid());
         break;
+      case "toggleNavigator":
+        this.navigator.toggle();
+        break;
+      case "searchNext":
+        this.searchBox.next();
+        break;
+      case "searchPrev":
+        this.searchBox.prev();
+        break;
       default:
         break;
     }
@@ -209,29 +219,9 @@ export class AppShell {
     this.store.setView(this.store.view.zoomAt(a, factor));
   }
 
-  private refreshCelltypeSelect(doc: TecscdeDocument): void {
-    const names = doc.celltypeValues().map((c) => c.name);
-    const sig = names.join(" ");
-    if (sig === this.celltypeSelectSig) return;
-    this.celltypeSelectSig = sig;
-    this.celltypeSelect.replaceChildren();
-    for (const name of names) {
-      const opt = this.win.document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      this.celltypeSelect.appendChild(opt);
-    }
-    const active = this.store.getActiveCelltypeName();
-    if (active && names.includes(active)) this.celltypeSelect.value = active;
-    else this.store.setActiveCelltype(names[0]);
-  }
-
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
-    const newCell = this.store.getMode() === "newCell";
-    this.modeCheckbox.checked = newCell;
-    this.celltypeSelect.disabled = !newCell;
   }
 
   private setDisabled(selector: string, disabled: boolean): void {

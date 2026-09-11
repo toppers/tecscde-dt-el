@@ -67,13 +67,173 @@
         align-items: center;
         gap: 3px;
       }
-      #canvas-scroll {
+      #search-box {
+        position: relative;
+      }
+      #search-input {
+        font: inherit;
+        padding: 2px 6px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        width: 180px;
+      }
+      #search-count {
+        color: #666666;
+        min-width: 3em;
+      }
+      #main {
         flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+      #palette {
+        flex: none;
+        width: 160px;
+        overflow-y: auto;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        padding: 8px;
+      }
+      #palette-mode {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 8px;
+      }
+      #palette-mode button,
+      .palette-celltype {
+        font: inherit;
+        padding: 3px 6px;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 3px;
+        cursor: pointer;
+        text-align: left;
+      }
+      #palette-mode button.active,
+      .palette-celltype.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      #palette-celltypes {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .palette-empty {
+        color: #888888;
+        font-size: 11px;
+      }
+      #canvas-area {
+        flex: 1;
+        position: relative;
+        min-width: 0;
+      }
+      #canvas-scroll {
+        position: absolute;
+        inset: 0;
         overflow: auto;
         background: #fafafa;
       }
       #canvas {
         display: block;
+      }
+      #navigator {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        width: 140px;
+        height: 100px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+      }
+      #navigator svg {
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+      }
+      .navigator-paper {
+        fill: #ffffff;
+        stroke: #999999;
+        stroke-width: 2;
+      }
+      .navigator-viewport {
+        fill: rgba(31, 111, 235, 0.15);
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+      #property-panel {
+        flex: none;
+        width: 200px;
+        overflow-y: auto;
+        background: var(--panel);
+        border-left: 1px solid var(--border);
+        padding: 8px;
+      }
+      #property-panel h3 {
+        margin: 0 0 8px;
+        font-size: 12px;
+      }
+      .prop-field {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-bottom: 6px;
+      }
+      .prop-field label {
+        font-size: 10px;
+        color: #666666;
+      }
+      .prop-field input {
+        font: inherit;
+        padding: 2px 4px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+      }
+      .prop-field input:read-only {
+        background: #eeeeee;
+        color: #666666;
+      }
+      .prop-note,
+      .prop-readonly {
+        color: #888888;
+        font-size: 11px;
+        margin-bottom: 6px;
+      }
+      .prop-readonly-note {
+        color: #b45309;
+        font-size: 11px;
+        margin-bottom: 6px;
+      }
+      #search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        max-height: 200px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid var(--border);
+        z-index: 1;
+      }
+      #search-results:empty {
+        display: none;
+      }
+      .search-hit {
+        padding: 3px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .search-hit:hover {
+        background: #eeeeee;
+      }
+      .search-hit.current {
+        background: var(--accent);
+        color: #fff;
+      }
+      .search-hit.revealed {
+        font-style: italic;
       }
       #statusbar {
         display: flex;
@@ -169,12 +329,33 @@
         <button data-action="zoomReset" type="button">100%</button>
         <button data-action="zoomIn" type="button">＋</button>
         <button data-action="toggleGrid" type="button">グリッド</button>
+        <button data-action="toggleNavigator" type="button">ナビゲータ</button>
         <span class="sep"></span>
-        <label><input type="checkbox" id="mode-newcell" /> セル新規</label>
-        <select id="celltype-select"></select>
+        <div id="search-box">
+          <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
+          <span id="search-count"></span>
+          <button data-action="searchPrev" type="button" title="前のヒットへ">↑</button>
+          <button data-action="searchNext" type="button" title="次のヒットへ">↓</button>
+          <div id="search-results"></div>
+        </div>
       </div>
-      <div id="canvas-scroll">
-        <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+      <div id="main">
+        <div id="palette">
+          <div id="palette-mode">
+            <button data-mode="select" type="button">選択</button>
+            <button data-mode="newCell" type="button">セル新規作成</button>
+          </div>
+          <div id="palette-celltypes"></div>
+        </div>
+        <div id="canvas-area">
+          <div id="canvas-scroll">
+            <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+          </div>
+          <div id="navigator">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
+          </div>
+        </div>
+        <div id="property-panel"></div>
       </div>
       <div id="statusbar">
         <span id="status-pos"></span>

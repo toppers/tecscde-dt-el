@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
-import { asCellId } from "../../src/renderer/model/ids";
+import { asCellId, asJoinId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -22,10 +22,10 @@ import { AppShell } from "../../src/renderer/app/shell";
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
 const mainText = readFileSync(resolve(__dirname, "../../public/samples/main.cde"), "utf-8");
 
-function loadDoc(): TecscdeDocument {
+function loadDoc(mainEditable = true): TecscdeDocument {
   return CdlDocumentLoader.loadSources([
     { text: celltypesText, fileName: "celltypes.cdl", editable: false },
-    { text: mainText, fileName: "main.cde", editable: true },
+    { text: mainText, fileName: "main.cde", editable: mainEditable },
   ]).document;
 }
 
@@ -59,11 +59,32 @@ const BODY_HTML = `
       <button data-action="zoomReset" type="button">100%</button>
       <button data-action="zoomIn" type="button">＋</button>
       <button data-action="toggleGrid" type="button">グリッド</button>
-      <label><input type="checkbox" id="mode-newcell" /> セル新規</label>
-      <select id="celltype-select"></select>
+      <button data-action="toggleNavigator" type="button">ナビゲータ</button>
+      <div id="search-box">
+        <input type="search" id="search-input" />
+        <span id="search-count"></span>
+        <button data-action="searchPrev" type="button">↑</button>
+        <button data-action="searchNext" type="button">↓</button>
+        <div id="search-results"></div>
+      </div>
     </div>
-    <div id="canvas-scroll">
-      <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+    <div id="main">
+      <div id="palette">
+        <div id="palette-mode">
+          <button data-mode="select" type="button">選択</button>
+          <button data-mode="newCell" type="button">セル新規作成</button>
+        </div>
+        <div id="palette-celltypes"></div>
+      </div>
+      <div id="canvas-area">
+        <div id="canvas-scroll">
+          <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+        </div>
+        <div id="navigator">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
+        </div>
+      </div>
+      <div id="property-panel"></div>
     </div>
     <div id="statusbar">
       <span id="status-pos"></span>
@@ -76,9 +97,12 @@ const BODY_HTML = `
 
 let mounted: AppShell | undefined;
 
-function mountShell(clipboard: ClipboardGateway = fakeClipboard()): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
+function mountShell(
+  clipboard: ClipboardGateway = fakeClipboard(),
+  doc: TecscdeDocument = loadDoc(),
+): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
-  const store = new AppStore(loadDoc());
+  const store = new AppStore(doc);
   const shell = new AppShell({ root: document, store, gateway: noopGateway, clipboard, win: window });
   shell.start();
   mounted = shell;
@@ -99,11 +123,11 @@ describe("AppShell — DOM wiring", () => {
     expect(cells!.children.length).toBe(3);
   });
 
-  it("populates the celltype <select> and picks the first as active", () => {
+  it("populates the palette's celltype list and picks the first as active", () => {
     const { store } = mountShell();
-    const select = document.querySelector<HTMLSelectElement>("#celltype-select")!;
-    expect(select.options.length).toBe(3);
-    expect(store.getActiveCelltypeName()).toBe(select.options[0]!.value);
+    const items = document.querySelectorAll<HTMLButtonElement>(".palette-celltype");
+    expect(items.length).toBe(3);
+    expect(store.getActiveCelltypeName()).toBe(items[0]!.dataset["celltype"]);
   });
 
   it("toggle-grid button flips the #grid layer visibility", () => {
@@ -131,17 +155,29 @@ describe("AppShell — DOM wiring", () => {
     expect(undoBtn.disabled).toBe(true);
   });
 
-  it("mode checkbox change puts the store in newCell mode and enables the select", () => {
+  it("palette mode buttons toggle select/newCell exclusively", () => {
     const { store } = mountShell();
-    const checkbox = document.querySelector<HTMLInputElement>("#mode-newcell")!;
-    const select = document.querySelector<HTMLSelectElement>("#celltype-select")!;
-    expect(select.disabled).toBe(true);
+    const selectBtn = document.querySelector<HTMLButtonElement>("[data-mode='select']")!;
+    const newCellBtn = document.querySelector<HTMLButtonElement>("[data-mode='newCell']")!;
+    expect(selectBtn.classList.contains("active")).toBe(true);
+    expect(newCellBtn.classList.contains("active")).toBe(false);
 
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new Event("change"));
+    newCellBtn.click();
 
     expect(store.getMode()).toBe("newCell");
-    expect(select.disabled).toBe(false);
+    expect(newCellBtn.classList.contains("active")).toBe(true);
+    expect(selectBtn.classList.contains("active")).toBe(false);
+  });
+
+  it("clicking a celltype in the palette selects it and switches to newCell mode", () => {
+    const { store } = mountShell();
+    const items = document.querySelectorAll<HTMLButtonElement>(".palette-celltype");
+    const other = Array.from(items).find((el) => el.dataset["celltype"] !== store.getActiveCelltypeName())!;
+
+    other.click();
+
+    expect(store.getActiveCelltypeName()).toBe(other.dataset["celltype"]);
+    expect(store.getMode()).toBe("newCell");
   });
 
   it("GestureController pointer sequence moves a cell via one command", () => {
@@ -231,11 +267,143 @@ describe("AppShell — DOM wiring", () => {
     const { store } = mountShell();
     const controller = asCellId("cController1");
     store.setSelection(SelectionState.ofCells([controller]));
-    const select = document.querySelector<HTMLSelectElement>("#celltype-select")!;
-    select.focus();
+    const input = document.querySelector<HTMLInputElement>("#search-input")!;
+    input.focus();
 
-    select.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
 
     expect(store.getDocument().getCell(controller)).toBeDefined();
+  });
+
+  describe("PropertyPanelView", () => {
+    it("shows (未選択) when nothing is selected", () => {
+      mountShell();
+      expect(document.querySelector("#property-panel")!.textContent).toContain("未選択");
+    });
+
+    it("shows editable fields for a single selected editable cell, and dispatches a rename on change", () => {
+      const { store } = mountShell();
+      const controller = asCellId("cController1");
+      store.setSelection(SelectionState.ofCells([controller]));
+
+      const nameInput = document.querySelector<HTMLInputElement>("#property-panel .prop-field input")!;
+      expect(nameInput.value).toBe("cController1");
+      expect(nameInput.readOnly).toBe(false);
+
+      nameInput.value = "renamedController";
+      nameInput.dispatchEvent(new Event("change"));
+
+      expect(store.getDocument().getCell(controller)!.name).toBe("renamedController");
+      expect(store.canUndo).toBe(true);
+    });
+
+    it("marks fields read-only and shows a note for a cell from a read-only file", () => {
+      const { store } = mountShell(fakeClipboard(), loadDoc(false));
+      const logger = asCellId("cLogger1");
+      store.setSelection(SelectionState.ofCells([logger]));
+
+      expect(document.querySelector("#property-panel .prop-readonly-note")).not.toBeNull();
+      const nameInput = document.querySelector<HTMLInputElement>("#property-panel .prop-field input")!;
+      expect(nameInput.readOnly).toBe(true);
+    });
+
+    it("shows no read-only note for an editable cell", () => {
+      const { store } = mountShell();
+      store.setSelection(SelectionState.ofCells([asCellId("cLogger1")]));
+      expect(document.querySelector("#property-panel .prop-readonly-note")).toBeNull();
+    });
+
+    it("shows a multi-select message when more than one cell is selected", () => {
+      const { store } = mountShell();
+      store.setSelection(SelectionState.ofCells([asCellId("cLogger1"), asCellId("cSensor1")]));
+      expect(document.querySelector("#property-panel")!.textContent).toContain("複数選択");
+    });
+
+    it("shows join endpoints (read-only) when a join is selected", () => {
+      const { store } = mountShell();
+      store.setSelection(SelectionState.ofJoin(asJoinId("cController1.cLog")));
+      expect(document.querySelector("#property-panel")!.textContent).toContain("結合を選択中");
+      expect(document.querySelector("#property-panel .prop-readonly")!.textContent).toContain("cController1.cLog");
+    });
+  });
+
+  describe("SearchBoxView", () => {
+    it("typing a query lists matching cells (and any join whose label mentions it) with a count", () => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+
+      input.value = "Logger";
+      input.dispatchEvent(new Event("input"));
+
+      expect(store.view.searchQuery).toBe("Logger");
+      const hits = document.querySelectorAll(".search-hit");
+      expect(hits.length).toBeGreaterThanOrEqual(1);
+      expect(Array.from(hits).some((h) => h.textContent === "cLogger1")).toBe(true);
+      expect(document.querySelector("#search-count")!.textContent).toBe(`${hits.length}件`);
+    });
+
+    it("clicking a hit selects and pans to it", () => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+
+      document.querySelector<HTMLElement>(".search-hit")!.click();
+
+      const cell = store.getDocument().getCell(asCellId("cLogger1"))!;
+      expect(store.selection.hasCell(asCellId("cLogger1"))).toBe(true);
+      expect(store.view.panCenter).toEqual({ x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 });
+    });
+
+    it("searchNext/searchPrev toolbar buttons cycle through hits", () => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "c"; // matches all three sample cells by name prefix
+      input.dispatchEvent(new Event("input"));
+
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+      const firstSelection = new Set(store.selection.cellIds);
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+      const secondSelection = new Set(store.selection.cellIds);
+
+      expect(firstSelection).not.toEqual(secondSelection);
+    });
+
+    it("empty query clears the hit list and count", () => {
+      mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+      input.value = "";
+      input.dispatchEvent(new Event("input"));
+
+      expect(document.querySelectorAll(".search-hit").length).toBe(0);
+      expect(document.querySelector("#search-count")!.textContent).toBe("");
+    });
+  });
+
+  describe("NavigatorView", () => {
+    it("is visible by default and hides when the whole paper already fits (auto-hide, 7.3.2)", () => {
+      mountShell();
+      // 初期表示（zoom=1）ではA4横用紙が既定のスクロールビューポート寸法(0x0, happy-dom)に
+      // 収まらないため、autoHiddenはfalseになり得る。ここではtoggle()による明示的な
+      // 非表示切り替えのみを検証する（自動非表示の幾何自体はview-state/navigator.test.tsで検証済み）。
+      const nav = document.querySelector<HTMLElement>("#navigator")!;
+      const before = nav.hidden;
+      document.querySelector<HTMLButtonElement>("[data-action='toggleNavigator']")!.click();
+      expect(nav.hidden).toBe(!before);
+      document.querySelector<HTMLButtonElement>("[data-action='toggleNavigator']")!.click();
+      expect(nav.hidden).toBe(before);
+    });
+
+    it("draws a viewBox and paper rect sized to the document's paper", () => {
+      const { store } = mountShell();
+      const svg = document.querySelector<SVGSVGElement>("#navigator svg")!;
+      const { width, height } = store.getDocument().paper.contentSize();
+      expect(svg.getAttribute("viewBox")).toBe(`0 0 ${width} ${height}`);
+      const paperRect = document.querySelector(".navigator-paper")!;
+      expect(paperRect.getAttribute("width")).toBe(String(width));
+      expect(paperRect.getAttribute("height")).toBe(String(height));
+    });
   });
 });
