@@ -19,8 +19,8 @@ import { asCellId, ROOT_REGION_ID, type CellId, type JoinId, type RegionId } fro
 import type { PortTemplate } from "../model/celltype";
 import type { TecscdeDocument } from "../model/document";
 
-const DEFAULT_CELL_WIDTH_MM = 25;
-const DEFAULT_CELL_HEIGHT_MM = 15;
+export const DEFAULT_CELL_WIDTH_MM = 25;
+export const DEFAULT_CELL_HEIGHT_MM = 15;
 
 function templateParams(t: PortTemplate) {
   return {
@@ -33,11 +33,12 @@ function templateParams(t: PortTemplate) {
   };
 }
 
-function instantiateCPorts(templates: readonly PortTemplate[]): CPort[] {
+/** セルタイプのポートテンプレートから、結合先を持たない新規ポート一式を生成する。 */
+export function instantiateCPorts(templates: readonly PortTemplate[]): CPort[] {
   return templates.map((t) => CPort.create(templateParams(t)));
 }
 
-function instantiateEPorts(templates: readonly PortTemplate[]): EPort[] {
+export function instantiateEPorts(templates: readonly PortTemplate[]): EPort[] {
   return templates.map((t) => EPort.create(templateParams(t)));
 }
 
