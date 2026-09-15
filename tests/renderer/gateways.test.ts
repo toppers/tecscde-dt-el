@@ -10,6 +10,9 @@ import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
   return {
+    cdl: {
+      loadGrammarAssets: vi.fn().mockResolvedValue({ runtimeWasm: new Uint8Array(), cdlWasm: new Uint8Array() }),
+    },
     file: {
       open: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),

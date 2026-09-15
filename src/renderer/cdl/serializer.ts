@@ -34,7 +34,8 @@ function cellAttrLines(cell: Cell): string[] {
 
 function serializeCellBlock(doc: TecscdeDocument, cell: Cell): string {
   const body = [...cellJoinLines(doc, cell), ...cellAttrLines(cell)];
-  return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `}`].join("\n");
+  // 末尾の `;` はCDL文法上必須（tecsgen の bnf.y.rb が cell 定義の終端として要求する）。
+  return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `};`].join("\n");
 }
 
 export class CdlSerializer {
@@ -95,6 +96,15 @@ export class CdlSerializer {
       ToolInfoValidator.serializeTecscde(doc.paper, cellList, joinList, doc.unknownToolInfoTecscde),
     );
 
-    return [tecsgenBlock, cellBlocks, tecscdeBlock].filter((s) => s.length > 0).join("\n\n") + "\n";
+    // 内部仕様3章: モデルに反映しない構文（import / import_C）は入力時のテキストの
+    // まま書き戻す。tecsgen は import をファイル先頭付近で解決するため、
+    // cell 定義より前・tecsgenブロックの直後に置く。
+    const importBlock = (doc.preservedImports ?? []).join("\n");
+
+    return (
+      [tecsgenBlock, importBlock, cellBlocks, tecscdeBlock]
+        .filter((s) => s.length > 0)
+        .join("\n\n") + "\n"
+    );
   }
 }

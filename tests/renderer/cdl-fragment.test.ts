@@ -1,4 +1,4 @@
-// [[TECSCDE-DT-EL内部仕様]] 第4章4.1節 — CDL断片（cellブロックのみ）のシリアライズ／パース。
+// [[TECSCDE-TS内部仕様]] 第4章 / [[TECSCDE-DT-EL内部仕様]] 第4章4.1節 — CDL断片（cellブロックのみ）のシリアライズ／パース。
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -25,7 +25,7 @@ describe("serializeCellsAsCdl", () => {
   it("emits one cell block per id, with attrs but no joins or position", () => {
     const doc = loadDoc();
     const text = serializeCellsAsCdl(doc, [LOGGER, SENSOR]);
-    expect(text).toBe(["cell tLogger cLogger1 {\n  level = 1;\n}", "cell tSensor cSensor1 {\n}"].join("\n\n"));
+    expect(text).toBe(["cell tLogger cLogger1 {\n  level = 1;\n};", "cell tSensor cSensor1 {\n};"].join("\n\n"));
     expect(text).not.toMatch(/=.*\./); // 結合(join)代入(`x = y.z;`)は含まない
   });
 

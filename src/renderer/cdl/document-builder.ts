@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 11.3 — CdlParser + ToolInfoValidator の結果を TecscdeDocument へ組み立てる
+// TECSCDE-TS内部仕様 11.3 — CdlDocumentBuilder + ToolInfoValidator の結果を TecscdeDocument へ組み立てる
 // （CdlDocumentLoader）。外部仕様5.3.2（読み込み時の未解決要素の扱い）・5.5.2（要素単位のレイアウト適用）・
 // 8.1.2（複数ファイル読み込み時、最後の1つが編集対象・他は参照専用）を実装する。
 
@@ -12,7 +12,7 @@ import { PaperSpec } from "../model/paper";
 import { CPort, EPort, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument } from "../model/document";
-import { CdlParser, type CellDecl } from "./parser";
+import { CdlDocumentBuilder, type CellDecl } from "./cst";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { compositeUnsupported, duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
@@ -86,15 +86,18 @@ export class CdlDocumentLoader {
     const diagnostics: Diagnostic[] = [];
     const celltypes = new Map<string, CelltypeRef>();
     const parsedSources: ParsedSource[] = [];
+    let preservedImports: readonly string[] = [];
     let toolInfoTecsgen: ToolInfoTecsgen = emptyToolInfoTecsgen();
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
     let paper: PaperSpec = PaperSpec.default();
 
     for (const source of sources) {
       const { blocks, sourceWithBlanks } = ToolInfoValidator.extractBlocks(source.text);
-      const parsed = CdlParser.parse(sourceWithBlanks);
+      const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
       for (const d of parsed.diagnostics) diagnostics.push(withLocation(d, source.fileName));
       for (const composite of parsed.composites) diagnostics.push(compositeUnsupported(composite.name));
+      // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
+      if (source.editable) preservedImports = parsed.imports.map((i) => i.rawText);
 
       for (const block of blocks) {
         if (block.toolName === "tecsgen") {
@@ -300,6 +303,7 @@ export class CdlDocumentLoader {
       referenceFiles,
       editingFileName: editingSource?.fileName,
       unknownToolInfoTecscde: tecscdeParsed.unknownFields,
+      preservedImports,
     });
 
     return { document, diagnostics };

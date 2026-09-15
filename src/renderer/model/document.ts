@@ -23,6 +23,11 @@ export interface TecscdeDocumentBuildParams {
   readonly editingFileName?: string;
   /** 5.5.2: __tool_info__("tecscde") の未知キーを保持して書き戻す。 */
   readonly unknownToolInfoTecscde: Readonly<Record<string, unknown>>;
+  /**
+   * 内部仕様3章: モデルに反映しない構文（import / import_C）を入力時のテキストの
+   * まま保持し、保存時にそのまま書き戻す。参照先は追跡しない（外部仕様8.1.2）。
+   */
+  readonly preservedImports?: readonly string[];
 }
 
 export class TecscdeDocument {
@@ -36,6 +41,7 @@ export class TecscdeDocument {
     readonly referenceFiles: readonly string[],
     readonly editingFileName: string | undefined,
     readonly unknownToolInfoTecscde: Readonly<Record<string, unknown>>,
+    readonly preservedImports: readonly string[],
   ) {}
 
   static empty(): TecscdeDocument {
@@ -49,6 +55,7 @@ export class TecscdeDocument {
       [],
       undefined,
       {},
+      [],
     );
   }
 
@@ -64,6 +71,7 @@ export class TecscdeDocument {
       params.referenceFiles,
       params.editingFileName,
       params.unknownToolInfoTecscde,
+      params.preservedImports ?? [],
     );
   }
 
@@ -116,6 +124,7 @@ export class TecscdeDocument {
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
+      this.preservedImports,
     );
   }
 
@@ -132,6 +141,7 @@ export class TecscdeDocument {
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
+      this.preservedImports,
     );
   }
 
@@ -148,6 +158,7 @@ export class TecscdeDocument {
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
+      this.preservedImports,
     );
   }
 
@@ -164,6 +175,7 @@ export class TecscdeDocument {
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
+      this.preservedImports,
     );
   }
 }

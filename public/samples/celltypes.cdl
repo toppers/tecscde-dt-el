@@ -1,21 +1,35 @@
 // サンプル: セルタイプ定義（参照専用ファイルとして読み込む想定、外部仕様8.1.2）。
-// TECSCDE-TSは本ファイルを「兄弟ファイル」として読み込み、セルタイプの
+// TECSCDE JS版は本ファイルを「兄弟ファイル」として読み込み、セルタイプの
 // ポート構成のみを参照する（4.2.2: 編集対象としない）。
+//
+// 2026-09-13: tree-sitter（tecsgen の bnf.y.rb 由来の文法）採用に伴い、
+// tecsgen が実際に受理する CDL へ書き換えた。以前は entry_port / attribute /
+// 末尾 `;` なしという本ツール独自の方言で書かれており、tecsgen には
+// 入力できなかった（外部仕様2.2「tecsgenが受理するCDLを入出力対象とする」違反）。
 
-signature sLog;
-signature sSensor;
+signature sLog {
+  void put([in] int32_t level);
+};
+
+signature sSensor {
+  void read([out] int32_t *value);
+};
 
 celltype tLogger {
-  entry_port sLog eLog;
-  attribute level;
-}
+  entry sLog eLog;
+  attr {
+    int32_t level;
+  };
+};
 
 celltype tSensor {
-  entry_port sSensor eRead;
-}
+  entry sSensor eRead;
+};
 
 celltype tController {
-  call_port sLog cLog;
-  call_port sSensor cSensor;
-  attribute intervalMs;
-}
+  call sLog cLog;
+  call sSensor cSensor;
+  attr {
+    int32_t intervalMs;
+  };
+};

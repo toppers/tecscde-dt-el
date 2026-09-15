@@ -14,6 +14,9 @@ import type { OpenResult, TecsgenResult, TecscdeApi } from "../shared/ipc-types.
 const { clipboard } = createRequire(import.meta.url)("electron") as typeof import("electron");
 
 const api: TecscdeApi = {
+  cdl: {
+    loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
+  },
   file: {
     open: (): Promise<OpenResult | null> => ipcRenderer.invoke("file:open"),
     save: (path: string, content: string): Promise<void> => ipcRenderer.invoke("file:save", path, content),

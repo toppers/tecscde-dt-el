@@ -11,11 +11,18 @@ import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { AppStore } from "./app/store";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
+import { CdlGrammar } from "./cdl/grammar";
 
 function main(): void {
   if (typeof window === "undefined" || !window.tecscde) {
     throw new Error("preload の window.tecscde が見つかりません（contextBridge 未初期化）");
   }
+
+  // 内部仕様2.2: WASMロードの非同期性は起動時の1点に閉じ込める。
+  // onBootstrapはdid-finish-load直後に届くため先に登録し、解析だけ初期化完了を待つ。
+  const grammarReady = window.tecscde.cdl
+    .loadGrammarAssets()
+    .then((assets) => CdlGrammar.init(assets));
 
   const store = new AppStore();
   const gateway = new FileGateway();
@@ -26,7 +33,13 @@ function main(): void {
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {
-    if (data) applyOpenResult(store, data);
+    void grammarReady
+      .then(() => {
+        if (data) applyOpenResult(store, data);
+      })
+      .catch((error: unknown) => {
+        console.error("CDLパーサの初期化に失敗しました:", error);
+      });
   });
 }
 

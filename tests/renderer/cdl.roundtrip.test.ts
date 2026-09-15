@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import { CdlSerializer } from "../../src/renderer/cdl/serializer";
+import { CdlGrammar } from "../../src/renderer/cdl/grammar";
 
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
 const mainText = readFileSync(resolve(__dirname, "../../public/samples/main.cde"), "utf-8");
@@ -66,7 +67,7 @@ describe("CDL round trip", () => {
     const text = `
       cell tController c1 {
         cLog = doesNotExist.eLog;
-      }
+      };
     `;
     const { document, diagnostics } = CdlDocumentLoader.loadSources([
       { text: celltypesText, fileName: "celltypes.cdl", editable: false },
@@ -79,13 +80,13 @@ describe("CDL round trip", () => {
   it("does not abort parsing on a syntax error elsewhere in the file (9.1.2)", () => {
     const text = `
       cell tSensor cSensor1 {
-      }
+      };
 
       @@@ garbage token @@@
 
       cell tLogger cLogger1 {
         level = 1;
-      }
+      };
     `;
     const { document, diagnostics } = CdlDocumentLoader.loadSources([
       { text: celltypesText, fileName: "celltypes.cdl", editable: false },
@@ -93,5 +94,66 @@ describe("CDL round trip", () => {
     ]);
     expect(document.cellCount).toBe(2);
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("preserves import / import_C statements verbatim across a round trip", () => {
+    const text = `
+import("celltypes.cdl");
+import_C("<stdio.h>");
+
+cell tLogger cLogger1 {
+  level = 1;
+};
+`;
+    const first = CdlDocumentLoader.loadSources([
+      { text: celltypesText, fileName: "celltypes.cdl", editable: false },
+      { text, fileName: "main.cde", editable: true },
+    ]);
+    expect(first.document.preservedImports).toEqual([
+      'import("celltypes.cdl");',
+      'import_C("<stdio.h>");',
+    ]);
+
+    const serialized = CdlSerializer.serialize(first.document);
+    expect(serialized).toContain('import("celltypes.cdl");');
+    expect(serialized).toContain('import_C("<stdio.h>");');
+
+    const second = CdlDocumentLoader.loadSources([
+      { text: celltypesText, fileName: "celltypes.cdl", editable: false },
+      { text: serialized, fileName: "main.cde", editable: true },
+    ]);
+    expect(second.document.preservedImports).toEqual(first.document.preservedImports);
+  });
+
+  it("emits CDL that the tecsgen grammar accepts (外部仕様2.2)", () => {
+    // 内部仕様11.3: 往復の一致だけで完了としない。出力を文法に通し、
+    // ERROR/MISSING がゼロであることを併せて確認する。
+    const { document } = CdlDocumentLoader.loadSources([
+      { text: celltypesText, fileName: "celltypes.cdl", editable: false },
+      { text: mainText, fileName: "main.cde", editable: true },
+    ]);
+    const serialized = CdlSerializer.serialize(document);
+
+    const tree = CdlGrammar.parserInstance.parse(serialized);
+    const root = tree?.rootNode;
+    expect(root).toBeDefined();
+
+    const problems: string[] = [];
+    const walk = (node: import("web-tree-sitter").Node): void => {
+      if (node.type === "ERROR" || node.isMissing) {
+        problems.push(
+          `${node.isMissing ? "MISSING" : "ERROR"} @${node.startPosition.row + 1}:${node.startPosition.column + 1}`,
+        );
+        return;
+      }
+      if (!node.hasError) return;
+      for (let i = 0; i < node.childCount; i += 1) {
+        const child = node.child(i);
+        if (child) walk(child);
+      }
+    };
+    walk(root!);
+    expect(problems).toEqual([]);
+    tree?.delete();
   });
 });

@@ -23,6 +23,9 @@ const options = {
   platform: "browser",
   target: "es2022",
   sourcemap: true,
+  // web-tree-sitter contains Node-only dynamic imports behind runtime guards.
+  // Keep them external; Electron renderer takes the browser branch.
+  external: ["fs/promises", "module"],
   logLevel: "info",
 };
 
@@ -31,6 +34,7 @@ async function copyStaticAssets() {
   await cp(resolve(root, "src/renderer/index.html"), resolve(outDir, "index.html"));
   // packaged build 用に samples も dist へ（dev の main は public/samples を直接読む）。
   await cp(resolve(root, "public/samples"), resolve(outDir, "samples"), { recursive: true });
+  await cp(resolve(root, "public/wasm"), resolve(outDir, "wasm"), { recursive: true });
 }
 
 if (watch) {

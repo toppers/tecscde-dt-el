@@ -21,8 +21,16 @@ export interface TecsgenResult {
   readonly executableFound: boolean;
 }
 
+/** tree-sitterランタイムとCDL文法のWASMバイト列。 */
+export interface CdlGrammarAssetBytes {
+  readonly runtimeWasm: Uint8Array;
+  readonly cdlWasm: Uint8Array;
+}
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
+  readonly cdl: {
+    loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
+  };
   readonly file: {
     open(): Promise<OpenResult | null>;
     save(path: string, content: string): Promise<void>;

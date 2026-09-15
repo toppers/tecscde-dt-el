@@ -1,9 +1,8 @@
-// [[TECSCDE-DT-EL内部仕様]] 第4章4.1節: Copy/Cut/PasteのOSクリップボード連携が使う
+// [[TECSCDE-TS内部仕様]] 第4章 / [[TECSCDE-DT-EL内部仕様]] 第4章4.1節: Copy/Cut/Pasteのクリップボード連携が使う
 // CDL断片（`cell`定義ブロックのみの部分テキスト）のシリアライズ／パース。
 //
-// 外部仕様[[work/active/TECSCDE-DT外部仕様/TECSCDE-DT外部仕様 - 06B 編集操作（後半）|6.7節]]の規定どおり、
-// 断片には`cell`ブロック（セルタイプ名・セル名・属性）のみを含め、位置（x/y）・所属リージョン・
-// 結合（join）は含めない。理由:
+// 外部仕様6.7節の規定どおり、断片には`cell`ブロック（セルタイプ名・セル名・属性）のみを含め、
+// 位置（x/y）・所属リージョン・結合（join）は含めない。理由:
 //   - 位置・リージョン・ポート配置は `__tool_info__("tecscde")` 側のJSONにしかなく、
 //     `cell`ブロック単体では表現できない（serializer.ts参照）。貼り付け時の配置は
 //     アプリ側で新たに決める（commands/clipboard-commands.ts）。
@@ -13,11 +12,12 @@
 
 import type { CellId } from "../model/ids";
 import type { TecscdeDocument } from "../model/document";
-import { CdlParser } from "./parser";
+import { CdlDocumentBuilder } from "./cst";
 
 function serializeCellBlock(celltypeName: string, cellName: string, attrs: Readonly<Record<string, string>>): string {
   const body = Object.entries(attrs).map(([name, expr]) => `  ${name} = ${expr};`);
-  return [`cell ${celltypeName} ${cellName} {`, ...body, `}`].join("\n");
+  // 末尾の `;` はCDL文法上必須（tecsgenの構文定義およびtree-sitter文法）。
+  return [`cell ${celltypeName} ${cellName} {`, ...body, `};`].join("\n");
 }
 
 /** 6.7節: 選択中のセルを`cell`ブロックのみのCDL断片としてシリアライズする。 */
@@ -38,13 +38,13 @@ export interface CdlFragmentCell {
 }
 
 /**
- * 6.7節: OSクリップボードのテキストをCDL断片として解析する。
+ * 6.7節: クリップボードのテキストをCDL断片として解析する。
  * 構文エラー（他アプリ由来のテキスト等）や`cell`ブロックが1つもない場合は`undefined`を返す
  * — 呼び出し側（PasteCommand）はこれを「何もしない」の合図として扱う。
  */
 export function tryParseCdlFragment(text: string): readonly CdlFragmentCell[] | undefined {
   if (!text.trim()) return undefined;
-  const parsed = CdlParser.parse(text);
+  const parsed = CdlDocumentBuilder.build(text);
   if (parsed.diagnostics.length > 0) return undefined;
   if (parsed.cells.length === 0) return undefined;
   return parsed.cells.map((c) => ({

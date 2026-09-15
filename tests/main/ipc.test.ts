@@ -30,7 +30,7 @@ describe("registerIpcHandlers", () => {
     registerIpcHandlers(fileService as never, tecsgenRunner as never);
 
     expect([...handlers.keys()].sort()).toEqual(
-      ["file:export", "file:open", "file:save", "file:saveAs", "tecsgen:generate", "tecsgen:version"].sort(),
+      ["cdl:grammar-assets", "file:export", "file:open", "file:save", "file:saveAs", "tecsgen:generate", "tecsgen:version"].sort(),
     );
 
     handlers.get("file:open")!({});
