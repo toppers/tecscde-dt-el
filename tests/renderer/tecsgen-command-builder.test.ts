@@ -5,17 +5,16 @@ import { describe, expect, it } from "vitest";
 import { TecsgenCommandBuilder } from "../../src/renderer/tecsgen/command-builder";
 
 describe("TecsgenCommandBuilder.buildArgs", () => {
-  it("orders -I(baseDir), -I(importPath...), -D(defineMacro...), reference files, then the editing file", () => {
+  it("orders -I(importPath...), -D(defineMacro...), -c(cpp), reference files, then the editing file", () => {
     const args = TecsgenCommandBuilder.buildArgs({
       baseDir: "/proj",
       importPath: ["./include", "./vendor"],
       defineMacro: ["TECSGEN", "DEBUG"],
+      cpp: "gcc",
       referenceFilePaths: ["/proj/celltypes.cdl"],
       editingFilePath: "/proj/main.cde",
     });
     expect(args).toEqual([
-      "-I",
-      "/proj",
       "-I",
       "./include",
       "-I",
@@ -24,12 +23,23 @@ describe("TecsgenCommandBuilder.buildArgs", () => {
       "TECSGEN",
       "-D",
       "DEBUG",
+      "-c",
+      "gcc",
       "/proj/celltypes.cdl",
       "/proj/main.cde",
     ]);
   });
 
-  it("omits -I/-D entirely when baseDir/importPath/defineMacro are absent", () => {
+  it("never puts baseDir on the command line, even when present", () => {
+    const args = TecsgenCommandBuilder.buildArgs({
+      baseDir: "/proj",
+      referenceFilePaths: [],
+      editingFilePath: "/proj/main.cde",
+    });
+    expect(args).toEqual(["/proj/main.cde"]);
+  });
+
+  it("omits -I/-D/-c entirely when importPath/defineMacro/cpp are absent", () => {
     const args = TecsgenCommandBuilder.buildArgs({
       referenceFilePaths: [],
       editingFilePath: "/proj/main.cde",
@@ -47,13 +57,14 @@ describe("TecsgenCommandBuilder.buildArgs", () => {
 });
 
 describe("TecsgenCommandBuilder.buildCommandLine", () => {
-  it("joins the tecsgen args with a leading executable name", () => {
+  it("joins the tecsgen args with a leading executable name, omitting baseDir", () => {
     const line = TecsgenCommandBuilder.buildCommandLine({
       baseDir: "/proj",
+      importPath: ["./include"],
       referenceFilePaths: ["/proj/celltypes.cdl"],
       editingFilePath: "/proj/main.cde",
     });
-    expect(line).toBe("tecsgen -I /proj /proj/celltypes.cdl /proj/main.cde");
+    expect(line).toBe("tecsgen -I ./include /proj/celltypes.cdl /proj/main.cde");
   });
 
   it("quotes an argument that contains whitespace", () => {

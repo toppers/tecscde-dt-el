@@ -1,19 +1,25 @@
 // [[TECSCDE-DT-EL内部仕様]] 第9章9.5節・[[work/active/TECSCDE-DT外部仕様/TECSCDE-DT外部仕様 - 08 CDL 連携|TECSCDE-DT外部仕様8.4.2節]]
 // — tecsgenのコマンド組み立て（モジュールI、純粋な文字列処理）。
 //
-// 例: `tecsgen -I <base_dir> -D <macro> <参照専用ファイル…> <編集対象ファイル>`
-// （外部仕様8.4.2の規定をそのまま踏襲。`import_path`はbase_dirと同じ`-I`を複数指定する
-// 拡張として扱う。`cpp`は外部仕様の例に含まれないためコマンドラインには反映しない
-// ——import_C解決時にのみ使う値であり、8.4.2が明示する範囲を超えて仕様を拡張しない）。
+// 例: `tecsgen -I <import_path> -D <macro> -c <cpp> <参照専用ファイル…> <編集対象ファイル>`
+// （外部仕様8.4.2の規定どおり、`import_path`・`define_macro`・`cpp`から組み立てる。
+// `base_dir`はコマンドラインには一切出さない——tecsgen内部仕様10章のとおり`$base_dir`は
+// 「過去にimportが見つかった基点ディレクトリ」としてtecsgen自身が実行中に蓄積する内部状態で
+// あり、利用者が渡す入力に対応するCLIオプションが存在しないため。文脈情報として利用者に
+// 提示する場合も、あくまで補足テキストに留め、CLI引数としては渡さない。
+// 2026-09-14訂正: 旧版は`-I <base_dir>`としており、`-I`を`--import-path`ではなく
+// `base_dir`用のオプションと誤って扱っていた。
 //
 // `buildArgs`はexecFileへそのまま渡す配列（シェルを経由しないためクォート不要）。
 // `buildCommandLine`は8.4.2が「実行に加えて残す」と定めるコピー用の表示文字列で、
 // 空白を含む引数のみダブルクォートで囲む。
 
 export interface TecsgenCommandInput {
+  /** CLI引数には出さない。文脈情報としての表示にのみ使う（8.4.2）。 */
   readonly baseDir?: string;
   readonly importPath?: readonly string[];
   readonly defineMacro?: readonly string[];
+  readonly cpp?: string;
   /** 今回のセッションで参照専用として読み込んだファイルの実パス（8.1.2の`direct_import`相当）。 */
   readonly referenceFilePaths: readonly string[];
   /** 編集対象ファイルの実パス。 */
@@ -28,9 +34,9 @@ export class TecsgenCommandBuilder {
   /** サブプロセス起動の実引数（`execFile("tecsgen", args)`にそのまま渡す）。 */
   static buildArgs(input: TecsgenCommandInput): string[] {
     const args: string[] = [];
-    if (input.baseDir) args.push("-I", input.baseDir);
     for (const path of input.importPath ?? []) args.push("-I", path);
     for (const macro of input.defineMacro ?? []) args.push("-D", macro);
+    if (input.cpp) args.push("-c", input.cpp);
     args.push(...input.referenceFilePaths, input.editingFilePath);
     return args;
   }

@@ -69,7 +69,8 @@ describe("generate", () => {
     expect(tecsgen.calls).toHaveLength(1);
     const args = tecsgen.calls[0]!;
     expect(args).toContain("-I");
-    expect(args).toContain("E:/example/project"); // sample's __tool_info__("tecsgen").base_dir
+    expect(args).toContain("./include"); // sample's __tool_info__("tecsgen").import_path
+    expect(args).not.toContain("E:/example/project"); // base_dir must never reach the CLI（8.4.2）
     expect(args).toContain("/proj/celltypes.cdl");
     expect(args[args.length - 1]).toBe("/proj/main.cde");
   });
