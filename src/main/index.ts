@@ -8,12 +8,22 @@
 import { app, BrowserWindow } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { registerIpcHandlers } from "./ipc.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Electron Forge の Squirrel(Windows) maker が発行するインストール/アンインストール
+// イベントでは、ショートカット作成等の処理だけ行ってすぐ終了する必要がある
+// （electron-squirrel-startup は CJS 製のため preload と同じ createRequire 経由で読む、
+// [[work/active/tecs/TECSCDE-DT-EL preload ESM・sandbox決定]]と同型のパターン）。
+const require = createRequire(import.meta.url);
+if (require("electron-squirrel-startup")) {
+  app.quit();
+}
 
 let pendingOpenPath: string | null = null;
 
@@ -64,7 +74,7 @@ function createWindow(): BrowserWindow {
         pendingOpenPath = null;
       } else {
         const samples = join(app.getAppPath(), "public", "samples");
-        data = await fileService.openPaths([join(samples, "celltypes.cdl"), join(samples, "main.cde")]);
+        data = await fileService.openPaths([join(samples, "main.cde"), join(samples, "main.cde")]);
       }
       win.webContents.send("app:bootstrap", data);
     } catch (err) {

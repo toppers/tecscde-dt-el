@@ -17,9 +17,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "depcruise": "depcruise src --config .dependency-cruiser.cjs",
-    "check": "npm run build && npm test && npm run depcruise"
+    "check": "npm run build && npm test && npm run depcruise",
+    "forge:package": "electron-forge package",
+    "forge:make": "electron-forge make",
+    "postinstall": "node scripts/fix-electron-winstaller-7z.mjs"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
     "@types/node": "^22.10.2",
     "dependency-cruiser": "^16.9.0",
     "electron": "^44.2.0",
@@ -29,6 +34,14 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
+    "electron-squirrel-startup": "^1.0.1",
     "web-tree-sitter": "^0.25.10"
+  },
+  "overrides": {
+    "@electron/rebuild": "^4.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.4": true
   }
 }

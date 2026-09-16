@@ -1,6 +1,15 @@
 node_modules/
 dist/
+out/
 *.log
 .vitest/
 .serena/
 om_MCP.md
+
+# AIコーディングツールのローカル設定・状態（テレメトリ含む、リポジトリに含めない）
+.claude/
+.cursor/
+.github/
+.kiro/
+CLAUDE.md
+*.code-workspace
