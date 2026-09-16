@@ -21,11 +21,20 @@ export interface TecsgenResult {
   readonly executableFound: boolean;
 }
 
+/** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.preprocess() の戻り値。 */
+export interface CppResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+  readonly executableFound: boolean;
+}
+
 /** tree-sitterランタイムとCDL文法のWASMバイト列。 */
 export interface CdlGrammarAssetBytes {
   readonly runtimeWasm: Uint8Array;
   readonly cdlWasm: Uint8Array;
 }
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
@@ -39,6 +48,7 @@ export interface TecscdeApi {
   };
   readonly tecsgen: {
     generate(args: readonly string[]): Promise<TecsgenResult>;
+    preprocess(headerPath: string, cppCommand?: string): Promise<CppResult>;
     version(): Promise<string | null>;
   };
   readonly clipboard: {

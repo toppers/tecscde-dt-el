@@ -5,7 +5,7 @@
 
 import { execFile, type ExecFileException } from "node:child_process";
 import { promisify } from "node:util";
-import type { TecsgenResult } from "../shared/ipc-types.js";
+import type { TecsgenResult, CppResult } from "../shared/ipc-types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +18,22 @@ export class TecsgenRunner {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
       if (e.code === "ENOENT") {
         // 実行ファイルが見つからない（第2章2.4節の新規制約、11.2節#3の未決事項）
+        return { stdout: "", stderr: "", exitCode: null, executableFound: false };
+      }
+      const exitCode = typeof e.code === "number" ? e.code : 1;
+      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode, executableFound: true };
+    }
+  }
+
+  async preprocess(headerPath: string, cppCommand?: string): Promise<CppResult> {
+    const cmd = cppCommand?.trim() || "gcc -E -DTECSGEN";
+    const [exec, ...baseArgs] = cmd.split(/\s+/);
+    try {
+      const { stdout, stderr } = await execFileAsync(exec!, [...baseArgs, headerPath], { timeout: 30_000 });
+      return { stdout, stderr, exitCode: 0, executableFound: true };
+    } catch (err) {
+      const e = err as ExecFileException & { stdout?: string; stderr?: string };
+      if (e.code === "ENOENT") {
         return { stdout: "", stderr: "", exitCode: null, executableFound: false };
       }
       const exitCode = typeof e.code === "number" ? e.code : 1;

@@ -24,13 +24,14 @@ describe("registerIpcHandlers", () => {
     };
     const tecsgenRunner = {
       run: vi.fn().mockResolvedValue("run-result"),
+      preprocess: vi.fn().mockResolvedValue("preprocess-result"),
       version: vi.fn().mockResolvedValue("1.9.1"),
     };
 
     registerIpcHandlers(fileService as never, tecsgenRunner as never);
 
     expect([...handlers.keys()].sort()).toEqual(
-      ["cdl:grammar-assets", "file:export", "file:open", "file:save", "file:saveAs", "tecsgen:generate", "tecsgen:version"].sort(),
+      ["cdl:grammar-assets", "file:export", "file:open", "file:save", "file:saveAs", "tecsgen:generate", "tecsgen:preprocess", "tecsgen:version"].sort(),
     );
 
     handlers.get("file:open")!({});
@@ -47,6 +48,9 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("tecsgen:generate")!({}, ["-c", "main.cde"]);
     expect(tecsgenRunner.run).toHaveBeenCalledWith(["-c", "main.cde"]);
+
+    handlers.get("tecsgen:preprocess")!({}, "header.h", "gcc -E");
+    expect(tecsgenRunner.preprocess).toHaveBeenCalledWith("header.h", "gcc -E");
 
     handlers.get("tecsgen:version")!({});
     expect(tecsgenRunner.version).toHaveBeenCalled();

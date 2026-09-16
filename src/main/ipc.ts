@@ -25,5 +25,8 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
   ipcMain.handle("file:export", (_e, path: string, data: string) => fileService.exportFile(path, data));
 
   ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));
+  ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string) =>
+    tecsgenRunner.preprocess(headerPath, cppCommand),
+  );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
 }

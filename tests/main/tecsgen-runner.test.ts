@@ -67,4 +67,27 @@ describe("TecsgenRunner", () => {
 
     await expect(runner.version()).resolves.toBe("1.9.1");
   });
+
+  it("preprocess() runs preprocessor with default or custom command", async () => {
+    execFileMock.mockResolvedValue({ stdout: "typedef int INT;", stderr: "" });
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h");
+    expect(result).toEqual({ stdout: "typedef int INT;", stderr: "", exitCode: 0, executableFound: true });
+    expect(execFileMock).toHaveBeenCalledWith("gcc", ["-E", "-DTECSGEN", "header.h"], { timeout: 30_000 });
+
+    execFileMock.mockResolvedValue({ stdout: "struct S {};", stderr: "" });
+    const customResult = await runner.preprocess("header.h", "clang -E");
+    expect(customResult).toEqual({ stdout: "struct S {};", stderr: "", exitCode: 0, executableFound: true });
+    expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], { timeout: 30_000 });
+  });
+
+  it("preprocess() returns executableFound=false on ENOENT", async () => {
+    const enoent = Object.assign(new Error("not found"), { code: "ENOENT" });
+    execFileMock.mockRejectedValue(enoent);
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h");
+    expect(result).toEqual({ stdout: "", stderr: "", exitCode: null, executableFound: false });
+  });
 });

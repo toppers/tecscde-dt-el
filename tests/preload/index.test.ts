@@ -75,6 +75,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("tecsgen:generate", ["-c", "main.cde"]);
   });
 
+  it("tecsgen.preprocess invokes tecsgen:preprocess with headerPath and cppCommand", () => {
+    exposedApi().tecsgen.preprocess("header.h", "gcc -E");
+    expect(invoke).toHaveBeenCalledWith("tecsgen:preprocess", "header.h", "gcc -E");
+  });
+
   it("tecsgen.version invokes tecsgen:version", () => {
     exposedApi().tecsgen.version();
     expect(invoke).toHaveBeenCalledWith("tecsgen:version");

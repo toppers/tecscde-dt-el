@@ -4,7 +4,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { createRequire } from "node:module";
-import type { OpenResult, TecsgenResult, TecscdeApi } from "../shared/ipc-types.js";
+import type { OpenResult, TecsgenResult, CppResult, TecscdeApi } from "../shared/ipc-types.js";
 
 // ESM preload（第11章11.2節#1の決定）では、Electronの ESM `electron` モジュールが
 // renderer/preload 向けに名前付きエクスポートするのは contextBridge / ipcRenderer /
@@ -26,6 +26,8 @@ const api: TecscdeApi = {
   },
   tecsgen: {
     generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),
+    preprocess: (headerPath: string, cppCommand?: string): Promise<CppResult> =>
+      ipcRenderer.invoke("tecsgen:preprocess", headerPath, cppCommand),
     version: (): Promise<string | null> => ipcRenderer.invoke("tecsgen:version"),
   },
   // clipboardはipcMainを介さず、preloadから直接ブリッジできる
