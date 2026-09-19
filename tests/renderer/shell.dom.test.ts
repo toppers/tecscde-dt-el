@@ -374,6 +374,26 @@ describe("AppShell — DOM wiring", () => {
       expect(store.canUndo).toBe(true);
     });
 
+    it("does not clobber an in-progress (uncommitted) edit when an unrelated store notify fires", () => {
+      const { store } = mountShell();
+      const controller = asCellId("cController1");
+      store.setSelection(SelectionState.ofCells([controller]));
+
+      const nameInput = document.querySelector<HTMLInputElement>("#property-panel .prop-field input")!;
+      nameInput.focus();
+      nameInput.value = "typedButNotCommittedYet";
+      nameInput.dispatchEvent(new Event("input"));
+
+      // Unrelated store update — must not wipe the field the user is mid-edit in.
+      store.setMode("newCell");
+
+      const nameInputAfter = document.querySelector<HTMLInputElement>("#property-panel .prop-field input")!;
+      expect(nameInputAfter).toBe(nameInput);
+      expect(nameInputAfter.value).toBe("typedButNotCommittedYet");
+      expect(document.activeElement).toBe(nameInput);
+      expect(store.getDocument().getCell(controller)!.name).toBe("cController1");
+    });
+
     it("marks fields read-only and shows a note for a cell from a read-only file", () => {
       const { store } = mountShell(fakeClipboard(), loadDoc(false));
       const logger = asCellId("cLogger1");
