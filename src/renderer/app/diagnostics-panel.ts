@@ -30,6 +30,18 @@ export class DiagnosticsPanelView {
     this.render();
   }
 
+  /**
+   * Generateなど、明示的な操作の直後に結果を必ず見せる（実機確認で判明: ステータスバーの
+   * 件数表示だけでは、それが直前の操作の結果だと人間には認識できなかった、2026-09-20）。
+   * 診断が無ければ`render()`側の`hidden`判定（`report.isEmpty`）で結局非表示のままになる。
+   */
+  open(): void {
+    if (!this.visible) {
+      this.visible = true;
+      this.render();
+    }
+  }
+
   render(): void {
     const report = this.store.getReport();
     this.toggleEl.textContent = report.isEmpty ? "" : `⚠ ${report.errorCount} エラー / ${report.warningCount} 警告`;

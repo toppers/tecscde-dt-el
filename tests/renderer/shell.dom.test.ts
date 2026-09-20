@@ -582,6 +582,9 @@ describe("AppShell — DOM wiring", () => {
 
       expect(store.getReport().errorCount).toBe(1);
       expect(document.querySelector("#status-diag")!.textContent).toContain("1 エラー");
+      // 実機確認で判明: 件数表示だけでは操作の結果だと気づけない。generateは
+      // 診断が出たら一覧パネルを自動で開く（DiagnosticsPanelView.open()）。
+      expect(document.querySelector<HTMLElement>("#diagnostics-panel")!.hidden).toBe(false);
     });
 
     it("copyTecsgenCommand writes the built command line to the OS clipboard", () => {

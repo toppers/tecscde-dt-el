@@ -1,38 +1,24 @@
 // [[TECSCDE-DT-EL内部仕様]] 第2章2.4節 — preload が exposeInMainWorld で公開する
 // window.tecscde API の配線を検証する。実際のcontextBridgeによる分離世界への
 // 橋渡しは実Electron環境でしか検証できないため（第11章11.4節#2の残課題）、
-// ここでは「渡されるAPIオブジェクトが正しいIPCチャネル名・clipboard APIを
-// 呼び出すこと」を検証範囲とする。
+// ここでは「渡されるAPIオブジェクトが正しいIPCチャネル名を呼び出すこと」を検証範囲とする。
+// clipboardも他と同じくipcMain経由（実機確認でcreateRequire経由のclipboard直取得が
+// 動作しないと判明し、2026-09-20に変更）。
 
 import { describe, expect, it, vi } from "vitest";
 import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 // vi.mock はファイル先頭へホイストされるため、その factory が参照する mock は
 // vi.hoisted で同じくホイストして TDZ を避ける（第11章11.4節#2の残課題対応）。
-const { invoke, once, writeText, readText, exposeInMainWorld } = vi.hoisted(() => ({
+const { invoke, once, exposeInMainWorld } = vi.hoisted(() => ({
   invoke: vi.fn(),
   once: vi.fn(),
-  writeText: vi.fn(),
-  readText: vi.fn().mockResolvedValue("clip-content"),
   exposeInMainWorld: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld },
   ipcRenderer: { invoke, once },
-  clipboard: { writeText, readText },
-}));
-
-// preload は ESM（第11章11.2節#1の決定）のため、`clipboard` だけは
-// `createRequire(import.meta.url)("electron")` で CJS 版から取得している
-// （ESMの`electron`は preload 向けに clipboard を名前付きエクスポートしないため）。
-// この経路は vitest の vi.mock("electron") を通らないので、createRequire 自体をモックする。
-vi.mock("node:module", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:module")>()),
-  createRequire: () => (id: string) => {
-    if (id === "electron") return { clipboard: { writeText, readText } };
-    throw new Error(`unexpected require(${id})`);
-  },
 }));
 
 await import("../../src/preload/index.mjs");
@@ -85,11 +71,14 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("tecsgen:version");
   });
 
-  it("clipboard.writeText/readText bridge directly to Electron's clipboard (no ipcMain, 2.4節)", async () => {
-    await exposedApi().clipboard.writeText("hello");
-    expect(writeText).toHaveBeenCalledWith("hello");
-    await expect(exposedApi().clipboard.readText()).resolves.toBe("clip-content");
-    expect(invoke).not.toHaveBeenCalledWith(expect.stringContaining("clipboard"));
+  it("clipboard.writeText invokes clipboard:writeText with the text", () => {
+    exposedApi().clipboard.writeText("hello");
+    expect(invoke).toHaveBeenCalledWith("clipboard:writeText", "hello");
+  });
+
+  it("clipboard.readText invokes clipboard:readText", () => {
+    exposedApi().clipboard.readText();
+    expect(invoke).toHaveBeenCalledWith("clipboard:readText");
   });
 
   it("onBootstrap registers a one-shot listener on the app:bootstrap channel (7.4節)", () => {

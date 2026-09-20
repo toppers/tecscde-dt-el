@@ -6,10 +6,16 @@ import { describe, expect, it, vi } from "vitest";
 
 const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
+const clipboardMock = {
+  writeText: vi.fn(),
+  readText: vi.fn().mockReturnValue("clip-content"),
+};
+
 vi.mock("electron", () => ({
   ipcMain: {
     handle: (channel: string, fn: (...args: unknown[]) => unknown) => handlers.set(channel, fn),
   },
+  clipboard: clipboardMock,
 }));
 
 const { registerIpcHandlers } = await import("../../src/main/ipc.js");
@@ -31,7 +37,18 @@ describe("registerIpcHandlers", () => {
     registerIpcHandlers(fileService as never, tecsgenRunner as never);
 
     expect([...handlers.keys()].sort()).toEqual(
-      ["cdl:grammar-assets", "file:export", "file:open", "file:save", "file:saveAs", "tecsgen:generate", "tecsgen:preprocess", "tecsgen:version"].sort(),
+      [
+        "cdl:grammar-assets",
+        "clipboard:readText",
+        "clipboard:writeText",
+        "file:export",
+        "file:open",
+        "file:save",
+        "file:saveAs",
+        "tecsgen:generate",
+        "tecsgen:preprocess",
+        "tecsgen:version",
+      ].sort(),
     );
 
     handlers.get("file:open")!({});
@@ -54,5 +71,11 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("tecsgen:version")!({});
     expect(tecsgenRunner.version).toHaveBeenCalled();
+
+    handlers.get("clipboard:writeText")!({}, "hello");
+    expect(clipboardMock.writeText).toHaveBeenCalledWith("hello");
+
+    handlers.get("clipboard:readText")!({});
+    expect(clipboardMock.readText).toHaveBeenCalled();
   });
 });

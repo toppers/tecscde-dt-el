@@ -5,7 +5,7 @@
 // （4プロセス構成で起動、preload も ESM でロード成功）。
 // 詳細・残課題は [[work/active/TECSCDE-DT-EL実装]] の Notes を参照。
 
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Menu } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -88,6 +88,12 @@ function createWindow(): BrowserWindow {
 
   return win;
 }
+
+// Electronの既定メニューはEdit（Cut/Copy/Paste/Undo/Redo）にCtrl/Cmd+X/C/V/Zの
+// アクセラレータを持ち、renderer側のkeydownリスナへ届く前に横取りしてしまう
+// （実機確認で判明: 第4章4.1節のセルCut/Copy/Pasteが常に無反応になっていた）。
+// このアプリは独自のショートカットをDOM側で処理するため、既定メニュー自体を外す。
+Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {
   createWindow();

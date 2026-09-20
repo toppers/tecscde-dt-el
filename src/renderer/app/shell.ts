@@ -186,13 +186,13 @@ export class AppShell {
   runAction(action: string): void {
     switch (action) {
       case "open":
-        void openViaDialog(this.store, this.gateway);
+        void openViaDialog(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "save":
-        void save(this.store, this.gateway);
+        void save(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "saveAs":
-        void saveAs(this.store, this.gateway);
+        void saveAs(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "undo":
         this.store.undo();
@@ -222,7 +222,9 @@ export class AppShell {
         this.searchBox.prev();
         break;
       case "generate":
-        void generate(this.store, this.gateway, this.tecsgen);
+        void generate(this.store, this.gateway, this.tecsgen)
+          .then(() => this.diagnosticsPanel.open())
+          .catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "copyTecsgenCommand":
         this.copyTecsgenCommand();
@@ -230,6 +232,15 @@ export class AppShell {
       default:
         break;
     }
+  }
+
+  /**
+   * ツールバー由来の非同期操作（fire-and-forget）が失敗した際、コンソールへ記録する。
+   * 対処せず投げっぱなしだと、失敗が画面上は完全に無音のまま消える
+   * （実機確認で判明: WASM CSPエラー・clipboard未定義エラーがいずれもこの形で埋もれていた）。
+   */
+  private reportActionError(action: string, err: unknown): void {
+    console.error(`[AppShell] action "${action}" failed:`, err);
   }
 
   /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */

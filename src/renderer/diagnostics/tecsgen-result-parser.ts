@@ -38,7 +38,7 @@ export class TecsgenResultParser {
         {
           severity: "error",
           code: TECSGEN_CODES.NOT_FOUND,
-          message: "tecsgen実行ファイルが見つかりません。環境変数PATHを確認してください。",
+          message: "実行ファイル 'tecsgen' が見つかりません（環境変数PATH上に存在しません）。",
         },
       ];
     }

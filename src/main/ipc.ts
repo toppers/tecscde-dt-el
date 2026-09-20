@@ -1,7 +1,7 @@
 // [[TECSCDE-DT-EL内部仕様]] 第7章7.2節・第9章9.2節: ipcMain.handle の登録一式。
 // FileService/TecsgenRunner をIPC越しに公開する薄い配線層。
 
-import { app, ipcMain } from "electron";
+import { app, clipboard, ipcMain } from "electron";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileService } from "./file-service.js";
@@ -29,4 +29,10 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
     tecsgenRunner.preprocess(headerPath, cppCommand),
   );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
+
+  // 第4章4.1節・第2章2.4節: clipboardはpreloadから直接requireできない
+  // （実機確認で判明——ESM/CJS問わずpreloadに公開されるelectronモジュールには
+  // clipboardが含まれない。当初の想定は誤りだった）ため、mainプロセス経由にする。
+  ipcMain.handle("clipboard:writeText", (_e, text: string) => clipboard.writeText(text));
+  ipcMain.handle("clipboard:readText", () => clipboard.readText());
 }
