@@ -261,9 +261,10 @@ export class AppShell {
   private refreshStatus(): void {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
     const path = this.store.filePath;
-    this.statusFile.textContent = path
-      ? `${baseName(path)}${this.store.isDirty() ? " •" : ""}`
-      : "(未保存)";
+    const dirty = path !== null && this.store.isDirty();
+    this.statusFile.textContent = path ? `${baseName(path)}${dirty ? " ● 未保存の変更" : ""}` : "(未保存)";
+    // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
+    this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
   }
 

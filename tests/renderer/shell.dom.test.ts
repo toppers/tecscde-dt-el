@@ -176,6 +176,21 @@ describe("AppShell — DOM wiring", () => {
     expect(grid().style.display).toBe("");
   });
 
+  it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {
+    const { store } = mountShell();
+    store.loadDocument(store.getDocument(), "main.cde");
+    const statusFile = () => document.querySelector<HTMLElement>("#status-file")!;
+    expect(statusFile().classList.contains("dirty")).toBe(false);
+
+    store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+    expect(statusFile().classList.contains("dirty")).toBe(true);
+    expect(statusFile().textContent).toContain("未保存");
+
+    store.markSaved(store.filePath!);
+    expect(statusFile().classList.contains("dirty")).toBe(false);
+    expect(statusFile().textContent).not.toContain("未保存");
+  });
+
   it("undo button reverts a committed edit and updates its disabled state", () => {
     const { store } = mountShell();
     const controller = asCellId("cController1");
