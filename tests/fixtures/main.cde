@@ -1,0 +1,29 @@
+cell tLogger cLogger1 {
+  level = 1;
+};
+
+cell tSensor cSensor1 {
+};
+
+cell tController cController1 {
+  cLog = cLogger1.eLog;
+  cSensor = cSensor1.eRead;
+  intervalMs = 100;
+};
+
+__tool_info__("tecsgen") {
+  "tecscde_version": "0.1.0",
+  "cde_format_version": "0.1.0.0",
+  "saved_at": "2026-08-29T00:00:00.000Z",
+  "base_dir": "E:/example/project",
+  "import_path": ["./include"],
+  "define_macro": [],
+  "direct_import": ["celltypes.cdl"],
+  "cpp": "gcc -E -DTECSGEN"
+}
+
+__tool_info__("tecscde") {
+  "paper": { "size": "A4", "orientation": "LANDSCAPE" },
+  "cell_list": {},
+  "join_list": {}
+}

@@ -11,7 +11,7 @@ import { MoveCellsCommand } from "../../src/renderer/commands";
 import { AppStore } from "../../src/renderer/app/store";
 
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
-const mainText = readFileSync(resolve(__dirname, "../../public/samples/main.cde"), "utf-8");
+const mainText = readFileSync(resolve(__dirname, "../fixtures/main.cde"), "utf-8");
 
 function loadDoc(): TecscdeDocument {
   return CdlDocumentLoader.loadSources([

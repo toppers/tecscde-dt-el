@@ -8,7 +8,7 @@ import { assertInvariants, InvariantViolation } from "../../src/renderer/model/i
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
-const mainText = readFileSync(resolve(__dirname, "../../public/samples/main.cde"), "utf-8");
+const mainText = readFileSync(resolve(__dirname, "../fixtures/main.cde"), "utf-8");
 
 describe("model invariants", () => {
   it("the sample fixture satisfies all invariants after loading", () => {
