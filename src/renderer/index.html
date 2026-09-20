@@ -4,10 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- renderer は同一オリジンのバンドル1本とインラインスタイルのみ。外部リソース・
-         eval・リモート接続は許可しない（第10章10.1節・Electron セキュリティ既定）。 -->
+         eval・リモート接続は許可しない（第10章10.1節・Electron セキュリティ既定）。
+         'wasm-unsafe-eval' は web-tree-sitter（CDL文法、2026-09-16移行）の
+         WebAssembly.instantiate() 実行にのみ必要——通常のJS eval/Function()は
+         引き続き禁止のまま（'unsafe-eval'とは異なる、Chromiumの狭いWASM専用許可）。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"
     />
     <title>TECSCDE</title>
     <style>
