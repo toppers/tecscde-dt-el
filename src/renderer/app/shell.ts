@@ -203,12 +203,6 @@ export class AppShell {
       case "redo":
         this.store.redo();
         break;
-      case "zoomIn":
-        this.zoomBy(ZOOM_STEP);
-        break;
-      case "zoomOut":
-        this.zoomBy(1 / ZOOM_STEP);
-        break;
       case "zoomReset":
         this.store.setView(this.store.view.resetZoom());
         break;

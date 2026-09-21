@@ -88,9 +88,7 @@ const BODY_HTML = `
       <button data-action="saveAs" type="button">名前を付けて保存</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
-      <button data-action="zoomOut" type="button">−</button>
-      <button data-action="zoomReset" type="button">100%</button>
-      <button data-action="zoomIn" type="button">＋</button>
+      <button data-action="zoomReset" type="button">Reset Rate</button>
       <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" />
       <button data-action="toggleGrid" type="button">グリッド</button>
       <button data-action="toggleNavigator" type="button">ナビゲータ</button>
@@ -616,18 +614,18 @@ describe("AppShell — DOM wiring", () => {
       expect(store.view.panCenter).toEqual(centerBefore);
     });
 
-    it("zooming via a toolbar button keeps the slider in sync", () => {
+    it("zooming via the Ctrl+= keyboard shortcut (外部仕様7.1.2) keeps the slider in sync", () => {
       mountShell();
 
-      document.querySelector<HTMLButtonElement>("[data-action='zoomIn']")!.click();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "=", ctrlKey: true }));
 
       const slider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
       expect(slider.value).not.toBe("100");
     });
 
-    it("resetting zoom via the toolbar button snaps the slider back to 100", () => {
+    it("resetting zoom via the Reset Rate button snaps the slider back to 100", () => {
       mountShell();
-      document.querySelector<HTMLButtonElement>("[data-action='zoomIn']")!.click();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "=", ctrlKey: true }));
 
       document.querySelector<HTMLButtonElement>("[data-action='zoomReset']")!.click();
 
