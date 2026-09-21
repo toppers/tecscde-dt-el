@@ -91,6 +91,7 @@ const BODY_HTML = `
       <button data-action="zoomOut" type="button">−</button>
       <button data-action="zoomReset" type="button">100%</button>
       <button data-action="zoomIn" type="button">＋</button>
+      <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" />
       <button data-action="toggleGrid" type="button">グリッド</button>
       <button data-action="toggleNavigator" type="button">ナビゲータ</button>
       <button data-action="generate" type="button">実行</button>
@@ -599,6 +600,50 @@ describe("AppShell — DOM wiring", () => {
         expect(text).toContain("C:/proj/celltypes.cdl");
         expect(text.endsWith("C:/proj/main.cde")).toBe(true);
       });
+    });
+  });
+
+  describe("Zoom slider (外部仕様3.2.1)", () => {
+    it("dragging the slider sets the zoom level, keeping the view center fixed", () => {
+      const { store } = mountShell();
+      const centerBefore = store.view.panCenter;
+
+      const slider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
+      slider.value = "50";
+      slider.dispatchEvent(new Event("input"));
+
+      expect(store.view.zoom).toBeCloseTo(0.5, 5);
+      expect(store.view.panCenter).toEqual(centerBefore);
+    });
+
+    it("zooming via a toolbar button keeps the slider in sync", () => {
+      mountShell();
+
+      document.querySelector<HTMLButtonElement>("[data-action='zoomIn']")!.click();
+
+      const slider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
+      expect(slider.value).not.toBe("100");
+    });
+
+    it("resetting zoom via the toolbar button snaps the slider back to 100", () => {
+      mountShell();
+      document.querySelector<HTMLButtonElement>("[data-action='zoomIn']")!.click();
+
+      document.querySelector<HTMLButtonElement>("[data-action='zoomReset']")!.click();
+
+      const slider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
+      expect(slider.value).toBe("100");
+    });
+
+    it("dragging to the slider's min (5%, per 外部仕様3.2.1) does not throw and clamps to ZOOM_MIN", () => {
+      const { store } = mountShell();
+      const slider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
+
+      // <input type="range" min="5"> clamps out-of-range assignments itself (jsdom and browsers alike).
+      slider.value = "0";
+      expect(slider.value).toBe("5");
+      expect(() => slider.dispatchEvent(new Event("input"))).not.toThrow();
+      expect(store.view.zoom).toBeCloseTo(0.05, 5);
     });
   });
 });

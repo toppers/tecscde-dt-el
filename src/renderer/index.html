@@ -65,6 +65,9 @@
         background: var(--border);
         margin: 0 2px;
       }
+      #zoom-slider {
+        width: 100px;
+      }
       #toolbar label {
         display: inline-flex;
         align-items: center;
@@ -391,6 +394,7 @@
         <button data-action="zoomOut" type="button">−</button>
         <button data-action="zoomReset" type="button">100%</button>
         <button data-action="zoomIn" type="button">＋</button>
+        <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" title="表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）" />
         <button data-action="toggleGrid" type="button">グリッド</button>
         <button data-action="toggleNavigator" type="button">ナビゲータ</button>
         <span class="sep"></span>

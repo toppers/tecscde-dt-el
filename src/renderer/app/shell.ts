@@ -61,6 +61,7 @@ export class AppShell {
   private readonly svg: SVGSVGElement;
   private readonly scrollEl: HTMLElement;
   private readonly toolbar: HTMLElement;
+  private readonly zoomSlider: HTMLInputElement;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
@@ -94,6 +95,7 @@ export class AppShell {
     this.svg = requireEl<SVGSVGElement>(root, "#canvas");
     this.scrollEl = requireEl<HTMLElement>(root, "#canvas-scroll");
     this.toolbar = requireEl<HTMLElement>(root, "#toolbar");
+    this.zoomSlider = requireEl<HTMLInputElement>(root, "#zoom-slider");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
@@ -122,6 +124,7 @@ export class AppShell {
     this.disposers.push(this.store.subscribe(() => this.render()));
     this.disposers.push(this.gesture.attach(this.svg));
     this.bindToolbar();
+    this.bindZoomSlider();
     this.bindKeyboard();
     this.bindWheel();
     this.bindScroll();
@@ -254,12 +257,35 @@ export class AppShell {
     this.store.setView(this.store.view.zoomAt(a, factor));
   }
 
+  /**
+   * スライダ用: 絶対倍率（比率、1.0=100%）へ変更する。アンカー省略で`zoomBy`が
+   * 既定として使う`panCenter`（表示中央のモデル座標）がそのまま使われるため、
+   * 外部仕様7.1.2「倍率変更時は表示中央を保つ」を満たす。
+   */
+  private zoomTo(targetZoom: number): void {
+    const current = this.store.view.zoom;
+    if (current <= 0) return;
+    this.zoomBy(targetZoom / current);
+  }
+
+  private bindZoomSlider(): void {
+    const onInput = (): void => {
+      const percent = Number(this.zoomSlider.value);
+      if (!Number.isFinite(percent) || percent <= 0) return;
+      this.zoomTo(percent / 100);
+    };
+    this.zoomSlider.addEventListener("input", onInput);
+    this.disposers.push(() => this.zoomSlider.removeEventListener("input", onInput));
+  }
+
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
     const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
     this.setDisabled("[data-action='generate']", !canGenerate);
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
+    // 外部仕様3.2.1: スライダはボタン・ホイール・キーボードいずれのズーム変更にも追従する。
+    this.zoomSlider.value = String(Math.round(this.store.view.zoom * 100));
   }
 
   private setDisabled(selector: string, disabled: boolean): void {
