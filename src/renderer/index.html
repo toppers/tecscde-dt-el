@@ -137,6 +137,17 @@
         inset: 0;
         overflow: auto;
         background: #fafafa;
+        /* 2026-09-21: 用紙(#canvas)がビューポートより小さいとき（低〜中倍率で頻発）、
+           overflow:autoの既定block整列だとSVGが左上に張り付き、scrollLeft/Topも
+           スクロール範囲なしで常に0にクランプされる（pan-scroll.ts）。結果、
+           ズームの固定点計算（view-state.ts zoomAt）は正しくてもカーソル位置ではなく
+           常に画面左上を中心にズームしているように見えていた（実機対話確認で発見）。
+           flex+safe centerは「収まる時は中央寄せ、はみ出す時は通常のスクロール開始位置
+           （左上0）」を両立する標準的な手法——コンテンツが実際にビューポートを超える
+           軸ではこれまで通りscrollLeft/Topの計算がそのまま機能する。 */
+        display: flex;
+        justify-content: safe center;
+        align-items: safe center;
       }
       #canvas {
         display: block;
