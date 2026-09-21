@@ -54,6 +54,14 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  // Electronは既定でChromiumのネイティブ「Ctrl+ホイール／ピンチでページ全体を光学ズーム」
+  // を有効にしたままにする。第7章のCtrl+ホイールズーム（ポインタ固定点でモデルの表示倍率を
+  // 変える、rendererのview-state.tsが管理）とは全くの別機構で、preventDefault()では止まらない。
+  // 本アプリはCtrl+ホイールを自前のズームに使うため、ネイティブ側は無効化し二重の解釈が
+  // 起きないようにする（2026-09-21、対話的確認の過程で存在に気づいた。実際に競合していたと
+  // 確認したわけではないが、有効なままにする理由もない）。
+  win.webContents.setVisualZoomLevelLimits(1, 1);
+
   const fileService = new FileService(win);
   const tecsgenRunner = new TecsgenRunner();
   registerIpcHandlers(fileService, tecsgenRunner);
