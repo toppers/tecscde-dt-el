@@ -8,6 +8,7 @@ import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
 import type { OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
+import { TecscdeDocument } from "../model/document";
 import { ViewState } from "../view-state/view-state";
 import type { AppStore } from "./store";
 
@@ -31,10 +32,45 @@ export function applyOpenResult(store: AppStore, result: OpenResult): void {
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
 }
 
-/** ［開く］: ダイアログ経由でファイルを選び、読み込む。キャンセル時は何もしない。 */
-export async function openViaDialog(store: AppStore, gateway: FileGateway): Promise<void> {
-  const result = await gateway.open();
-  if (result) applyOpenResult(store, result);
+/**
+ * 7.6.5節（2026-09-21）: ツールバーから編集対象を選ぶ唯一の経路——ファイルブラウザの
+ * クリックから、ダイアログを介さずパス指定で開く。当初は`openViaDialog`（ダイアログ経由の
+ * 単一/複数ファイル選択）も並行提供していたが、実機確認でファイルブラウザとの入口重複が
+ * 利用者を混乱させると判明し撤回した（[[TECSCDE-DT外部仕様]]5.3節）。
+ * 7B章7.6.4節（2026-09-22）: 未保存の変更がある場合は破棄確認を挟む
+ * （[[TECSCDE-DT外部仕様]]5.7節）。未保存でなければ確認を出さずそのまま開く。
+ */
+export async function openFromPath(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+  if (store.isDirty()) {
+    const proceed = await gateway.confirmDiscardChanges();
+    if (!proceed) return;
+  }
+  const result = await gateway.openPath(path);
+  applyOpenResult(store, result);
+  // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
+}
+
+/**
+ * 第7C章7.7.3節（#9・消去ボタン）: [[TECSCDE-DT外部仕様]]5.2節「新規作成」の別名として設計。
+ * references集合・ファイルブラウザの展開状態は維持する——消去は編集対象(editable)のみを
+ * 空にする操作であり、参照ファイル一覧はアプリケーション実行中の状態として維持する
+ * （FileBrowserViewの展開状態は本関数と結線されていないため自然に維持される）。
+ */
+export async function newDocument(store: AppStore, gateway: FileGateway): Promise<void> {
+  if (store.isDirty()) {
+    const proceed = await gateway.confirmDiscardChanges();
+    if (!proceed) return;
+  }
+  const referenceFilePaths = store.getReferenceFilePaths();
+  const document = TecscdeDocument.empty();
+  store.loadDocument(document, null, [], referenceFilePaths);
+  // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
+  const { width, height } = document.paper.contentSize();
+  store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
+  // 7.7.1節: editablePathは無し（未保存の新規作成はセッション復元の対象外）、
+  // references集合は維持されたまま保存する。
+  await gateway.saveSession(null, referenceFilePaths);
 }
 
 /** ［保存］: 既存パスがあれば上書き、無ければ［名前を付けて保存］へ委譲。 */

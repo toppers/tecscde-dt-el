@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
+import { saveAppSettings } from "./app-settings.js";
 
 export function registerIpcHandlers(fileService: FileService, tecsgenRunner: TecsgenRunner): void {
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
@@ -17,12 +18,22 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
     ]);
     return { runtimeWasm, cdlWasm };
   });
-  ipcMain.handle("file:open", () => fileService.openDialog());
   ipcMain.handle("file:save", (_e, path: string, content: string) => fileService.save(path, content));
   ipcMain.handle("file:saveAs", (_e, content: string, suggestedName: string) =>
     fileService.saveAsDialog(suggestedName, content),
   );
   ipcMain.handle("file:export", (_e, path: string, data: string) => fileService.exportFile(path, data));
+  // 第7章7.6.2節: ファイルブラウザ（2026-09-21採用、TECSCDE-DT外部仕様3.5.1節）。
+  ipcMain.handle("file:chooseFolder", () => fileService.chooseFolder());
+  ipcMain.handle("file:listDirectory", (_e, dirPath: string) => fileService.listDirectory(dirPath));
+  ipcMain.handle("file:openPath", (_e, path: string) => fileService.openPath(path));
+  // 第7B章7.6.4節: 未保存確認（2026-09-22追加、TECSCDE-DT外部仕様5.7節）。
+  ipcMain.handle("file:confirmDiscardChanges", () => fileService.confirmDiscardChanges());
+  // 第7C章7.7.1節: 前回セッションの永続化（2026-09-22追加）。ウィンドウに紐づかない
+  // アプリケーション設定のため、FileServiceを経由せず直接saveAppSettingsを呼ぶ。
+  ipcMain.handle("file:saveSession", (_e, editablePath: string | null, referencePaths: readonly string[]) =>
+    saveAppSettings({ lastSession: editablePath ? { editablePath, referencePaths } : { referencePaths } }),
+  );
 
   ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));
   ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string) =>

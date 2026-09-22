@@ -3,19 +3,31 @@
 // Tauriとの両立が不要になったため本書では廃止し、Electron固有のAPIに置き換える。
 
 import { promises as fs } from "node:fs";
+import { join } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
-import type { OpenResult } from "../shared/ipc-types.js";
+import type { DirEntry, OpenResult } from "../shared/ipc-types.js";
+import { saveAppSettings } from "./app-settings.js";
+
+const BROWSABLE_EXTENSION = /\.(cde|cdl)$/i;
 
 export class FileService {
+  /**
+   * 実機確認で判明（2026-09-21）: 毎回同じ既定ディレクトリが出るのは不便なため、
+   * 直前に選んだフォルダを`chooseFolder()`の`defaultPath`として渡し、次回の初期位置にする。
+   */
+  private lastChosenFolder: string | undefined;
+
   constructor(private readonly window: BrowserWindow) {}
 
-  async openDialog(): Promise<OpenResult | null> {
-    const result = await dialog.showOpenDialog(this.window, {
-      properties: ["openFile", "multiSelections"],
-      filters: [{ name: "CDE files", extensions: ["cde", "cdl"] }],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return this.readPaths(result.filePaths);
+  /**
+   * 7.6.6節: 起動時にmainが`loadAppSettings()`で復元したルートフォルダを、
+   * `chooseFolder()`が使う`defaultPath`へ先に反映する。これを呼ばないと、再起動直後に
+   * 一度も`chooseFolder()`を呼んでいない状態でダイアログを開いた際、ファイルブラウザ自体は
+   * 前回のルートを正しく表示しているにもかかわらず、ダイアログの初期位置だけOS既定の
+   * ディレクトリに戻ってしまう（実機確認で発見、2026-09-21）。
+   */
+  primeLastChosenFolder(path: string): void {
+    this.lastChosenFolder = path;
   }
 
   /**
@@ -47,6 +59,41 @@ export class FileService {
     await this.writeAtomic(path, content);
   }
 
+  /**
+   * 7.6.1節: ファイルブラウザのルートフォルダ選択。編集対象を選ぶ唯一のツールバー操作。
+   * 7.6.6節: 選んだフォルダは終了後も復元できるよう都度永続化する（異常終了でも
+   * 直前の選択が残るよう、終了時にまとめてではなく選択のたびに保存する）。
+   */
+  async chooseFolder(): Promise<string | null> {
+    const result = await dialog.showOpenDialog(this.window, {
+      properties: ["openDirectory"],
+      defaultPath: this.lastChosenFolder,
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    this.lastChosenFolder = result.filePaths[0]!;
+    await saveAppSettings({ fileBrowserRoot: this.lastChosenFolder });
+    return this.lastChosenFolder;
+  }
+
+  /**
+   * 7.6.1節: ディレクトリ直下のみを1階層返す。ツリー展開のたびにrendererから呼ばれる想定
+   * （tecsgenプロジェクトは本アプリに関係のない大きなサブディレクトリを含みうるため、
+   * 全体を先読みする設計は採らない）。`.cde`/`.cdl`ファイルとサブディレクトリのみを列挙する。
+   */
+  async listDirectory(dirPath: string): Promise<DirEntry[]> {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory() || BROWSABLE_EXTENSION.test(e.name))
+      .map(
+        (e): DirEntry => ({
+          name: e.name,
+          path: join(dirPath, e.name),
+          kind: e.isDirectory() ? "directory" : "file",
+        }),
+      )
+      .sort((a, b) => (a.kind !== b.kind ? (a.kind === "directory" ? -1 : 1) : a.name.localeCompare(b.name)));
+  }
+
   async saveAsDialog(suggestedName: string, content: string): Promise<string | null> {
     const result = await dialog.showSaveDialog(this.window, {
       defaultPath: suggestedName,
@@ -59,6 +106,23 @@ export class FileService {
 
   async exportFile(path: string, data: string): Promise<void> {
     await this.writeAtomic(path, data);
+  }
+
+  /**
+   * 7B章7.6.4節: ファイルブラウザ経由で未保存の変更がある状態から別ファイルを開く前の
+   * 破棄確認（TECSCDE-DT外部仕様5.7節）。OSネイティブダイアログを使う——3.6.2節が禁じる
+   * ブラウザ標準`confirm`とは異なり、表示内容を制御できる。
+   */
+  async confirmDiscardChanges(): Promise<boolean> {
+    const result = await dialog.showMessageBox(this.window, {
+      type: "warning",
+      buttons: ["保存せずに開く", "キャンセル"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "未保存の変更があります",
+      detail: "保存せずに別のファイルを開くと、現在の変更内容は失われます。",
+    });
+    return result.response === 0;
   }
 
   /**

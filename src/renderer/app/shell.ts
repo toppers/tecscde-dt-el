@@ -6,7 +6,7 @@
 // `GestureController`/`ViewState` を初めて実 DOM 上で動かす層である
 // （[[TECSCDE-DT-EL実装]] 「次のステップ」）。
 //
-// スコープ: キャンバス・open/save/saveAs・Undo/Redo・ズーム・グリッド・ステータスバー・
+// スコープ: キャンバス・save/saveAs・ファイルブラウザ経由のopen・Undo/Redo・ズーム・グリッド・ステータスバー・
 // キーボード・Copy/Cut/Paste、およびモジュールG次段のパレット／プロパティパネル／
 // 検索ボックス／ナビゲータパネル／診断パネル（2026-09-11・09-12、各パネルは専用クラスへ委譲する）。
 
@@ -19,7 +19,8 @@ import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { AppGestureHost } from "./gesture-host";
-import { baseName, openViaDialog, save, saveAs } from "./file-actions";
+import { baseName, newDocument, openFromPath, save, saveAs } from "./file-actions";
+import { FileBrowserView } from "./file-browser-panel";
 import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
@@ -76,6 +77,7 @@ export class AppShell {
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
   private readonly diagnosticsPanel: DiagnosticsPanelView;
+  private readonly fileBrowser: FileBrowserView;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -117,6 +119,9 @@ export class AppShell {
       requireEl<HTMLElement>(root, "#diagnostics-panel"),
       this.store,
     );
+    this.fileBrowser = new FileBrowserView(requireEl<HTMLElement>(root, "#file-browser"), this.store, this.gateway, (path) =>
+      void openFromPath(this.store, this.gateway, path).catch((err: unknown) => this.reportActionError("openFolder", err)),
+    );
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -129,6 +134,10 @@ export class AppShell {
     this.bindWheel();
     this.bindScroll();
     this.bindBeforeUnload();
+    // 7.6.6節: 記憶済みのルートフォルダがあれば起動時に一度だけ自動復元する。
+    this.gateway.onRestoreFileBrowserRoot((path) =>
+      void this.fileBrowser.restoreRoot(path).catch((err: unknown) => this.reportActionError("restoreFileBrowserRoot", err)),
+    );
     this.render();
   }
 
@@ -153,6 +162,7 @@ export class AppShell {
     this.searchBox.render();
     this.navigator.render();
     this.diagnosticsPanel.render();
+    this.fileBrowser.render();
   }
 
   private syncScrollFromPan(doc: TecscdeDocument): void {
@@ -188,14 +198,17 @@ export class AppShell {
   /** ツールバー／キーボード共通のコマンド入口。 */
   runAction(action: string): void {
     switch (action) {
-      case "open":
-        void openViaDialog(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
+      case "openFolder":
+        void this.fileBrowser.chooseRoot().catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "save":
         void save(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "saveAs":
         void saveAs(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
+        break;
+      case "clear":
+        void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
       case "undo":
         this.store.undo();
@@ -323,10 +336,6 @@ export class AppShell {
         case "s":
           e.preventDefault();
           void save(this.store, this.gateway);
-          break;
-        case "o":
-          e.preventDefault();
-          void openViaDialog(this.store, this.gateway);
           break;
         case "c":
           e.preventDefault();

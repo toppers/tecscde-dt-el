@@ -18,15 +18,23 @@ vi.mock("electron", () => ({
   clipboard: clipboardMock,
 }));
 
+// 第7C章7.7.1節: file:saveSessionはFileServiceを経由せずsaveAppSettingsを直接呼ぶため、
+// ここでは実際のfs/app.getPathに触れないようモックする（app-settings.test.tsで別途検証）。
+const saveAppSettings = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/main/app-settings.js", () => ({ saveAppSettings }));
+
 const { registerIpcHandlers } = await import("../../src/main/ipc.js");
 
 describe("registerIpcHandlers", () => {
   it("wires every file:* and tecsgen:* channel to the corresponding service method", () => {
     const fileService = {
-      openDialog: vi.fn().mockResolvedValue("open-result"),
       save: vi.fn().mockResolvedValue(undefined),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
       exportFile: vi.fn().mockResolvedValue(undefined),
+      chooseFolder: vi.fn().mockResolvedValue("/tmp/root"),
+      listDirectory: vi.fn().mockResolvedValue([]),
+      openPath: vi.fn().mockResolvedValue("open-path-result"),
+      confirmDiscardChanges: vi.fn().mockResolvedValue(true),
     };
     const tecsgenRunner = {
       run: vi.fn().mockResolvedValue("run-result"),
@@ -41,18 +49,19 @@ describe("registerIpcHandlers", () => {
         "cdl:grammar-assets",
         "clipboard:readText",
         "clipboard:writeText",
+        "file:chooseFolder",
+        "file:confirmDiscardChanges",
         "file:export",
-        "file:open",
+        "file:listDirectory",
+        "file:openPath",
         "file:save",
         "file:saveAs",
+        "file:saveSession",
         "tecsgen:generate",
         "tecsgen:preprocess",
         "tecsgen:version",
       ].sort(),
     );
-
-    handlers.get("file:open")!({});
-    expect(fileService.openDialog).toHaveBeenCalled();
 
     handlers.get("file:save")!({}, "/tmp/a.cde", "content");
     expect(fileService.save).toHaveBeenCalledWith("/tmp/a.cde", "content");
@@ -62,6 +71,28 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("file:export")!({}, "/tmp/out.txt", "data");
     expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.txt", "data");
+
+    handlers.get("file:chooseFolder")!({});
+    expect(fileService.chooseFolder).toHaveBeenCalled();
+
+    handlers.get("file:listDirectory")!({}, "/tmp/root");
+    expect(fileService.listDirectory).toHaveBeenCalledWith("/tmp/root");
+
+    handlers.get("file:openPath")!({}, "/tmp/root/main.cde");
+    expect(fileService.openPath).toHaveBeenCalledWith("/tmp/root/main.cde");
+
+    handlers.get("file:confirmDiscardChanges")!({});
+    expect(fileService.confirmDiscardChanges).toHaveBeenCalled();
+
+    handlers.get("file:saveSession")!({}, "/tmp/root/main.cde", ["/tmp/root/celltypes.cdl"]);
+    expect(saveAppSettings).toHaveBeenCalledWith({
+      lastSession: { editablePath: "/tmp/root/main.cde", referencePaths: ["/tmp/root/celltypes.cdl"] },
+    });
+
+    handlers.get("file:saveSession")!({}, null, ["/tmp/root/celltypes.cdl"]);
+    expect(saveAppSettings).toHaveBeenCalledWith({
+      lastSession: { referencePaths: ["/tmp/root/celltypes.cdl"] },
+    });
 
     handlers.get("tecsgen:generate")!({}, ["-c", "main.cde"]);
     expect(tecsgenRunner.run).toHaveBeenCalledWith(["-c", "main.cde"]);

@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { registerIpcHandlers } from "./ipc.js";
+import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,15 @@ app.on("open-file", (event, path) => {
   event.preventDefault();
   pendingOpenPath = path;
 });
+
+/** 起動ドキュメントの最終フォールバック（コマンドライン引数・前回セッションのいずれも無い場合）。 */
+async function loadSamples(fileService: FileService): Promise<OpenResult> {
+  const samples = join(app.getAppPath(), "public", "samples");
+  // openPaths()は「最後のパスが編集対象、他は参照専用」（file-service.ts参照）。
+  // セル実体を持つmain.cdeを編集対象にするため最後に置く（celltypes.cdlは
+  // セルタイプ定義のみの参照専用ファイル）。
+  return fileService.openPaths([join(samples, "celltypes.cdl"), join(samples, "main.cde")]);
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -72,25 +82,52 @@ function createWindow(): BrowserWindow {
     console.error("renderer の読み込みに失敗しました（build:renderer 未実行の可能性）:", err);
   });
 
-  // 7.4節: renderer 初期化完了後、起動ドキュメントを一度だけ送る。
-  // コマンドライン引数／ファイル関連付けがあればそのファイル、無ければ samples。
+  // 7.4節・第7C章7.7.1節: renderer 初期化完了後、起動ドキュメントを一度だけ送る。
+  // 優先順位: コマンドライン引数／ファイル関連付け(pendingOpenPath) > 前回セッション(lastSession) > samples。
   win.webContents.once("did-finish-load", async () => {
     try {
       let data: OpenResult;
       if (pendingOpenPath) {
         data = await fileService.openPath(pendingOpenPath);
         pendingOpenPath = null;
+        // 7.7.1節: 起動時オープン（第7章7.4節）も前回セッションの保存対象——
+        // 次回、引数無しで起動した際にこのファイルを復元できるようにする。
+        await saveAppSettings({
+          lastSession: {
+            editablePath: data.editable.path,
+            referencePaths: data.references.map((r) => r.path),
+          },
+        });
       } else {
-        const samples = join(app.getAppPath(), "public", "samples");
-        // openPaths()は「最後のパスが編集対象、他は参照専用」（file-service.ts参照）。
-        // セル実体を持つmain.cdeを編集対象にするため最後に置く（celltypes.cdlは
-        // セルタイプ定義のみの参照専用ファイル）。
-        data = await fileService.openPaths([join(samples, "celltypes.cdl"), join(samples, "main.cde")]);
+        const settings = await loadAppSettings();
+        const lastSession = settings.lastSession;
+        if (lastSession?.editablePath) {
+          // 7.7.1節「復元失敗時」: 記憶されたパスが存在しない・読めない場合は
+          // エラーにせず次善のフォールバック（samples）へ進む。
+          data = await fileService
+            .openPaths([...lastSession.referencePaths, lastSession.editablePath])
+            .catch(() => loadSamples(fileService));
+        } else {
+          data = await loadSamples(fileService);
+        }
       }
       win.webContents.send("app:bootstrap", data);
     } catch (err) {
       console.error("起動ドキュメントの読み込みに失敗しました:", err);
       win.webContents.send("app:bootstrap", null);
+    }
+  });
+
+  // 7.6.6節: 記憶済みのファイルブラウザのルートフォルダがあれば、起動ドキュメントと
+  // 同じタイミングで一度だけ送る。前回の選択が無ければ何も送らない。
+  // primeLastChosenFolder()も併せて呼ぶ——呼ばないと、ファイルブラウザ自体は前回のルートを
+  // 正しく復元するのに、次に「フォルダを開く」を押した際のダイアログ初期位置だけOS既定の
+  // ディレクトリに戻ってしまう（実機確認で発見、2026-09-21）。
+  win.webContents.once("did-finish-load", async () => {
+    const settings = await loadAppSettings();
+    if (settings.fileBrowserRoot) {
+      fileService.primeLastChosenFolder(settings.fileBrowserRoot);
+      win.webContents.send("app:fileBrowserRoot", settings.fileBrowserRoot);
     }
   });
 

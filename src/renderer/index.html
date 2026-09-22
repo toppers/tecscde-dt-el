@@ -92,6 +92,42 @@
         display: flex;
         min-height: 0;
       }
+      #file-browser {
+        flex: none;
+        width: 180px;
+        overflow-y: auto;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        padding: 8px;
+        font-size: 12px;
+      }
+      .file-browser-empty {
+        color: #888888;
+        font-size: 11px;
+      }
+      .file-browser-tree {
+        list-style: none;
+        margin: 0;
+        padding-left: 12px;
+      }
+      #file-browser > .file-browser-tree {
+        padding-left: 0;
+      }
+      .file-browser-dir,
+      .file-browser-file {
+        padding: 2px 4px;
+        border-radius: 3px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .file-browser-dir:hover,
+      .file-browser-file:hover {
+        background: #e8e8e8;
+      }
+      .file-browser-file.active {
+        background: var(--accent);
+        color: #fff;
+      }
       #palette {
         flex: none;
         width: 160px;
@@ -384,9 +420,10 @@
   <body>
     <div id="app">
       <div id="toolbar">
-        <button data-action="open" type="button">開く</button>
+        <button data-action="openFolder" type="button" title="ファイルブラウザのルートフォルダを選ぶ（外部仕様3.5.1節）">フォルダを開く</button>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
+        <button data-action="clear" type="button" title="編集対象をクリアし、新規作成する（外部仕様5.2節）">消去</button>
         <span class="sep"></span>
         <button data-action="undo" type="button">元に戻す</button>
         <button data-action="redo" type="button">やり直し</button>
@@ -408,6 +445,7 @@
         </div>
       </div>
       <div id="main">
+        <div id="file-browser"></div>
         <div id="palette">
           <div id="palette-mode">
             <button data-mode="select" type="button">選択</button>

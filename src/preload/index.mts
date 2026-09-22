@@ -2,18 +2,23 @@
 // `window.tecscde` API の定義点。file・tecsgen・clipboardいずれもipcMain経由。
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { OpenResult, TecsgenResult, CppResult, TecscdeApi } from "../shared/ipc-types.js";
+import type { OpenResult, TecsgenResult, CppResult, TecscdeApi, DirEntry } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
   cdl: {
     loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
   },
   file: {
-    open: (): Promise<OpenResult | null> => ipcRenderer.invoke("file:open"),
     save: (path: string, content: string): Promise<void> => ipcRenderer.invoke("file:save", path, content),
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:saveAs", content, suggestedName),
     export: (path: string, data: string): Promise<void> => ipcRenderer.invoke("file:export", path, data),
+    chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("file:chooseFolder"),
+    listDirectory: (dirPath: string): Promise<readonly DirEntry[]> => ipcRenderer.invoke("file:listDirectory", dirPath),
+    openPath: (path: string): Promise<OpenResult> => ipcRenderer.invoke("file:openPath", path),
+    confirmDiscardChanges: (): Promise<boolean> => ipcRenderer.invoke("file:confirmDiscardChanges"),
+    saveSession: (editablePath: string | null, referencePaths: readonly string[]): Promise<void> =>
+      ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
   },
   tecsgen: {
     generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),
@@ -30,6 +35,10 @@ const api: TecscdeApi = {
   // 第7章7.4節: main が did-finish-load 後に一度だけ送る起動ドキュメント。
   onBootstrap: (listener: (data: OpenResult | null) => void): void => {
     ipcRenderer.once("app:bootstrap", (_event, data: OpenResult | null) => listener(data));
+  },
+  // 第7章7.6.6節: 記憶済みのファイルブラウザのルートフォルダ。前回の選択が無ければ送られない。
+  onRestoreFileBrowserRoot: (listener: (path: string) => void): void => {
+    ipcRenderer.once("app:fileBrowserRoot", (_event, path: string) => listener(path));
   },
 };
 

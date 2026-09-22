@@ -14,10 +14,14 @@ function stubApi(): TecscdeApi {
       loadGrammarAssets: vi.fn().mockResolvedValue({ runtimeWasm: new Uint8Array(), cdlWasm: new Uint8Array() }),
     },
     file: {
-      open: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
       saveAs: vi.fn().mockResolvedValue(null),
       export: vi.fn().mockResolvedValue(undefined),
+      chooseFolder: vi.fn().mockResolvedValue(null),
+      listDirectory: vi.fn().mockResolvedValue([]),
+      openPath: vi.fn().mockResolvedValue({ editable: { path: "x.cde", content: "" }, references: [] }),
+      confirmDiscardChanges: vi.fn().mockResolvedValue(true),
+      saveSession: vi.fn().mockResolvedValue(undefined),
     },
     tecsgen: {
       generate: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
@@ -29,6 +33,7 @@ function stubApi(): TecscdeApi {
       readText: vi.fn().mockReturnValue(""),
     },
     onBootstrap: vi.fn(),
+    onRestoreFileBrowserRoot: vi.fn(),
   };
 }
 
@@ -41,9 +46,6 @@ describe("FileGateway", () => {
     const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
     const gateway = new FileGateway();
 
-    gateway.open();
-    expect(api.file.open).toHaveBeenCalled();
-
     gateway.save("/a.cde", "x");
     expect(api.file.save).toHaveBeenCalledWith("/a.cde", "x");
 
@@ -52,6 +54,25 @@ describe("FileGateway", () => {
 
     gateway.export("/out.txt", "x");
     expect(api.file.export).toHaveBeenCalledWith("/out.txt", "x");
+
+    gateway.chooseFolder();
+    expect(api.file.chooseFolder).toHaveBeenCalled();
+
+    gateway.listDirectory("/root");
+    expect(api.file.listDirectory).toHaveBeenCalledWith("/root");
+
+    gateway.openPath("/root/main.cde");
+    expect(api.file.openPath).toHaveBeenCalledWith("/root/main.cde");
+
+    gateway.confirmDiscardChanges();
+    expect(api.file.confirmDiscardChanges).toHaveBeenCalled();
+
+    gateway.saveSession("/root/main.cde", ["/root/celltypes.cdl"]);
+    expect(api.file.saveSession).toHaveBeenCalledWith("/root/main.cde", ["/root/celltypes.cdl"]);
+
+    const listener = vi.fn();
+    gateway.onRestoreFileBrowserRoot(listener);
+    expect(api.onRestoreFileBrowserRoot).toHaveBeenCalledWith(listener);
   });
 });
 

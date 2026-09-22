@@ -36,11 +36,6 @@ function exposedApi(): TecscdeApi {
 }
 
 describe("preload", () => {
-  it("file.open invokes the file:open channel", () => {
-    exposedApi().file.open();
-    expect(invoke).toHaveBeenCalledWith("file:open");
-  });
-
   it("file.save invokes file:save with path and content", () => {
     exposedApi().file.save("/a.cde", "content");
     expect(invoke).toHaveBeenCalledWith("file:save", "/a.cde", "content");
@@ -54,6 +49,31 @@ describe("preload", () => {
   it("file.export invokes file:export with path and data", () => {
     exposedApi().file.export("/out.txt", "data");
     expect(invoke).toHaveBeenCalledWith("file:export", "/out.txt", "data");
+  });
+
+  it("file.chooseFolder invokes the file:chooseFolder channel", () => {
+    exposedApi().file.chooseFolder();
+    expect(invoke).toHaveBeenCalledWith("file:chooseFolder");
+  });
+
+  it("file.listDirectory invokes file:listDirectory with the directory path", () => {
+    exposedApi().file.listDirectory("/root");
+    expect(invoke).toHaveBeenCalledWith("file:listDirectory", "/root");
+  });
+
+  it("file.openPath invokes file:openPath with the path", () => {
+    exposedApi().file.openPath("/root/main.cde");
+    expect(invoke).toHaveBeenCalledWith("file:openPath", "/root/main.cde");
+  });
+
+  it("file.confirmDiscardChanges invokes the file:confirmDiscardChanges channel", () => {
+    exposedApi().file.confirmDiscardChanges();
+    expect(invoke).toHaveBeenCalledWith("file:confirmDiscardChanges");
+  });
+
+  it("file.saveSession invokes file:saveSession with editablePath and referencePaths (7.7.1節)", () => {
+    exposedApi().file.saveSession("/root/main.cde", ["/root/celltypes.cdl"]);
+    expect(invoke).toHaveBeenCalledWith("file:saveSession", "/root/main.cde", ["/root/celltypes.cdl"]);
   });
 
   it("tecsgen.generate invokes tecsgen:generate with args", () => {
@@ -90,5 +110,15 @@ describe("preload", () => {
     const received = once.mock.calls.at(-1)![1] as (e: unknown, d: unknown) => void;
     received({}, { editable: { path: "x.cde", content: "" }, references: [] });
     expect(listener).toHaveBeenCalledWith({ editable: { path: "x.cde", content: "" }, references: [] });
+  });
+
+  it("onRestoreFileBrowserRoot registers a one-shot listener on the app:fileBrowserRoot channel (7.6.6節)", () => {
+    const listener = vi.fn();
+    exposedApi().onRestoreFileBrowserRoot(listener);
+    expect(once).toHaveBeenCalledWith("app:fileBrowserRoot", expect.any(Function));
+
+    const received = once.mock.calls.at(-1)![1] as (e: unknown, path: string) => void;
+    received({}, "/root");
+    expect(listener).toHaveBeenCalledWith("/root");
   });
 });

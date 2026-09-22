@@ -6,7 +6,7 @@
 // SVG 幾何・ズーム/パンのスクロール連動の実挙動は手動 `electron .` で確認する
 // （happy-dom はレイアウトを持たない、2026-09-10 のスコープ確認）。
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
@@ -32,21 +32,31 @@ function loadDoc(mainEditable = true): TecscdeDocument {
 }
 
 const noopGateway = {
-  open: async () => null,
   save: async () => undefined,
   saveAs: async () => null,
   export: async () => undefined,
+  chooseFolder: async () => null,
+  listDirectory: async () => [],
+  openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
+  confirmDiscardChanges: async () => true,
+  saveSession: async () => undefined,
+  onRestoreFileBrowserRoot: () => undefined,
 } as unknown as FileGateway;
 
 function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, string]> } {
   const saveCalls: Array<[string, string]> = [];
   const gateway = {
-    open: async () => null,
     save: async (path: string, content: string) => {
       saveCalls.push([path, content]);
     },
     saveAs: async () => null,
     export: async () => undefined,
+    chooseFolder: async () => null,
+    listDirectory: async () => [],
+    openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
+    confirmDiscardChanges: async () => true,
+    saveSession: async () => undefined,
+    onRestoreFileBrowserRoot: () => undefined,
   } as unknown as FileGateway;
   return { gateway, saveCalls };
 }
@@ -83,9 +93,10 @@ function fakeTecsgen(result: Partial<TecsgenResult> = {}): { gateway: TecsgenGat
 const BODY_HTML = `
   <div id="app">
     <div id="toolbar">
-      <button data-action="open" type="button">開く</button>
+      <button data-action="openFolder" type="button">フォルダを開く</button>
       <button data-action="save" type="button">保存</button>
       <button data-action="saveAs" type="button">名前を付けて保存</button>
+      <button data-action="clear" type="button">消去</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
       <button data-action="zoomReset" type="button">Reset Rate</button>
@@ -103,6 +114,7 @@ const BODY_HTML = `
       </div>
     </div>
     <div id="main">
+      <div id="file-browser"></div>
       <div id="palette">
         <div id="palette-mode">
           <button data-mode="select" type="button">選択</button>
@@ -642,6 +654,139 @@ describe("AppShell — DOM wiring", () => {
       expect(slider.value).toBe("5");
       expect(() => slider.dispatchEvent(new Event("input"))).not.toThrow();
       expect(store.view.zoom).toBeCloseTo(0.05, 5);
+    });
+  });
+
+  describe("file browser root restoration (7.6.6節)", () => {
+    it("restores the file browser root sent via onRestoreFileBrowserRoot at startup", async () => {
+      let restoreListener: ((path: string) => void) | undefined;
+      const { gateway } = fakeFileGateway();
+      (gateway as unknown as { listDirectory: () => Promise<unknown> }).listDirectory = async () => [
+        { name: "main.cde", path: "/saved-root/main.cde", kind: "file" },
+      ];
+      (gateway as unknown as { onRestoreFileBrowserRoot: (l: (path: string) => void) => void }).onRestoreFileBrowserRoot = (
+        listener,
+      ) => {
+        restoreListener = listener;
+      };
+
+      mountShell(fakeClipboard(), loadDoc(), gateway);
+      expect(restoreListener).toBeDefined();
+      restoreListener!("/saved-root");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(document.querySelector('[data-path="/saved-root/main.cde"]')).not.toBeNull();
+    });
+  });
+
+  describe("file browser: unsaved changes confirmation (7B章7.6.4節)", () => {
+    function fileBrowserGateway(confirmResult: boolean) {
+      const confirmDiscardChanges = vi.fn().mockResolvedValue(confirmResult);
+      const openPath = vi.fn().mockResolvedValue({
+        editable: { path: "/root/other.cde", content: mainText },
+        references: [{ path: "/root/celltypes.cdl", content: celltypesText }],
+      });
+      const gateway = {
+        ...noopGateway,
+        chooseFolder: async () => "/root",
+        listDirectory: async () => [{ name: "other.cde", path: "/root/other.cde", kind: "file" }],
+        openPath,
+        confirmDiscardChanges,
+      } as unknown as FileGateway;
+      return { gateway, confirmDiscardChanges, openPath };
+    }
+
+    async function openFileFromBrowser(): Promise<void> {
+      document.querySelector<HTMLButtonElement>("[data-action='openFolder']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      document
+        .querySelector<HTMLElement>('[data-path="/root/other.cde"]')!
+        .dispatchEvent(new Event("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    it("opens without confirming when there are no unsaved changes", async () => {
+      const { gateway, confirmDiscardChanges, openPath } = fileBrowserGateway(true);
+      mountShell(fakeClipboard(), loadDoc(), gateway);
+
+      await openFileFromBrowser();
+
+      expect(confirmDiscardChanges).not.toHaveBeenCalled();
+      expect(openPath).toHaveBeenCalledWith("/root/other.cde");
+    });
+
+    it("confirms before discarding unsaved changes, and opens when the user proceeds", async () => {
+      const { gateway, confirmDiscardChanges, openPath } = fileBrowserGateway(true);
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+      expect(store.isDirty()).toBe(true);
+
+      await openFileFromBrowser();
+
+      expect(confirmDiscardChanges).toHaveBeenCalled();
+      expect(openPath).toHaveBeenCalledWith("/root/other.cde");
+    });
+
+    it("does not open when the user cancels the discard confirmation", async () => {
+      const { gateway, confirmDiscardChanges, openPath } = fileBrowserGateway(false);
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+
+      await openFileFromBrowser();
+
+      expect(confirmDiscardChanges).toHaveBeenCalled();
+      expect(openPath).not.toHaveBeenCalled();
+      expect(store.filePath).not.toBe("/root/other.cde");
+    });
+  });
+
+  describe("clear button — new document (第7C章7.7.3節)", () => {
+    it("clears the editable document without confirming when there are no unsaved changes", () => {
+      const { store } = mountShell();
+      store.loadDocument(loadDoc(), "/root/main.cde", [], ["/root/celltypes.cdl"]);
+
+      document.querySelector<HTMLButtonElement>("[data-action='clear']")!.click();
+
+      expect(store.filePath).toBeNull();
+      expect(store.isDirty()).toBe(false);
+    });
+
+    it("preserves the reference file set across clear (references集合は維持)", () => {
+      const { store } = mountShell();
+      store.loadDocument(loadDoc(), "/root/main.cde", [], ["/root/celltypes.cdl"]);
+
+      document.querySelector<HTMLButtonElement>("[data-action='clear']")!.click();
+
+      expect(store.getReferenceFilePaths()).toEqual(["/root/celltypes.cdl"]);
+    });
+
+    it("confirms before discarding unsaved changes, and clears when the user proceeds", async () => {
+      const confirmDiscardChanges = vi.fn().mockResolvedValue(true);
+      const gateway = { ...noopGateway, confirmDiscardChanges } as unknown as FileGateway;
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.loadDocument(store.getDocument(), "/root/main.cde");
+      store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+      expect(store.isDirty()).toBe(true);
+
+      document.querySelector<HTMLButtonElement>("[data-action='clear']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(confirmDiscardChanges).toHaveBeenCalled();
+      expect(store.filePath).toBeNull();
+    });
+
+    it("does not clear when the user cancels the discard confirmation", async () => {
+      const confirmDiscardChanges = vi.fn().mockResolvedValue(false);
+      const gateway = { ...noopGateway, confirmDiscardChanges } as unknown as FileGateway;
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.loadDocument(store.getDocument(), "/root/main.cde");
+      store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+
+      document.querySelector<HTMLButtonElement>("[data-action='clear']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(confirmDiscardChanges).toHaveBeenCalled();
+      expect(store.filePath).toBe("/root/main.cde");
     });
   });
 });
