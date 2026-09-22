@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
 import { saveAppSettings } from "./app-settings.js";
+import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
 
 export function registerIpcHandlers(fileService: FileService, tecsgenRunner: TecsgenRunner): void {
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
@@ -33,6 +34,12 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
   // アプリケーション設定のため、FileServiceを経由せず直接saveAppSettingsを呼ぶ。
   ipcMain.handle("file:saveSession", (_e, editablePath: string | null, referencePaths: readonly string[]) =>
     saveAppSettings({ lastSession: editablePath ? { editablePath, referencePaths } : { referencePaths } }),
+  );
+  // 第7D章7.5.2節: import/import_C文の参照先解決（2026-09-22追加）。
+  ipcMain.handle(
+    "file:resolveImports",
+    (_e, editablePath: string, requests: readonly ImportRequest[], options: ImportResolutionOptions) =>
+      fileService.resolveImports(editablePath, requests, options),
   );
 
   ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));

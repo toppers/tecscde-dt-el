@@ -35,6 +35,7 @@ describe("registerIpcHandlers", () => {
       listDirectory: vi.fn().mockResolvedValue([]),
       openPath: vi.fn().mockResolvedValue("open-path-result"),
       confirmDiscardChanges: vi.fn().mockResolvedValue(true),
+      resolveImports: vi.fn().mockResolvedValue("resolve-imports-result"),
     };
     const tecsgenRunner = {
       run: vi.fn().mockResolvedValue("run-result"),
@@ -54,6 +55,7 @@ describe("registerIpcHandlers", () => {
         "file:export",
         "file:listDirectory",
         "file:openPath",
+        "file:resolveImports",
         "file:save",
         "file:saveAs",
         "file:saveSession",
@@ -93,6 +95,11 @@ describe("registerIpcHandlers", () => {
     expect(saveAppSettings).toHaveBeenCalledWith({
       lastSession: { referencePaths: ["/tmp/root/celltypes.cdl"] },
     });
+
+    const requests = [{ kind: "import", specifier: "celltypes.cdl" }];
+    const options = { importPaths: ["."] };
+    handlers.get("file:resolveImports")!({}, "/tmp/root/main.cde", requests, options);
+    expect(fileService.resolveImports).toHaveBeenCalledWith("/tmp/root/main.cde", requests, options);
 
     handlers.get("tecsgen:generate")!({}, ["-c", "main.cde"]);
     expect(tecsgenRunner.run).toHaveBeenCalledWith(["-c", "main.cde"]);

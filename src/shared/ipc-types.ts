@@ -42,6 +42,32 @@ export interface CdlGrammarAssetBytes {
   readonly cdlWasm: Uint8Array;
 }
 
+/**
+ * [[TECSCDE-DT-EL内部仕様]] 第7D章7.5.2節: `FileService.resolveImports()`への1件の解決要求。
+ * `kind: "manual"`は絶対パスが直接指定されている（第7C章7.7.2節、探索を経由しない）。
+ */
+export interface ImportRequest {
+  readonly kind: "import" | "import_C" | "manual";
+  readonly specifier: string;
+}
+
+/** 第7D章7.5.2節: 探索候補ディレクトリの構築に使う入力。 */
+export interface ImportResolutionOptions {
+  readonly baseDir?: string;
+  readonly importPaths: readonly string[];
+  readonly cpp?: string;
+  /** 第7D章7.5.3節: 解決が進むごとにrendererが蓄積する追加の探索ディレクトリ。 */
+  readonly extraSearchDirs?: readonly string[];
+}
+
+/** 第7D章7.5.2節: `resolveImports()`の1件あたりの結果。 */
+export interface ResolvedImport {
+  readonly request: ImportRequest;
+  readonly canonicalPath?: string;
+  readonly content?: string;
+  readonly error?: "not-found" | "not-utf8" | "read-failed";
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
@@ -64,6 +90,12 @@ export interface TecscdeApi {
      * `null`の場合（消去後、7.7.3節）はreferencesのみ保存し復元対象から外す。
      */
     saveSession(editablePath: string | null, referencePaths: readonly string[]): Promise<void>;
+    /** 第7D章7.5.2節: import/import_C文の参照先をバッチで解決する。 */
+    resolveImports(
+      editablePath: string,
+      requests: readonly ImportRequest[],
+      options: ImportResolutionOptions,
+    ): Promise<readonly ResolvedImport[]>;
   };
   readonly tecsgen: {
     generate(args: readonly string[]): Promise<TecsgenResult>;

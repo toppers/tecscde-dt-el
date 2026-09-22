@@ -3,7 +3,13 @@
 // 事実はこのクラスの内部に閉じ込め、呼び出し側（UIシェル）はPromiseを返す通常の
 // メソッド呼び出しとしてしか扱わない（第2章2.4節）。
 
-import type { DirEntry, OpenResult } from "../../shared/ipc-types.js";
+import type {
+  DirEntry,
+  ImportRequest,
+  ImportResolutionOptions,
+  OpenResult,
+  ResolvedImport,
+} from "../../shared/ipc-types.js";
 
 export class FileGateway {
   save(path: string, content: string): Promise<void> {
@@ -41,6 +47,15 @@ export class FileGateway {
   /** 7C章7.7.1節: 前回終了時に開いていたファイル集合の永続化。 */
   saveSession(editablePath: string | null, referencePaths: readonly string[]): Promise<void> {
     return window.tecscde.file.saveSession(editablePath, referencePaths);
+  }
+
+  /** 第7D章7.5.2節: import/import_C文の参照先をバッチで解決する。 */
+  resolveImports(
+    editablePath: string,
+    requests: readonly ImportRequest[],
+    options: ImportResolutionOptions,
+  ): Promise<readonly ResolvedImport[]> {
+    return window.tecscde.file.resolveImports(editablePath, requests, options);
   }
 
   /** 7.6.6節: 起動時に一度だけ届く、記憶済みのファイルブラウザのルートフォルダ。 */

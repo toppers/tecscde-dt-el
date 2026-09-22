@@ -6,10 +6,11 @@
 import { CdlDocumentLoader } from "../cdl/document-builder";
 import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
-import type { OpenResult } from "../../shared/ipc-types.js";
+import type { OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import { TecscdeDocument } from "../model/document";
 import { ViewState } from "../view-state/view-state";
+import { extractToolInfoTecsgen, resolveAllImports } from "./import-resolution";
 import type { AppStore } from "./store";
 
 /** `path/to/foo.cde` → `foo.cde`（renderer には node:path が無いので自前）。 */
@@ -18,15 +19,41 @@ export function baseName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** `OpenResult`（参照ファイル＋編集対象）を `TecscdeDocument` へ組み立て、ストアへ反映する。 */
-export function applyOpenResult(store: AppStore, result: OpenResult): void {
+/** すでに読み込み済みのパス集合（正規化済み絶対パス）と重複しない参照だけを追加する（第7D章7.5節）。 */
+function mergeReferences(existing: readonly OpenFileEntry[], discovered: readonly OpenFileEntry[]): OpenFileEntry[] {
+  const seen = new Set(existing.map((r) => r.path));
+  const merged = [...existing];
+  for (const d of discovered) {
+    if (seen.has(d.path)) continue;
+    seen.add(d.path);
+    merged.push(d);
+  }
+  return merged;
+}
+
+/**
+ * `OpenResult`（参照ファイル＋編集対象）を `TecscdeDocument` へ組み立て、ストアへ反映する。
+ * 第7D・7E章: 編集対象ファイルの`import`/`import_C`文の参照先を`resolveAllImports`で
+ * 推移的に解決し、既存の`result.references`（手動指定・前回セッション復元由来）と
+ * 正規化済み絶対パスで重複排除して合流させる。
+ */
+export async function applyOpenResult(store: AppStore, gateway: FileGateway, result: OpenResult): Promise<void> {
+  const toolInfo = extractToolInfoTecsgen(result.editable.content);
+  const { references: autoReferences, diagnostics: importDiagnostics } = await resolveAllImports(
+    gateway,
+    result.editable.path,
+    result.editable.content,
+    toolInfo,
+  );
+  const references = mergeReferences(result.references, autoReferences);
+
   const sources: CdlSource[] = [
-    ...result.references.map((r) => ({ text: r.content, fileName: baseName(r.path), editable: false })),
+    ...references.map((r) => ({ text: r.content, fileName: baseName(r.path), editable: false })),
     { text: result.editable.content, fileName: baseName(result.editable.path), editable: true },
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
-  const referenceFilePaths = result.references.map((r) => r.path);
-  store.loadDocument(document, result.editable.path, diagnostics, referenceFilePaths);
+  const referenceFilePaths = references.map((r) => r.path);
+  store.loadDocument(document, result.editable.path, [...importDiagnostics, ...diagnostics], referenceFilePaths);
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
@@ -46,7 +73,7 @@ export async function openFromPath(store: AppStore, gateway: FileGateway, path: 
     if (!proceed) return;
   }
   const result = await gateway.openPath(path);
-  applyOpenResult(store, result);
+  await applyOpenResult(store, gateway, result);
   // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
   await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
 }

@@ -22,6 +22,7 @@ function stubApi(): TecscdeApi {
       openPath: vi.fn().mockResolvedValue({ editable: { path: "x.cde", content: "" }, references: [] }),
       confirmDiscardChanges: vi.fn().mockResolvedValue(true),
       saveSession: vi.fn().mockResolvedValue(undefined),
+      resolveImports: vi.fn().mockResolvedValue([]),
     },
     tecsgen: {
       generate: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
@@ -69,6 +70,11 @@ describe("FileGateway", () => {
 
     gateway.saveSession("/root/main.cde", ["/root/celltypes.cdl"]);
     expect(api.file.saveSession).toHaveBeenCalledWith("/root/main.cde", ["/root/celltypes.cdl"]);
+
+    const requests = [{ kind: "import" as const, specifier: "celltypes.cdl" }];
+    const options = { importPaths: ["."] };
+    gateway.resolveImports("/root/main.cde", requests, options);
+    expect(api.file.resolveImports).toHaveBeenCalledWith("/root/main.cde", requests, options);
 
     const listener = vi.fn();
     gateway.onRestoreFileBrowserRoot(listener);

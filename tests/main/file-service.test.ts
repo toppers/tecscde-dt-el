@@ -5,7 +5,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { FileService } from "../../src/main/file-service.js";
 
 const showOpenDialog = vi.fn();
@@ -179,5 +179,173 @@ describe("FileService", () => {
       { name: "a.cdl", path: join(dir, "a.cdl"), kind: "file" },
       { name: "b.cde", path: join(dir, "b.cde"), kind: "file" },
     ]);
+  });
+
+  it("openPath normalizes the returned path (第7D章7.5節: resolveImportsとの重複排除に必要)", async () => {
+    mkdirSync(join(dir, "editable"), { recursive: true });
+    const cleanPath = join(dir, "editable", "main.cde");
+    writeFileSync(cleanPath, "content");
+    const messyPath = `${dir}/editable/./main.cde`; // path.joinを経由しない生文字列（正規化前）
+    const service = new FileService({} as never);
+
+    const result = await service.openPath(messyPath);
+
+    expect(result.editable.path).toBe(resolve(messyPath));
+    expect(result.editable.path).toBe(cleanPath);
+  });
+
+  describe("resolveImports (第7D章7.5.2節)", () => {
+    let editablePath: string;
+
+    beforeEach(() => {
+      mkdirSync(join(dir, "editable"), { recursive: true });
+      editablePath = join(dir, "editable", "main.cde"); // このファイル自体は存在しなくてよい（dirnameのみ使う）
+    });
+
+    it("resolves relative to the editable file's own directory (searchDirs[0])", async () => {
+      writeFileSync(join(dir, "editable", "sibling.cdl"), "sibling-content");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "sibling.cdl" }],
+        { importPaths: ["."] },
+      );
+
+      expect(resolved).toEqual({
+        request: { kind: "import", specifier: "sibling.cdl" },
+        canonicalPath: join(dir, "editable", "sibling.cdl"),
+        content: "sibling-content",
+      });
+    });
+
+    it("falls back to baseDir when not found in the editable file's own directory", async () => {
+      const baseDir = join(dir, "base");
+      mkdirSync(baseDir);
+      writeFileSync(join(baseDir, "fromBase.cdl"), "base-content");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "fromBase.cdl" }],
+        { importPaths: ["."], baseDir },
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(baseDir, "fromBase.cdl"));
+      expect(resolved?.content).toBe("base-content");
+    });
+
+    it("tries non-'.' importPaths entries within each search directory", async () => {
+      mkdirSync(join(dir, "editable", "include"));
+      writeFileSync(join(dir, "editable", "include", "header.cdl"), "include-content");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "header.cdl" }],
+        { importPaths: [".", "include"] }, // "." では見つからず、"include" で見つかる
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(dir, "editable", "include", "header.cdl"));
+      expect(resolved?.content).toBe("include-content");
+    });
+
+    it("falls back to extraSearchDirs (第7D章7.5.3節: tecsgenの$base_dir累積に相当)", async () => {
+      const extraDir = join(dir, "extra");
+      mkdirSync(extraDir);
+      writeFileSync(join(extraDir, "fromExtra.cdl"), "extra-content");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "fromExtra.cdl" }],
+        { importPaths: ["."], extraSearchDirs: [extraDir] },
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(extraDir, "fromExtra.cdl"));
+      expect(resolved?.content).toBe("extra-content");
+    });
+
+    it("prefers the editable file's own directory over baseDir when both have a matching file", async () => {
+      const baseDir = join(dir, "base");
+      mkdirSync(baseDir);
+      writeFileSync(join(dir, "editable", "dup.cdl"), "editable-version");
+      writeFileSync(join(baseDir, "dup.cdl"), "base-version");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(editablePath, [{ kind: "import", specifier: "dup.cdl" }], {
+        importPaths: ["."],
+        baseDir,
+      });
+
+      expect(resolved?.content).toBe("editable-version");
+    });
+
+    it("kind:'manual' checks the absolute path directly, bypassing searchDirs/importPaths (第7C章7.7.2節)", async () => {
+      const manualPath = join(dir, "manual.cdl");
+      writeFileSync(manualPath, "manual-content");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(editablePath, [{ kind: "manual", specifier: manualPath }], {
+        importPaths: [], // 探索を経由しないため空でよい
+      });
+
+      expect(resolved?.canonicalPath).toBe(manualPath);
+      expect(resolved?.content).toBe("manual-content");
+    });
+
+    it("kind:'manual' returns 'not-found' for a non-existent absolute path without falling back to searchDirs", async () => {
+      writeFileSync(join(dir, "editable", "same-name.cdl"), "should-not-be-used");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "manual", specifier: join(dir, "does-not-exist.cdl") }],
+        { importPaths: ["."] },
+      );
+
+      expect(resolved?.error).toBe("not-found");
+    });
+
+    it("returns 'not-found' when no candidate exists in any search directory", async () => {
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(editablePath, [{ kind: "import", specifier: "nope.cdl" }], {
+        importPaths: ["."],
+      });
+
+      expect(resolved).toEqual({ request: { kind: "import", specifier: "nope.cdl" }, error: "not-found" });
+    });
+
+    it("returns 'not-utf8' for a file containing invalid UTF-8 byte sequences", async () => {
+      writeFileSync(join(dir, "editable", "bad.cdl"), Buffer.from([0xff, 0xfe, 0x00, 0x41]));
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(editablePath, [{ kind: "import", specifier: "bad.cdl" }], {
+        importPaths: ["."],
+      });
+
+      expect(resolved?.error).toBe("not-utf8");
+    });
+
+    it("resolves multiple requests in one batched call, preserving order", async () => {
+      writeFileSync(join(dir, "editable", "a.cdl"), "a-content");
+      writeFileSync(join(dir, "editable", "b.cdl"), "b-content");
+      const service = new FileService({} as never);
+
+      const resolved = await service.resolveImports(
+        editablePath,
+        [
+          { kind: "import", specifier: "a.cdl" },
+          { kind: "import", specifier: "missing.cdl" },
+          { kind: "import_C", specifier: "b.cdl" },
+        ],
+        { importPaths: ["."] },
+      );
+
+      expect(resolved[0]?.content).toBe("a-content");
+      expect(resolved[1]?.error).toBe("not-found");
+      expect(resolved[2]?.content).toBe("b-content");
+    });
   });
 });

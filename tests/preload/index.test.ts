@@ -71,6 +71,13 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:confirmDiscardChanges");
   });
 
+  it("file.resolveImports invokes file:resolveImports with editablePath, requests, and options (7D章7.5.2節)", () => {
+    const requests = [{ kind: "import" as const, specifier: "celltypes.cdl" }];
+    const options = { importPaths: ["."] };
+    exposedApi().file.resolveImports("/root/main.cde", requests, options);
+    expect(invoke).toHaveBeenCalledWith("file:resolveImports", "/root/main.cde", requests, options);
+  });
+
   it("file.saveSession invokes file:saveSession with editablePath and referencePaths (7.7.1節)", () => {
     exposedApi().file.saveSession("/root/main.cde", ["/root/celltypes.cdl"]);
     expect(invoke).toHaveBeenCalledWith("file:saveSession", "/root/main.cde", ["/root/celltypes.cdl"]);

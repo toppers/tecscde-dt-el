@@ -3,9 +3,15 @@
 // Tauriとの両立が不要になったため本書では廃止し、Electron固有のAPIに置き換える。
 
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
-import type { DirEntry, OpenResult } from "../shared/ipc-types.js";
+import type {
+  DirEntry,
+  ImportRequest,
+  ImportResolutionOptions,
+  OpenResult,
+  ResolvedImport,
+} from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
 
 const BROWSABLE_EXTENSION = /\.(cde|cdl)$/i;
@@ -48,10 +54,14 @@ export class FileService {
 
   private async readPaths(paths: readonly string[]): Promise<OpenResult> {
     const contents = await Promise.all(paths.map((p) => fs.readFile(p, "utf-8")));
-    const editablePath = paths[paths.length - 1]!; // 最後に選択したファイルを編集対象とする
+    // 第7D章7.5節: renderer側でresolveImportsが返す正規化済み絶対パスと文字列比較で
+    // 重複排除できるよう、ここで返すパスも正規化する（renderer はNode APIを持たないため
+    // 正規化は必ずmain側で行う）。
+    const resolvedPaths = paths.map((p) => resolve(p));
+    const editablePath = resolvedPaths[resolvedPaths.length - 1]!; // 最後に選択したファイルを編集対象とする
     return {
       editable: { path: editablePath, content: contents[contents.length - 1]! },
-      references: paths.slice(0, -1).map((p, i) => ({ path: p, content: contents[i]! })),
+      references: resolvedPaths.slice(0, -1).map((p, i) => ({ path: p, content: contents[i]! })),
     };
   }
 
@@ -123,6 +133,58 @@ export class FileService {
       detail: "保存せずに別のファイルを開くと、現在の変更内容は失われます。",
     });
     return result.response === 0;
+  }
+
+  /**
+   * 第7D章7.5.2節: `import`/`import_C`文の参照先をバッチで解決する。編集対象ファイルの
+   * ディレクトリ・`baseDir`・`extraSearchDirs`（renderer側が解決の進行に応じて蓄積する、
+   * 7.5.3節）の順に候補ディレクトリとし、各ディレクトリで`importPaths`を順に試す。
+   * `kind:"manual"`は絶対パスが直接指定されているため探索を経由しない（第7C章7.7.2節）。
+   */
+  async resolveImports(
+    editablePath: string,
+    requests: readonly ImportRequest[],
+    options: ImportResolutionOptions,
+  ): Promise<readonly ResolvedImport[]> {
+    const searchDirs = [
+      dirname(editablePath), // 7.5.3節: tecsgen本体には無い、実務上の追加候補
+      ...(options.baseDir ? [options.baseDir] : []),
+      ...(options.extraSearchDirs ?? []),
+    ];
+    return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths)));
+  }
+
+  private async resolveOne(
+    request: ImportRequest,
+    searchDirs: readonly string[],
+    importPaths: readonly string[],
+  ): Promise<ResolvedImport> {
+    const candidates =
+      request.kind === "manual"
+        ? [request.specifier]
+        : searchDirs.flatMap((dir) =>
+            importPaths.map((p) => (p === "." ? join(dir, request.specifier) : join(dir, p, request.specifier))),
+          );
+
+    for (const candidate of candidates) {
+      let buf: Buffer;
+      try {
+        buf = await fs.readFile(candidate);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") continue; // このcandidateは無かった。次を試す
+        return { request, error: "read-failed" };
+      }
+      try {
+        // TextDecoderのfatalオプションで、不正なUTF-8バイト列を無音でU+FFFDへ置換せず
+        // 例外として検出する（第7D章7.5.2節が「実装時に確定」としていた点）。
+        const content = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+        return { request, canonicalPath: resolve(candidate), content };
+      } catch {
+        return { request, error: "not-utf8" };
+      }
+    }
+    return { request, error: "not-found" };
   }
 
   /**

@@ -40,6 +40,7 @@ const noopGateway = {
   openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
   confirmDiscardChanges: async () => true,
   saveSession: async () => undefined,
+  resolveImports: async () => [],
   onRestoreFileBrowserRoot: () => undefined,
 } as unknown as FileGateway;
 
@@ -56,6 +57,7 @@ function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, st
     openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
     confirmDiscardChanges: async () => true,
     saveSession: async () => undefined,
+    resolveImports: async () => [],
     onRestoreFileBrowserRoot: () => undefined,
   } as unknown as FileGateway;
   return { gateway, saveCalls };

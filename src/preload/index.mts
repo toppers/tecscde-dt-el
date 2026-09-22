@@ -2,7 +2,16 @@
 // `window.tecscde` API の定義点。file・tecsgen・clipboardいずれもipcMain経由。
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { OpenResult, TecsgenResult, CppResult, TecscdeApi, DirEntry } from "../shared/ipc-types.js";
+import type {
+  OpenResult,
+  TecsgenResult,
+  CppResult,
+  TecscdeApi,
+  DirEntry,
+  ImportRequest,
+  ImportResolutionOptions,
+  ResolvedImport,
+} from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
   cdl: {
@@ -19,6 +28,11 @@ const api: TecscdeApi = {
     confirmDiscardChanges: (): Promise<boolean> => ipcRenderer.invoke("file:confirmDiscardChanges"),
     saveSession: (editablePath: string | null, referencePaths: readonly string[]): Promise<void> =>
       ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
+    resolveImports: (
+      editablePath: string,
+      requests: readonly ImportRequest[],
+      options: ImportResolutionOptions,
+    ): Promise<readonly ResolvedImport[]> => ipcRenderer.invoke("file:resolveImports", editablePath, requests, options),
   },
   tecsgen: {
     generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),

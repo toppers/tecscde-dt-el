@@ -35,7 +35,7 @@ function main(): void {
   window.tecscde.onBootstrap((data) => {
     void grammarReady
       .then(() => {
-        if (data) applyOpenResult(store, data);
+        if (data) return applyOpenResult(store, gateway, data);
       })
       .catch((error: unknown) => {
         console.error("CDLパーサの初期化に失敗しました:", error);
