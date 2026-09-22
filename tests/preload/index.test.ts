@@ -83,6 +83,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:saveSession", "/root/main.cde", ["/root/celltypes.cdl"]);
   });
 
+  it("file.parseTecsgenOptionsFile invokes file:parseTecsgenOptionsFile with the path (7C章7.7.4節#10)", () => {
+    exposedApi().file.parseTecsgenOptionsFile("/root/build.tecsgen-opts");
+    expect(invoke).toHaveBeenCalledWith("file:parseTecsgenOptionsFile", "/root/build.tecsgen-opts");
+  });
+
   it("tecsgen.generate invokes tecsgen:generate with args", () => {
     exposedApi().tecsgen.generate(["-c", "main.cde"]);
     expect(invoke).toHaveBeenCalledWith("tecsgen:generate", ["-c", "main.cde"]);

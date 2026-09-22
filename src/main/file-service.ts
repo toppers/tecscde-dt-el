@@ -11,10 +11,12 @@ import type {
   ImportResolutionOptions,
   OpenResult,
   ResolvedImport,
+  TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
 
-const BROWSABLE_EXTENSION = /\.(cde|cdl)$/i;
+// 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
+const BROWSABLE_EXTENSION = /\.(cde|cdl|tecsgen-opts)$/i;
 
 export class FileService {
   /**
@@ -185,6 +187,63 @@ export class FileService {
       }
     }
     return { request, error: "not-found" };
+  }
+
+  /**
+   * 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルのテキストを解析する。内容はtecsgenの
+   * コマンドライン引数をそのまま記述したプレーンテキスト——`#`始まりの行はコメント、
+   * `-I <path>`/`--import-path=<path>`は`importPaths`へ、`-c <cmd>`/`--cpp=<cmd>`
+   * （[[tecsgen外部仕様]]第5章の実際のオプション表記）は`cpp`へ、それ以外の`-`始まりでない
+   * トークンは`cdlFiles`へ分類する（`-D`等その他のオプションは本節の範囲外として無視する）。
+   */
+  async parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile> {
+    const text = await fs.readFile(path, "utf-8");
+    const tokens = text
+      .split(/\r?\n/)
+      .filter((line) => !line.trim().startsWith("#"))
+      .join(" ")
+      .split(/\s+/)
+      .filter((t) => t.length > 0);
+
+    const cdlFiles: string[] = [];
+    const importPaths: string[] = [];
+    let cpp: string | undefined;
+
+    for (let i = 0; i < tokens.length; i += 1) {
+      const token = tokens[i]!;
+      if (token === "-I" || token === "--import-path") {
+        const value = tokens[i + 1];
+        if (value) {
+          importPaths.push(value);
+          i += 1;
+        }
+      } else if (token.startsWith("--import-path=")) {
+        importPaths.push(token.slice("--import-path=".length));
+      } else if (token === "-c" || token === "--cpp") {
+        const value = tokens[i + 1];
+        if (value) {
+          cpp = value;
+          i += 1;
+        }
+      } else if (token.startsWith("--cpp=")) {
+        cpp = token.slice("--cpp=".length);
+      } else if (token === "-D" || token === "--define") {
+        // -D/--define等その他のオプションは本節の範囲外として無視するが、値を消費しない
+        // とその値がCDLファイル名としてcdlFilesへ誤って混入するため、値も一緒に読み飛ばす。
+        if (tokens[i + 1]) i += 1;
+      } else if (!token.startsWith("-")) {
+        cdlFiles.push(token);
+      }
+      // token.startsWith("-")かつ上記いずれにも一致しない（例: "--define=FOO=1"）その他の
+      // オプションは、値を伴わない形として素通しし無視する。
+    }
+    // tecsgenの実際のコマンドライン呼び出しは.tecsgen-optsファイルのあるディレクトリから
+    // 行われる想定のため、CDLファイルパスは相対ならそのディレクトリを基点に解決する
+    // （絶対パスならresolveはそのまま返す）。これを省くと、editable/参照追加の呼び出し
+    // （fs.readFile）がmainプロセスの起動ディレクトリを基点に相対解決してしまい、実際には
+    // 存在しないパスになる。
+    const optsDir = dirname(path);
+    return { cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)), importPaths, cpp };
   }
 
   /**

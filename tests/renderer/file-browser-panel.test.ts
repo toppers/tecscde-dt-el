@@ -11,8 +11,8 @@ import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { AppStore } from "../../src/renderer/app/store";
 import { FileBrowserView } from "../../src/renderer/app/file-browser-panel";
 
-function fakeStore(filePath: string | null): AppStore {
-  return { filePath } as unknown as AppStore;
+function fakeStore(filePath: string | null, referenceFilePaths: readonly string[] = []): AppStore {
+  return { filePath, getReferenceFilePaths: () => referenceFilePaths } as unknown as AppStore;
 }
 
 function fakeGateway(opts: {
@@ -34,7 +34,7 @@ describe("FileBrowserView", () => {
   it("shows a placeholder when no root folder has been chosen", () => {
     const el = document.createElement("div");
     const { gateway } = fakeGateway({});
-    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
 
     view.render();
 
@@ -51,7 +51,7 @@ describe("FileBrowserView", () => {
       chooseFolder: async () => "/root",
       listDirectory: async (dir) => (dir === "/root" ? entries : []),
     });
-    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
 
     await view.chooseRoot();
 
@@ -70,7 +70,7 @@ describe("FileBrowserView", () => {
         return [];
       },
     });
-    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
     await view.chooseRoot();
     expect(listDirectoryCalls).toEqual(["/root"]);
 
@@ -98,12 +98,50 @@ describe("FileBrowserView", () => {
       listDirectory: async () => [{ name: "main.cde", path: "/root/main.cde", kind: "file" }],
     });
     const onOpen = vi.fn();
-    const view = new FileBrowserView(el, fakeStore(null), gateway, onOpen);
+    const view = new FileBrowserView(el, fakeStore(null), gateway, onOpen, vi.fn(), vi.fn());
     await view.chooseRoot();
 
     el.querySelector<HTMLElement>('[data-path="/root/main.cde"]')!.dispatchEvent(new Event("click", { bubbles: true }));
 
     expect(onOpen).toHaveBeenCalledWith("/root/main.cde");
+  });
+
+  it("Ctrl+clicking a file row invokes onAddReference instead of onOpen (第7C章7.7.2節#8)", async () => {
+    const el = document.createElement("div");
+    const { gateway } = fakeGateway({
+      chooseFolder: async () => "/root",
+      listDirectory: async () => [{ name: "extra.cdl", path: "/root/extra.cdl", kind: "file" }],
+    });
+    const onOpen = vi.fn();
+    const onAddReference = vi.fn();
+    const view = new FileBrowserView(el, fakeStore(null), gateway, onOpen, onAddReference, vi.fn());
+    await view.chooseRoot();
+
+    el.querySelector<HTMLElement>('[data-path="/root/extra.cdl"]')!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, ctrlKey: true }),
+    );
+
+    expect(onAddReference).toHaveBeenCalledWith("/root/extra.cdl");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("clicking a .tecsgen-opts file row invokes onLoadOptionsFile instead of onOpen (第7C章7.7.4節#10)", async () => {
+    const el = document.createElement("div");
+    const { gateway } = fakeGateway({
+      chooseFolder: async () => "/root",
+      listDirectory: async () => [{ name: "build.tecsgen-opts", path: "/root/build.tecsgen-opts", kind: "file" }],
+    });
+    const onOpen = vi.fn();
+    const onLoadOptionsFile = vi.fn();
+    const view = new FileBrowserView(el, fakeStore(null), gateway, onOpen, vi.fn(), onLoadOptionsFile);
+    await view.chooseRoot();
+
+    el.querySelector<HTMLElement>('[data-path="/root/build.tecsgen-opts"]')!.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+
+    expect(onLoadOptionsFile).toHaveBeenCalledWith("/root/build.tecsgen-opts");
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("highlights the row matching the store's current filePath (3.5.1節)", async () => {
@@ -115,7 +153,7 @@ describe("FileBrowserView", () => {
         { name: "b.cde", path: "/root/b.cde", kind: "file" },
       ],
     });
-    const view = new FileBrowserView(el, fakeStore("/root/b.cde"), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore("/root/b.cde"), gateway, vi.fn(), vi.fn(), vi.fn());
 
     await view.chooseRoot();
 
@@ -123,12 +161,33 @@ describe("FileBrowserView", () => {
     expect(el.querySelector('[data-path="/root/b.cde"]')!.classList.contains("active")).toBe(true);
   });
 
+  it("highlights a reference-loaded file with a different class than the active file (第7C章7.7.5節#11(a))", async () => {
+    const el = document.createElement("div");
+    const { gateway } = fakeGateway({
+      chooseFolder: async () => "/root",
+      listDirectory: async () => [
+        { name: "a.cde", path: "/root/a.cde", kind: "file" },
+        { name: "b.cdl", path: "/root/b.cdl", kind: "file" },
+      ],
+    });
+    const view = new FileBrowserView(el, fakeStore("/root/a.cde", ["/root/b.cdl"]), gateway, vi.fn(), vi.fn(), vi.fn());
+
+    await view.chooseRoot();
+
+    const activeRow = el.querySelector('[data-path="/root/a.cde"]')!;
+    const referenceRow = el.querySelector('[data-path="/root/b.cdl"]')!;
+    expect(activeRow.classList.contains("active")).toBe(true);
+    expect(activeRow.classList.contains("reference")).toBe(false);
+    expect(referenceRow.classList.contains("reference")).toBe(true);
+    expect(referenceRow.classList.contains("active")).toBe(false);
+  });
+
   it("restoreRoot() (7.6.6節) loads and expands the given path without a dialog", async () => {
     const el = document.createElement("div");
     const { gateway, listDirectoryCalls } = fakeGateway({
       listDirectory: async (dir) => (dir === "/saved-root" ? [{ name: "main.cde", path: "/saved-root/main.cde", kind: "file" }] : []),
     });
-    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
 
     await view.restoreRoot("/saved-root");
 
@@ -143,7 +202,7 @@ describe("FileBrowserView", () => {
         throw new Error("ENOENT");
       },
     });
-    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn());
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
 
     await view.restoreRoot("/missing-root");
 

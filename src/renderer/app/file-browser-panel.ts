@@ -20,6 +20,10 @@ export class FileBrowserView {
     private readonly store: AppStore,
     private readonly gateway: FileGateway,
     private readonly onOpen: (path: string) => void,
+    /** 第7C章7.7.2節（#8）: Ctrl+クリックで参照専用として追加する。 */
+    private readonly onAddReference: (path: string) => void,
+    /** 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルのクリックで一括読み込みする。 */
+    private readonly onLoadOptionsFile: (path: string) => void,
   ) {
     this.el.addEventListener("click", (e) => {
       const target = e.target as HTMLElement | null;
@@ -28,6 +32,13 @@ export class FileBrowserView {
       const path = node.dataset["path"]!;
       if (node.dataset["kind"] === "directory") {
         void this.toggle(path);
+        return;
+      }
+      const event = e as MouseEvent;
+      if (event.ctrlKey || event.metaKey) {
+        this.onAddReference(path);
+      } else if (/\.tecsgen-opts$/i.test(path)) {
+        this.onLoadOptionsFile(path);
       } else {
         this.onOpen(path);
       }
@@ -113,6 +124,9 @@ export class FileBrowserView {
       row.className = "file-browser-file";
       // 3.5.1節: 現在編集対象になっているファイルはツリー上で強調表示する。
       row.classList.toggle("active", entry.path === this.store.filePath);
+      // 第7C章7.7.5節（#11(a)）: 参照読み込み済みのファイルも編集中とは異なる見た目で示す
+      // （editable/referencesは排他集合のため両方に該当するノードは無い）。
+      row.classList.toggle("reference", this.store.getReferenceFilePaths().includes(entry.path));
       row.textContent = entry.name;
     }
     li.appendChild(row);

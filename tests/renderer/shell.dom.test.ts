@@ -791,4 +791,106 @@ describe("AppShell — DOM wiring", () => {
       expect(store.filePath).toBe("/root/main.cde");
     });
   });
+
+  describe("Ctrl+click adds a reference (第7C章7.7.2節#8)", () => {
+    function addReferenceGateway() {
+      const resolveImports = vi.fn().mockResolvedValue([
+        { request: { kind: "manual", specifier: "/root/extra.cdl" }, canonicalPath: "/root/extra.cdl", content: "" },
+      ]);
+      const gateway = {
+        ...noopGateway,
+        chooseFolder: async () => "/root",
+        listDirectory: async () => [{ name: "extra.cdl", path: "/root/extra.cdl", kind: "file" }],
+        resolveImports,
+      } as unknown as FileGateway;
+      return { gateway, resolveImports };
+    }
+
+    async function chooseRootAndCtrlClick(path: string): Promise<void> {
+      document.querySelector<HTMLButtonElement>("[data-action='openFolder']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      document
+        .querySelector<HTMLElement>(`[data-path="${path}"]`)!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    it("adds the file as a reference without changing the editable document", async () => {
+      const { gateway, resolveImports } = addReferenceGateway();
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.loadDocument(store.getDocument(), "/root/main.cde");
+
+      await chooseRootAndCtrlClick("/root/extra.cdl");
+
+      expect(resolveImports).toHaveBeenCalledWith(
+        "/root/main.cde",
+        [{ kind: "manual", specifier: "/root/extra.cdl" }],
+        expect.anything(),
+      );
+      expect(store.filePath).toBe("/root/main.cde"); // editableは変わらない
+      expect(store.getReferenceFilePaths()).toEqual(["/root/extra.cdl"]);
+    });
+
+    it("does nothing when Ctrl+clicking a file that is already loaded as a reference", async () => {
+      const { gateway, resolveImports } = addReferenceGateway();
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.loadDocument(store.getDocument(), "/root/main.cde", [], ["/root/extra.cdl"]);
+      resolveImports.mockClear();
+
+      await chooseRootAndCtrlClick("/root/extra.cdl");
+
+      expect(resolveImports).not.toHaveBeenCalled();
+      expect(store.getReferenceFilePaths()).toEqual(["/root/extra.cdl"]);
+    });
+
+    it("resets undo history but keeps the current in-progress edit's content (決定1のトレードオフ)", async () => {
+      const { gateway } = addReferenceGateway();
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+      store.loadDocument(store.getDocument(), "/root/main.cde");
+      const controller = asCellId("cController1");
+      const before = store.getDocument().getCell(controller)!;
+      store.dispatch(new MoveCellsCommand([controller], 5, 0));
+      expect(store.canUndo).toBe(true);
+
+      await chooseRootAndCtrlClick("/root/extra.cdl");
+
+      expect(store.canUndo).toBe(false); // Undo履歴はリセットされる
+      expect(store.getDocument().getCell(controller)!.x).toBe(before.x + 5); // 未保存の変更内容は失われない
+    });
+  });
+
+  describe(".tecsgen-opts の一括読み込み（第7C章7.7.4節#10）", () => {
+    it("opens the last enumerated CDL file as editable and adds the rest as references", async () => {
+      const openPath = vi.fn().mockResolvedValue({
+        editable: { path: "/root/main.cde", content: mainText },
+        references: [],
+      });
+      const resolveImports = vi.fn().mockResolvedValue([
+        { request: { kind: "manual", specifier: "/root/celltypes.cdl" }, canonicalPath: "/root/celltypes.cdl", content: "" },
+      ]);
+      const gateway = {
+        ...noopGateway,
+        chooseFolder: async () => "/root",
+        listDirectory: async () => [{ name: "build.tecsgen-opts", path: "/root/build.tecsgen-opts", kind: "file" }],
+        parseTecsgenOptionsFile: vi.fn().mockResolvedValue({
+          cdlFiles: ["/root/celltypes.cdl", "/root/main.cde"], // mainプロセスが.tecsgen-optsのディレクトリ基点で解決済みの想定
+          importPaths: ["./include"],
+        }),
+        openPath,
+        resolveImports,
+      } as unknown as FileGateway;
+      const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+
+      document.querySelector<HTMLButtonElement>("[data-action='openFolder']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      document
+        .querySelector<HTMLElement>('[data-path="/root/build.tecsgen-opts"]')!
+        .dispatchEvent(new Event("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(openPath).toHaveBeenCalledWith("/root/main.cde"); // 列挙順で最後がeditable
+      expect(store.filePath).toBe("/root/main.cde");
+      expect(store.getReferenceFilePaths()).toContain("/root/celltypes.cdl"); // 残りがreferences
+    });
+  });
 });

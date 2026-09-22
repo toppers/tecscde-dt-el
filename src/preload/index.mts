@@ -11,6 +11,7 @@ import type {
   ImportRequest,
   ImportResolutionOptions,
   ResolvedImport,
+  TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
@@ -33,6 +34,8 @@ const api: TecscdeApi = {
       requests: readonly ImportRequest[],
       options: ImportResolutionOptions,
     ): Promise<readonly ResolvedImport[]> => ipcRenderer.invoke("file:resolveImports", editablePath, requests, options),
+    parseTecsgenOptionsFile: (path: string): Promise<TecsgenOptionsFile> =>
+      ipcRenderer.invoke("file:parseTecsgenOptionsFile", path),
   },
   tecsgen: {
     generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),

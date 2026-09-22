@@ -19,7 +19,7 @@ import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { AppGestureHost } from "./gesture-host";
-import { baseName, newDocument, openFromPath, save, saveAs } from "./file-actions";
+import { addAsReference, baseName, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
 import { FileBrowserView } from "./file-browser-panel";
 import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
@@ -119,8 +119,19 @@ export class AppShell {
       requireEl<HTMLElement>(root, "#diagnostics-panel"),
       this.store,
     );
-    this.fileBrowser = new FileBrowserView(requireEl<HTMLElement>(root, "#file-browser"), this.store, this.gateway, (path) =>
-      void openFromPath(this.store, this.gateway, path).catch((err: unknown) => this.reportActionError("openFolder", err)),
+    this.fileBrowser = new FileBrowserView(
+      requireEl<HTMLElement>(root, "#file-browser"),
+      this.store,
+      this.gateway,
+      (path) => void openFromPath(this.store, this.gateway, path).catch((err: unknown) => this.reportActionError("openFolder", err)),
+      (path) =>
+        void addAsReference(this.store, this.gateway, path).catch((err: unknown) =>
+          this.reportActionError("addAsReference", err),
+        ),
+      (path) =>
+        void loadOptionsFile(this.store, this.gateway, path).catch((err: unknown) =>
+          this.reportActionError("loadOptionsFile", err),
+        ),
     );
   }
 

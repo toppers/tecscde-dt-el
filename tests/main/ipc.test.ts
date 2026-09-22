@@ -36,6 +36,7 @@ describe("registerIpcHandlers", () => {
       openPath: vi.fn().mockResolvedValue("open-path-result"),
       confirmDiscardChanges: vi.fn().mockResolvedValue(true),
       resolveImports: vi.fn().mockResolvedValue("resolve-imports-result"),
+      parseTecsgenOptionsFile: vi.fn().mockResolvedValue("parsed-options-result"),
     };
     const tecsgenRunner = {
       run: vi.fn().mockResolvedValue("run-result"),
@@ -55,6 +56,7 @@ describe("registerIpcHandlers", () => {
         "file:export",
         "file:listDirectory",
         "file:openPath",
+        "file:parseTecsgenOptionsFile",
         "file:resolveImports",
         "file:save",
         "file:saveAs",
@@ -100,6 +102,9 @@ describe("registerIpcHandlers", () => {
     const options = { importPaths: ["."] };
     handlers.get("file:resolveImports")!({}, "/tmp/root/main.cde", requests, options);
     expect(fileService.resolveImports).toHaveBeenCalledWith("/tmp/root/main.cde", requests, options);
+
+    handlers.get("file:parseTecsgenOptionsFile")!({}, "/tmp/root/build.tecsgen-opts");
+    expect(fileService.parseTecsgenOptionsFile).toHaveBeenCalledWith("/tmp/root/build.tecsgen-opts");
 
     handlers.get("tecsgen:generate")!({}, ["-c", "main.cde"]);
     expect(tecsgenRunner.run).toHaveBeenCalledWith(["-c", "main.cde"]);

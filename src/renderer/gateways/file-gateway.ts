@@ -9,6 +9,7 @@ import type {
   ImportResolutionOptions,
   OpenResult,
   ResolvedImport,
+  TecsgenOptionsFile,
 } from "../../shared/ipc-types.js";
 
 export class FileGateway {
@@ -56,6 +57,11 @@ export class FileGateway {
     options: ImportResolutionOptions,
   ): Promise<readonly ResolvedImport[]> {
     return window.tecscde.file.resolveImports(editablePath, requests, options);
+  }
+
+  /** 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルの解析。 */
+  parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile> {
+    return window.tecscde.file.parseTecsgenOptionsFile(path);
   }
 
   /** 7.6.6節: 起動時に一度だけ届く、記憶済みのファイルブラウザのルートフォルダ。 */

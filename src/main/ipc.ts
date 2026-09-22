@@ -41,6 +41,8 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
     (_e, editablePath: string, requests: readonly ImportRequest[], options: ImportResolutionOptions) =>
       fileService.resolveImports(editablePath, requests, options),
   );
+  // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルの解析（2026-09-22追加）。
+  ipcMain.handle("file:parseTecsgenOptionsFile", (_e, path: string) => fileService.parseTecsgenOptionsFile(path));
 
   ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));
   ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string) =>

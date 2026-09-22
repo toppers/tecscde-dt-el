@@ -10,7 +10,7 @@ import type { OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import { TecscdeDocument } from "../model/document";
 import { ViewState } from "../view-state/view-state";
-import { extractToolInfoTecsgen, resolveAllImports } from "./import-resolution";
+import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports } from "./import-resolution";
 import type { AppStore } from "./store";
 
 /** `path/to/foo.cde` → `foo.cde`（renderer には node:path が無いので自前）。 */
@@ -37,13 +37,19 @@ function mergeReferences(existing: readonly OpenFileEntry[], discovered: readonl
  * 推移的に解決し、既存の`result.references`（手動指定・前回セッション復元由来）と
  * 正規化済み絶対パスで重複排除して合流させる。
  */
-export async function applyOpenResult(store: AppStore, gateway: FileGateway, result: OpenResult): Promise<void> {
+export async function applyOpenResult(
+  store: AppStore,
+  gateway: FileGateway,
+  result: OpenResult,
+  extraImportPaths: readonly string[] = [],
+): Promise<void> {
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
   const { references: autoReferences, diagnostics: importDiagnostics } = await resolveAllImports(
     gateway,
     result.editable.path,
     result.editable.content,
     toolInfo,
+    extraImportPaths,
   );
   const references = mergeReferences(result.references, autoReferences);
 
@@ -53,7 +59,8 @@ export async function applyOpenResult(store: AppStore, gateway: FileGateway, res
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
   const referenceFilePaths = references.map((r) => r.path);
-  store.loadDocument(document, result.editable.path, [...importDiagnostics, ...diagnostics], referenceFilePaths);
+  const referenceSources = new Map(references.map((r) => [r.path, r.content]));
+  store.loadDocument(document, result.editable.path, [...importDiagnostics, ...diagnostics], referenceFilePaths, referenceSources);
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
@@ -67,13 +74,18 @@ export async function applyOpenResult(store: AppStore, gateway: FileGateway, res
  * 7B章7.6.4節（2026-09-22）: 未保存の変更がある場合は破棄確認を挟む
  * （[[TECSCDE-DT外部仕様]]5.7節）。未保存でなければ確認を出さずそのまま開く。
  */
-export async function openFromPath(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+export async function openFromPath(
+  store: AppStore,
+  gateway: FileGateway,
+  path: string,
+  options: { extraImportPaths?: readonly string[] } = {},
+): Promise<void> {
   if (store.isDirty()) {
     const proceed = await gateway.confirmDiscardChanges();
     if (!proceed) return;
   }
   const result = await gateway.openPath(path);
-  await applyOpenResult(store, gateway, result);
+  await applyOpenResult(store, gateway, result, options.extraImportPaths ?? []);
   // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
   await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
 }
@@ -90,14 +102,70 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
     if (!proceed) return;
   }
   const referenceFilePaths = store.getReferenceFilePaths();
+  const referenceSources = store.getReferenceSources(); // #8: 消去後もaddAsReferenceが使えるよう維持する
   const document = TecscdeDocument.empty();
-  store.loadDocument(document, null, [], referenceFilePaths);
+  store.loadDocument(document, null, [], referenceFilePaths, referenceSources);
   // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
   // 7.7.1節: editablePathは無し（未保存の新規作成はセッション復元の対象外）、
   // references集合は維持されたまま保存する。
   await gateway.saveSession(null, referenceFilePaths);
+}
+
+/**
+ * 第7C章7.7.2節（#8）: ファイルブラウザのCtrl+クリックで選択したファイルを参照専用として
+ * 追加する。既存の編集対象(editable)は変えない。新しい参照ファイルのセルタイプを既存の
+ * `cell`（celltype未解決のもの）へ反映するには、editable＋全referencesを合わせて再パース
+ * する必要があり、これは`store.loadDocument()`経由でUndo/Redo履歴をリセットする
+ * （`openFromPath`が別ファイルを開く際に既に持つのと同じトレードオフ）。現在の
+ * 未保存の内容自体は`CdlSerializer.serialize()`で引き継ぐため失われない。
+ */
+export async function addAsReference(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+  const editablePath = store.filePath;
+  if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
+  const existingPaths = store.getReferenceFilePaths();
+  if (path === editablePath || existingPaths.includes(path)) return; // #8決定: 既読み込み済みなら無視
+
+  const toolInfo = store.getDocument().toolInfoTecsgen;
+  const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
+    gateway,
+    editablePath,
+    toolInfo,
+    path,
+    existingPaths,
+  );
+  if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
+
+  const mergedSources = new Map(store.getReferenceSources());
+  for (const r of discovered) mergedSources.set(r.path, r.content);
+
+  const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
+  const sources: CdlSource[] = [
+    ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), editable: false })),
+    { text: editableText, fileName: baseName(editablePath), editable: true },
+  ];
+  const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
+  store.loadDocument(document, editablePath, [...importDiagnostics, ...diagnostics], [...mergedSources.keys()], mergedSources);
+  const { width, height } = document.paper.contentSize();
+  store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
+}
+
+/**
+ * 第7C章7.7.4節④（#10）: tecsgenオプション形式ファイルを読み込み、列挙されたCDLファイル群を
+ * 一括で反映する。列挙順で最後のファイルを編集対象として開く（8.1.2節の規則）——
+ * `addAsReference`が既存の編集対象を前提とするため、07C章の擬似コードとは逆に、
+ * 残りを参照追加する前に必ず先へ`openFromPath`する。
+ */
+export async function loadOptionsFile(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+  const parsed = await gateway.parseTecsgenOptionsFile(path);
+  const [last, ...rest] = [...parsed.cdlFiles].reverse();
+  if (!last) return;
+  await openFromPath(store, gateway, last, { extraImportPaths: parsed.importPaths });
+  for (const refPath of rest.reverse()) {
+    await addAsReference(store, gateway, refPath);
+  }
 }
 
 /** ［保存］: 既存パスがあれば上書き、無ければ［名前を付けて保存］へ委譲。 */

@@ -23,6 +23,7 @@ function stubApi(): TecscdeApi {
       confirmDiscardChanges: vi.fn().mockResolvedValue(true),
       saveSession: vi.fn().mockResolvedValue(undefined),
       resolveImports: vi.fn().mockResolvedValue([]),
+      parseTecsgenOptionsFile: vi.fn().mockResolvedValue({ cdlFiles: [], importPaths: [] }),
     },
     tecsgen: {
       generate: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
@@ -75,6 +76,9 @@ describe("FileGateway", () => {
     const options = { importPaths: ["."] };
     gateway.resolveImports("/root/main.cde", requests, options);
     expect(api.file.resolveImports).toHaveBeenCalledWith("/root/main.cde", requests, options);
+
+    gateway.parseTecsgenOptionsFile("/root/build.tecsgen-opts");
+    expect(api.file.parseTecsgenOptionsFile).toHaveBeenCalledWith("/root/build.tecsgen-opts");
 
     const listener = vi.fn();
     gateway.onRestoreFileBrowserRoot(listener);

@@ -50,6 +50,12 @@ export class AppStore {
    * `TecsgenCommandBuilder`が実際に`execFile`へ渡せる形はここでのみ保持する。
    */
   private referenceFilePaths: readonly string[] = [];
+  /**
+   * 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキスト（パス→内容）。`addAsReference`が
+   * 新規参照を1件追加するたびeditable＋全referencesを合わせて再パースする必要があり、
+   * 既存参照をディスクから再取得せずに済ませるためのキャッシュ。
+   */
+  private referenceSources: ReadonlyMap<string, string> = new Map();
   /** 第9章9.4節: 直近のtecsgen実行結果から変換した診断。次のGenerateまで保持する。 */
   private tecsgenDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
@@ -97,6 +103,11 @@ export class AppStore {
   /** 第9章9.5節: `TecsgenCommandBuilder`が参照専用ファイルの実パスとして使う。 */
   getReferenceFilePaths(): readonly string[] {
     return this.referenceFilePaths;
+  }
+
+  /** 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキストのキャッシュ（パス→内容）。 */
+  getReferenceSources(): ReadonlyMap<string, string> {
+    return this.referenceSources;
   }
 
   get isGenerating(): boolean {
@@ -223,12 +234,14 @@ export class AppStore {
     path: string | null,
     loadDiagnostics: readonly Diagnostic[] = [],
     referenceFilePaths: readonly string[] = [],
+    referenceSources: ReadonlyMap<string, string> = new Map(),
   ): void {
     this.historyState = History.begin(document);
     this.selectionState = SelectionState.empty();
     this.path = path;
     this.savedAtPastLength = 0;
     this.loadDiagnostics = loadDiagnostics;
+    this.referenceSources = referenceSources;
     this.referenceFilePaths = referenceFilePaths;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];

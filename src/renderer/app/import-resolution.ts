@@ -34,26 +34,26 @@ function dirnameOf(path: string): string {
 }
 
 /**
- * 編集対象ファイルの`import`/`import_C`を推移的に解決する。
- * `import_C`は再帰しない——Cヘッダ自身はCDLの`import`文を持たず、内容の扱いは
- * 第9章9.6節（Cプリプロセッサ実行／フォールバック、`CdeclExtractor`は未実装）へ委ねる。
- * `import_C`の解決結果は`references`に含めない（第7E章7.5.5節）——図には現れないCヘッダを
- * 参照ファイル一覧に混ぜないため。
+ * `import`/`import_C`/`manual`（第7C章7.7.2節、手動追加）を推移的に解決する共通エンジン。
+ * `kind !== "import_C"`のものだけ`references`へ追加し（`import_C`の解決結果は図に現れない
+ * Cヘッダのため対象外、第7E章7.5.5節）、`kind`が`"import"`または`"manual"`のものだけ
+ * その内容から更なる`import`/`import_C`を辿る（`manual`自身が持つimportも連鎖的に
+ * 解決する、第7C章7.7.2節末尾）。
  */
-export async function resolveAllImports(
+async function resolveImportClosure(
   gateway: FileGateway,
   editablePath: string,
-  editableText: string,
   toolInfo: ToolInfoTecsgen,
+  initialFrontier: readonly ImportRequest[],
+  seedResolvedPaths: ReadonlySet<string>,
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[] }> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."] };
-  // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
-  const resolvedPaths = new Set<string>([editablePath]);
+  const resolvedPaths = new Set(seedResolvedPaths);
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
   const references: OpenFileEntry[] = [];
   const diagnostics: Diagnostic[] = [];
 
-  let frontier = extractImportRequests(editableText);
+  let frontier = initialFrontier;
   while (frontier.length > 0) {
     // extraSearchDirsは以後の周回でも書き換えられる可変配列のため、呼び出しごとに
     // その時点のスナップショットを渡す（呼び出し側に配列の参照を握らせない）。
@@ -70,13 +70,51 @@ export async function resolveAllImports(
       const dir = dirnameOf(r.canonicalPath);
       if (!extraSearchDirs.includes(dir)) extraSearchDirs.push(dir); // tecsgenの$base_dir累積に相当
 
-      if (r.request.kind === "import") {
+      if (r.request.kind !== "import_C") {
         references.push({ path: r.canonicalPath, content: r.content! });
+      }
+      if (r.request.kind === "import" || r.request.kind === "manual") {
         nextFrontier.push(...extractImportRequests(r.content!)); // 推移的closure
       }
-      // kind === "import_C": ここでは解決の成否のみ確定する（上記の理由でreferences対象外）。
     }
     frontier = nextFrontier;
   }
   return { references, diagnostics };
+}
+
+/**
+ * 編集対象ファイルの`import`/`import_C`を推移的に解決する。
+ * `import_C`は再帰しない——Cヘッダ自身はCDLの`import`文を持たず、内容の扱いは
+ * 第9章9.6節（Cプリプロセッサ実行／フォールバック、`CdeclExtractor`は未実装）へ委ねる。
+ * `extraImportPaths`（第7C章7.7.4節③、#10）は`toolInfo.importPath`の末尾へ連結する——
+ * 編集対象自身の`import_path`を先に試し、見つからなければオプションファイル由来を試す
+ * という既定順序を保つ。
+ */
+export async function resolveAllImports(
+  gateway: FileGateway,
+  editablePath: string,
+  editableText: string,
+  toolInfo: ToolInfoTecsgen,
+  extraImportPaths: readonly string[] = [],
+): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[] }> {
+  const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
+  // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
+  return resolveImportClosure(gateway, editablePath, mergedToolInfo, extractImportRequests(editableText), new Set([editablePath]));
+}
+
+/**
+ * 第7C章7.7.2節（#8）: ファイルブラウザでCtrl+クリックされたファイルを参照専用として
+ * 解決する。`alreadyLoadedPaths`（editable＋既存references）で種付けすることで、
+ * 「既に読み込み済みなら無視」という重複判定を自然に実現する——既読み込み済みの場合、
+ * 解決結果は空（`references: []`）になる。
+ */
+export async function resolveAddedReference(
+  gateway: FileGateway,
+  editablePath: string,
+  toolInfo: ToolInfoTecsgen,
+  path: string,
+  alreadyLoadedPaths: readonly string[],
+): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[] }> {
+  const seed = new Set([editablePath, ...alreadyLoadedPaths]);
+  return resolveImportClosure(gateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed);
 }

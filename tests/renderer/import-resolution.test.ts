@@ -5,7 +5,7 @@
 // 「1件の解決結果をどう扱うか」だけをテスト範囲とする。
 
 import { describe, expect, it, vi } from "vitest";
-import { resolveAllImports } from "../../src/renderer/app/import-resolution";
+import { resolveAddedReference, resolveAllImports } from "../../src/renderer/app/import-resolution";
 import { W_CODES } from "../../src/renderer/cdl/messages";
 import { emptyToolInfoTecsgen } from "../../src/renderer/model/tool-info-types";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -135,5 +135,61 @@ describe("resolveAllImports", () => {
       [{ kind: "import", specifier: "B.cdl" }],
       { baseDir: "/some/base", importPaths: [".", "include"], extraSearchDirs: [] },
     );
+  });
+
+  it("appends extraImportPaths after toolInfo.importPath (第7C章7.7.4節③、#10)", async () => {
+    const { gateway } = fakeGateway({ "B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
+    const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
+
+    await resolveAllImports(gateway, "/root/A.cdl", 'import("B.cdl");', { ...toolInfo, importPath: ["."] }, [
+      "./opts-dir",
+    ]);
+
+    expect(resolveImportsSpy).toHaveBeenCalledWith(
+      "/root/A.cdl",
+      [{ kind: "import", specifier: "B.cdl" }],
+      { baseDir: undefined, importPaths: [".", "./opts-dir"], extraSearchDirs: [] },
+    );
+  });
+});
+
+describe("resolveAddedReference", () => {
+  it("resolves a manually-added file and its own recursive imports (第7C章7.7.2節)", async () => {
+    const { gateway } = fakeGateway({
+      "/root/extra.cdl": { canonicalPath: "/root/extra.cdl", content: 'import("nested.cdl");' },
+      "nested.cdl": { canonicalPath: "/root/nested.cdl", content: "" },
+    });
+
+    const { references, diagnostics } = await resolveAddedReference(
+      gateway,
+      "/root/A.cdl",
+      toolInfo,
+      "/root/extra.cdl",
+      [],
+    );
+
+    expect(references.map((r) => r.path)).toEqual(["/root/extra.cdl", "/root/nested.cdl"]);
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("returns no references when the path is already loaded (#8 重複判定)", async () => {
+    const { gateway, calls } = fakeGateway({
+      "/root/extra.cdl": { canonicalPath: "/root/extra.cdl", content: "" },
+    });
+
+    const { references } = await resolveAddedReference(gateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", [
+      "/root/extra.cdl", // すでに読み込み済み
+    ]);
+
+    expect(references).toEqual([]);
+    expect(calls[0]).toEqual([{ kind: "manual", specifier: "/root/extra.cdl" }]); // 呼び出し自体は行うが結果は種付けで除外される
+  });
+
+  it("issues the initial request with kind:'manual'", async () => {
+    const { gateway, calls } = fakeGateway({ "/root/extra.cdl": { canonicalPath: "/root/extra.cdl", content: "" } });
+
+    await resolveAddedReference(gateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", []);
+
+    expect(calls[0]).toEqual([{ kind: "manual", specifier: "/root/extra.cdl" }]);
   });
 });

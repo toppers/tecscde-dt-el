@@ -165,10 +165,11 @@ describe("FileService", () => {
     await expect(service.confirmDiscardChanges()).resolves.toBe(false);
   });
 
-  it("listDirectory (7.6.1節) returns only subdirectories and .cde/.cdl files, sorted directories first", async () => {
+  it("listDirectory (7.6.1節) returns only subdirectories and .cde/.cdl/.tecsgen-opts files, sorted directories first", async () => {
     mkdirSync(join(dir, "sub"));
     writeFileSync(join(dir, "b.cde"), "");
     writeFileSync(join(dir, "a.cdl"), "");
+    writeFileSync(join(dir, "build.tecsgen-opts"), ""); // 第7C章7.7.4節（#10）
     writeFileSync(join(dir, "ignore.txt"), "");
     const service = new FileService({} as never);
 
@@ -178,7 +179,63 @@ describe("FileService", () => {
       { name: "sub", path: join(dir, "sub"), kind: "directory" },
       { name: "a.cdl", path: join(dir, "a.cdl"), kind: "file" },
       { name: "b.cde", path: join(dir, "b.cde"), kind: "file" },
+      { name: "build.tecsgen-opts", path: join(dir, "build.tecsgen-opts"), kind: "file" },
     ]);
+  });
+
+  describe("parseTecsgenOptionsFile (第7C章7.7.4節#10)", () => {
+    it("classifies -I/--import-path=, -c/--cpp=, comments, and CDL file tokens", async () => {
+      const path = join(dir, "build.tecsgen-opts");
+      writeFileSync(
+        path,
+        [
+          "# this is a comment, ignored",
+          "-I ./include --import-path=../shared",
+          "-c gcc -D FOO=1",
+          "celltypes.cdl main.cdl",
+        ].join("\n"),
+      );
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result).toEqual({
+        cdlFiles: [join(dir, "celltypes.cdl"), join(dir, "main.cdl")], // .tecsgen-optsのあるディレクトリ基点で解決される
+        importPaths: ["./include", "../shared"],
+        cpp: "gcc",
+      });
+    });
+
+    it("supports the long --import-path/--cpp separate-token forms", async () => {
+      const path = join(dir, "build2.tecsgen-opts");
+      writeFileSync(path, "--import-path ./inc --cpp clang main.cdl");
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang" });
+    });
+
+    it("returns no cpp when the file has none", async () => {
+      const path = join(dir, "build3.tecsgen-opts");
+      writeFileSync(path, "-I ./include main.cdl");
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./include"], cpp: undefined });
+    });
+
+    it("resolves an already-absolute CDL file path unchanged", async () => {
+      const path = join(dir, "build4.tecsgen-opts");
+      const absoluteCdl = join(dir, "nested", "main.cdl");
+      writeFileSync(path, absoluteCdl);
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result.cdlFiles).toEqual([absoluteCdl]);
+    });
   });
 
   it("openPath normalizes the returned path (第7D章7.5節: resolveImportsとの重複排除に必要)", async () => {

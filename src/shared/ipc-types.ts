@@ -68,6 +68,13 @@ export interface ResolvedImport {
   readonly error?: "not-found" | "not-utf8" | "read-failed";
 }
 
+/** 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルを解析した結果。 */
+export interface TecsgenOptionsFile {
+  readonly cdlFiles: readonly string[]; // 列挙順。最後の要素が編集対象候補
+  readonly importPaths: readonly string[]; // -I/--import-path の値
+  readonly cpp?: string;
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
@@ -96,6 +103,8 @@ export interface TecscdeApi {
       requests: readonly ImportRequest[],
       options: ImportResolutionOptions,
     ): Promise<readonly ResolvedImport[]>;
+    /** 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルを解析する。 */
+    parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile>;
   };
   readonly tecsgen: {
     generate(args: readonly string[]): Promise<TecsgenResult>;
