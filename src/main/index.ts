@@ -9,6 +9,7 @@ import { app, BrowserWindow, Menu } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { updateElectronApp } from "update-electron-app";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { registerIpcHandlers } from "./ipc.js";
@@ -25,6 +26,12 @@ const require = createRequire(import.meta.url);
 if (require("electron-squirrel-startup")) {
   app.quit();
 }
+
+// [[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]（2026-09-23）:
+// origin（toppers/tecscde-dt-el、public）のGitHub Releasesを自動更新元とする。
+// update-electron-app は内部で app.isPackaged を見るため、`npm start`（未パッケージ）
+// では実質何もしない——開発フローに影響しない。
+updateElectronApp();
 
 let pendingOpenPath: string | null = null;
 

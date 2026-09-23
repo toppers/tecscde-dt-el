@@ -32,10 +32,12 @@ src/
 ## Commands
 
 ```
-npm test          # vitest — 29 tests across model/cdl (ported) + main/preload/renderer (new)
+npm test          # vitest — 279 tests across model/cdl (ported) + main/preload/renderer
 npm run build     # type-check renderer, compile main+preload to dist/
 npm run depcruise # enforce renderer ↛ electron / main ↛ renderer (chapter 10.1)
 npm run check     # all three
+npm run forge:package # electron-forge package (asar, no installer)
+npm run forge:make    # electron-forge make (Squirrel .exe installer, Windows only)
 ```
 
 ## What's verified vs. not
@@ -45,13 +47,32 @@ npm run check     # all three
   non-zero exit) against real fs / mocked `child_process`.
 - ✅ The full IPC *contract* (channel names, argument shapes) between `preload`,
   `main/ipc.ts`, and the renderer gateways — verified with `electron` mocked out.
-- ❌ **Not verified**: an actual `electron .` launch. This dev environment has no
-  display, and `electron`'s postinstall (which downloads the Electron binary) was
-  blocked by the local install-scripts allowlist. The real `contextBridge` isolation
-  behavior, `sandbox: true` compatibility (open question, spec 11.2 #1), and the
-  renderer's actual bundling/loading are unverified.
-- ❌ Chapters 4 (Copy/Paste/Cut clipboard commands), 5–6 (rendering/view state, verbatim
-  from `tecscde-ts` but not yet ported), 7.4 (startup file-open wiring beyond the
-  `FileService.openPath` method), 9.4 (`TecsgenResultParser`), and the UI shell (module G)
-  are not implemented yet — see the corresponding chapters and
-  `[[work/active/TECSCDE-DT-EL実装]]` for the current state.
+- ✅ **A real `electron .` launch**, verified interactively across multiple rounds
+  (2026-09-08 through 2026-09-21): `contextBridge` isolation with `sandbox: false`
+  (spec 11.2 #1, decided), preload ESM loading, renderer bundling/loading, and
+  post-package (asar'd) startup all confirmed working on the actual machine.
+- ✅ Chapters 4 (Copy/Paste/Cut clipboard commands), 5–6 (rendering/view state), 7
+  (file I/O incl. the file browser, chapters 7B/7C/7D/7E), 8 (diagnostics), 9
+  (tecsgen integration incl. `TecsgenResultParser` and `CdeclExtractor`), and the UI
+  shell (module G) are implemented — see `[[work/active/TECSCDE-DT-EL実装]]` for the
+  detailed progress log.
+- ❌ Not yet implemented: code signing (installer is unsigned, triggers Windows
+  SmartScreen) and macOS/Linux packaging — both still open per spec 11.2 #2, see
+  `[[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 11 未決事項と実装単位案]]`.
+
+## Installing / Updating
+
+Windows only, for now (see "What's verified vs. not" above).
+
+1. Download the latest `Setup.exe` from this repository's
+   [Releases](https://github.com/toppers/tecscde-dt-el/releases) page and run it.
+   The installer is unsigned, so Windows SmartScreen will warn before running it
+   ("More info" → "Run anyway").
+2. After installing, the app checks for updates automatically via
+   `update-electron-app` (backed by `update.electronjs.org`, reading this
+   repository's GitHub Releases) and applies them on the next restart — no manual
+   redownload needed for subsequent versions.
+
+Release automation (`.github/workflows/release.yml`) builds and publishes a new
+release whenever a `v*` tag is pushed; see
+`[[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]` for the design.
