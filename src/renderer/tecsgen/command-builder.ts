@@ -13,6 +13,10 @@
 // `buildArgs`はexecFileへそのまま渡す配列（シェルを経由しないためクォート不要）。
 // `buildCommandLine`は8.4.2が「実行に加えて残す」と定めるコピー用の表示文字列で、
 // 空白を含む引数のみダブルクォートで囲む。
+//
+// 2026-09-24追加: `-k utf8`（文字コード指定）を常に付与する。CDLファイルはUTF-8前提
+// （[[TECSCDE外部仕様]]5.1.2節）だが、tecsgen外部仕様第5章の`-k, --kcode`は既定`euc`のため、
+// 明示しないとtecsgenが文字コードを取り違える可能性がある（内部仕様11.2節#6）。
 
 export interface TecsgenCommandInput {
   /** CLI引数には出さない。文脈情報としての表示にのみ使う（8.4.2）。 */
@@ -33,7 +37,7 @@ function quoteIfNeeded(arg: string): string {
 export class TecsgenCommandBuilder {
   /** サブプロセス起動の実引数（`execFile("tecsgen", args)`にそのまま渡す）。 */
   static buildArgs(input: TecsgenCommandInput): string[] {
-    const args: string[] = [];
+    const args: string[] = ["-k", "utf8"];
     for (const path of input.importPath ?? []) args.push("-I", path);
     for (const macro of input.defineMacro ?? []) args.push("-D", macro);
     if (input.cpp) args.push("-c", input.cpp);
