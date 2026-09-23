@@ -9,6 +9,8 @@ import { resolveAddedReference, resolveAllImports } from "../../src/renderer/app
 import { W_CODES } from "../../src/renderer/cdl/messages";
 import { emptyToolInfoTecsgen } from "../../src/renderer/model/tool-info-types";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
+import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
+import type { CppResult } from "../../src/shared/ipc-types.js";
 import type { ImportRequest } from "../../src/shared/ipc-types.js";
 
 interface FakeFile {
@@ -30,7 +32,27 @@ function fakeGateway(files: Readonly<Record<string, FakeFile>>): { gateway: File
   return { gateway: { resolveImports } as unknown as FileGateway, calls };
 }
 
+/**
+ * フェイクの `TecsgenGateway`。既定は「プリプロセッサが見つからない」（executableFound:
+ * false）——大半のテストは`import_C`を使わないため呼ばれないが、呼ばれた場合でも
+ * 常にフォールバック経路（生テキストのまま`CdeclExtractor`へ渡す）になる。
+ * 9B章9B.6の呼び出し先。
+ */
+function fakeTecsgenGateway(preprocessResult: Partial<CppResult> = {}): TecsgenGateway {
+  const preprocess = vi.fn(
+    async (): Promise<CppResult> => ({
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      executableFound: false,
+      ...preprocessResult,
+    }),
+  );
+  return { preprocess } as unknown as TecsgenGateway;
+}
+
 const toolInfo = emptyToolInfoTecsgen();
+const tecsgenGateway = fakeTecsgenGateway();
 
 describe("resolveAllImports", () => {
   it("resolves a single import and adds it as a reference", async () => {
@@ -38,6 +60,7 @@ describe("resolveAllImports", () => {
 
     const { references, diagnostics } = await resolveAllImports(
       gateway,
+      tecsgenGateway,
       "/root/A.cdl",
       'import("B.cdl");',
       toolInfo,
@@ -53,7 +76,7 @@ describe("resolveAllImports", () => {
       "C.cdl": { canonicalPath: "/root/C.cdl", content: "" },
     });
 
-    const { references } = await resolveAllImports(gateway, "/root/A.cdl", 'import("B.cdl");', toolInfo);
+    const { references } = await resolveAllImports(gateway, tecsgenGateway, "/root/A.cdl", 'import("B.cdl");', toolInfo);
 
     expect(references.map((r) => r.path)).toEqual(["/root/B.cdl", "/root/C.cdl"]);
   });
@@ -65,7 +88,13 @@ describe("resolveAllImports", () => {
       "B.cdl": { canonicalPath: "/root/B.cdl", content: 'import("A.cdl");' },
     });
 
-    const { references, diagnostics } = await resolveAllImports(gateway, editablePath, 'import("B.cdl");', toolInfo);
+    const { references, diagnostics } = await resolveAllImports(
+      gateway,
+      tecsgenGateway,
+      editablePath,
+      'import("B.cdl");',
+      toolInfo,
+    );
 
     expect(references.map((r) => r.path)).toEqual(["/root/B.cdl"]); // A自身は含まれない
     expect(diagnostics).toEqual([]);
@@ -80,6 +109,7 @@ describe("resolveAllImports", () => {
 
     const { references } = await resolveAllImports(
       gateway,
+      tecsgenGateway,
       "/root/A.cdl",
       'import("b.cdl");\nimport("alias_b.cdl");',
       toolInfo,
@@ -93,6 +123,7 @@ describe("resolveAllImports", () => {
 
     const { references, diagnostics } = await resolveAllImports(
       gateway,
+      tecsgenGateway,
       "/root/A.cdl",
       'import("missing.cdl");',
       toolInfo,
@@ -108,23 +139,69 @@ describe("resolveAllImports", () => {
       "foo.h": { canonicalPath: "/root/foo.h", content: 'import("should-not-be-fetched.cdl");' },
     });
 
-    const { references, diagnostics } = await resolveAllImports(
+    const { references, diagnostics, cdeclResults } = await resolveAllImports(
       gateway,
+      tecsgenGateway, // 既定はプリプロセッサ未検出 → フォールバック経路
       "/root/A.cdl",
       'import_C("foo.h");',
       toolInfo,
     );
 
     expect(references).toEqual([]);
-    expect(diagnostics).toEqual([]);
     expect(calls).toHaveLength(1); // foo.hの内容から抽出されたimportで2周目が発生していない
+    // フォールバック経路を通ったため W-CPP-FALLBACK が1件出る（9B章9B.6）。
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: "warning", code: W_CODES.CPP_FALLBACK });
+    // foo.hの内容はCDL文のため typedef/struct は0件——CdeclExtractor自体は呼ばれている。
+    expect(cdeclResults.get("/root/foo.h")).toEqual({ typedefs: new Map(), structs: new Map(), hasErrors: false });
+  });
+
+  it("extracts typedefs from import_C via the preprocessor when it succeeds (9B章9B.6)", async () => {
+    const { gateway } = fakeGateway({
+      "foo.h": { canonicalPath: "/root/foo.h", content: "/* raw, unused when preprocess succeeds */" },
+    });
+    const gatewayWithCpp = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: 0,
+      stdout: "typedef unsigned char uint8_t;",
+    });
+
+    const { diagnostics, cdeclResults } = await resolveAllImports(
+      gateway,
+      gatewayWithCpp,
+      "/root/A.cdl",
+      'import_C("foo.h");',
+      toolInfo,
+    );
+
+    expect(diagnostics).toEqual([]); // プリプロセッサ成功時はフォールバック診断が出ない
+    expect(cdeclResults.get("/root/foo.h")?.typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char" });
+  });
+
+  it("emits W-CDECL-PARSE when the (fallback) header text has a syntax error, without throwing", async () => {
+    const { gateway } = fakeGateway({
+      "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int MyInt; struct Broken { int x" },
+    });
+
+    const { diagnostics, cdeclResults } = await resolveAllImports(
+      gateway,
+      tecsgenGateway,
+      "/root/A.cdl",
+      'import_C("foo.h");',
+      toolInfo,
+    );
+
+    expect(diagnostics.map((d) => d.code)).toEqual(
+      expect.arrayContaining([W_CODES.CPP_FALLBACK, W_CODES.CDECL_PARSE_ERROR]),
+    );
+    expect(cdeclResults.get("/root/foo.h")?.typedefs.get("MyInt")).toEqual({ kind: "primitive", name: "int" });
   });
 
   it("passes toolInfo.baseDir/importPath through to the gateway as ImportResolutionOptions", async () => {
     const { gateway } = fakeGateway({ "B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
     const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
 
-    await resolveAllImports(gateway, "/root/A.cdl", 'import("B.cdl");', {
+    await resolveAllImports(gateway, tecsgenGateway, "/root/A.cdl", 'import("B.cdl");', {
       ...toolInfo,
       baseDir: "/some/base",
       importPath: [".", "include"],
@@ -141,7 +218,7 @@ describe("resolveAllImports", () => {
     const { gateway } = fakeGateway({ "B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
     const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
 
-    await resolveAllImports(gateway, "/root/A.cdl", 'import("B.cdl");', { ...toolInfo, importPath: ["."] }, [
+    await resolveAllImports(gateway, tecsgenGateway, "/root/A.cdl", 'import("B.cdl");', { ...toolInfo, importPath: ["."] }, [
       "./opts-dir",
     ]);
 
@@ -162,6 +239,7 @@ describe("resolveAddedReference", () => {
 
     const { references, diagnostics } = await resolveAddedReference(
       gateway,
+      tecsgenGateway,
       "/root/A.cdl",
       toolInfo,
       "/root/extra.cdl",
@@ -177,7 +255,7 @@ describe("resolveAddedReference", () => {
       "/root/extra.cdl": { canonicalPath: "/root/extra.cdl", content: "" },
     });
 
-    const { references } = await resolveAddedReference(gateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", [
+    const { references } = await resolveAddedReference(gateway, tecsgenGateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", [
       "/root/extra.cdl", // すでに読み込み済み
     ]);
 
@@ -188,7 +266,7 @@ describe("resolveAddedReference", () => {
   it("issues the initial request with kind:'manual'", async () => {
     const { gateway, calls } = fakeGateway({ "/root/extra.cdl": { canonicalPath: "/root/extra.cdl", content: "" } });
 
-    await resolveAddedReference(gateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", []);
+    await resolveAddedReference(gateway, tecsgenGateway, "/root/A.cdl", toolInfo, "/root/extra.cdl", []);
 
     expect(calls[0]).toEqual([{ kind: "manual", specifier: "/root/extra.cdl" }]);
   });

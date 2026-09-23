@@ -8,6 +8,7 @@ import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
 import type { OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
+import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { TecscdeDocument } from "../model/document";
 import { ViewState } from "../view-state/view-state";
 import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports } from "./import-resolution";
@@ -36,16 +37,21 @@ function mergeReferences(existing: readonly OpenFileEntry[], discovered: readonl
  * 第7D・7E章: 編集対象ファイルの`import`/`import_C`文の参照先を`resolveAllImports`で
  * 推移的に解決し、既存の`result.references`（手動指定・前回セッション復元由来）と
  * 正規化済み絶対パスで重複排除して合流させる。
+ * `import_C`が見つけたCヘッダの型（9B章`cdeclResults`）は、ポート型解決へつなぐ設計が
+ * まだ無い（9B章9B.2の範囲外）ため、ここでは診断（`importDiagnostics`）に反映される
+ * フォールバック・構文エラーの警告以外は使わず捨てる——保持先（`store`等）を今回新設しない。
  */
 export async function applyOpenResult(
   store: AppStore,
   gateway: FileGateway,
+  tecsgenGateway: TecsgenGateway,
   result: OpenResult,
   extraImportPaths: readonly string[] = [],
 ): Promise<void> {
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
   const { references: autoReferences, diagnostics: importDiagnostics } = await resolveAllImports(
     gateway,
+    tecsgenGateway,
     result.editable.path,
     result.editable.content,
     toolInfo,
@@ -77,6 +83,7 @@ export async function applyOpenResult(
 export async function openFromPath(
   store: AppStore,
   gateway: FileGateway,
+  tecsgenGateway: TecsgenGateway,
   path: string,
   options: { extraImportPaths?: readonly string[] } = {},
 ): Promise<void> {
@@ -85,7 +92,7 @@ export async function openFromPath(
     if (!proceed) return;
   }
   const result = await gateway.openPath(path);
-  await applyOpenResult(store, gateway, result, options.extraImportPaths ?? []);
+  await applyOpenResult(store, gateway, tecsgenGateway, result, options.extraImportPaths ?? []);
   // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
   await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
 }
@@ -121,7 +128,12 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
  * （`openFromPath`が別ファイルを開く際に既に持つのと同じトレードオフ）。現在の
  * 未保存の内容自体は`CdlSerializer.serialize()`で引き継ぐため失われない。
  */
-export async function addAsReference(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+export async function addAsReference(
+  store: AppStore,
+  gateway: FileGateway,
+  tecsgenGateway: TecsgenGateway,
+  path: string,
+): Promise<void> {
   const editablePath = store.filePath;
   if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
   const existingPaths = store.getReferenceFilePaths();
@@ -130,6 +142,7 @@ export async function addAsReference(store: AppStore, gateway: FileGateway, path
   const toolInfo = store.getDocument().toolInfoTecsgen;
   const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
     gateway,
+    tecsgenGateway,
     editablePath,
     toolInfo,
     path,
@@ -158,13 +171,18 @@ export async function addAsReference(store: AppStore, gateway: FileGateway, path
  * `addAsReference`が既存の編集対象を前提とするため、07C章の擬似コードとは逆に、
  * 残りを参照追加する前に必ず先へ`openFromPath`する。
  */
-export async function loadOptionsFile(store: AppStore, gateway: FileGateway, path: string): Promise<void> {
+export async function loadOptionsFile(
+  store: AppStore,
+  gateway: FileGateway,
+  tecsgenGateway: TecsgenGateway,
+  path: string,
+): Promise<void> {
   const parsed = await gateway.parseTecsgenOptionsFile(path);
   const [last, ...rest] = [...parsed.cdlFiles].reverse();
   if (!last) return;
-  await openFromPath(store, gateway, last, { extraImportPaths: parsed.importPaths });
+  await openFromPath(store, gateway, tecsgenGateway, last, { extraImportPaths: parsed.importPaths });
   for (const refPath of rest.reverse()) {
-    await addAsReference(store, gateway, refPath);
+    await addAsReference(store, gateway, tecsgenGateway, refPath);
   }
 }
 

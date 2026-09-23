@@ -12,17 +12,21 @@ import { AppStore } from "./app/store";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
 import { CdlGrammar } from "./cdl/grammar";
+import { CdeclGrammar } from "./cdecl/grammar";
 
 function main(): void {
   if (typeof window === "undefined" || !window.tecscde) {
     throw new Error("preload の window.tecscde が見つかりません（contextBridge 未初期化）");
   }
 
-  // 内部仕様2.2: WASMロードの非同期性は起動時の1点に閉じ込める。
+  // 内部仕様2.2 / 9B章9B.3: WASMロードの非同期性は起動時の1点に閉じ込める。
   // onBootstrapはdid-finish-load直後に届くため先に登録し、解析だけ初期化完了を待つ。
-  const grammarReady = window.tecscde.cdl
-    .loadGrammarAssets()
-    .then((assets) => CdlGrammar.init(assets));
+  // CdlGrammar/CdeclGrammarのinit()はいずれもweb-tree-sitterのグローバルランタイムを
+  // 初期化するため、並列に走らせると競合する（tests/setup.tsコメント参照）。順番に待つ。
+  const grammarReady = window.tecscde.cdl.loadGrammarAssets().then(async (assets) => {
+    await CdlGrammar.init(assets);
+    await CdeclGrammar.init({ runtimeWasm: assets.runtimeWasm, cdeclWasm: assets.cdeclWasm });
+  });
 
   const store = new AppStore();
   const gateway = new FileGateway();
@@ -35,10 +39,10 @@ function main(): void {
   window.tecscde.onBootstrap((data) => {
     void grammarReady
       .then(() => {
-        if (data) return applyOpenResult(store, gateway, data);
+        if (data) return applyOpenResult(store, gateway, tecsgen, data);
       })
       .catch((error: unknown) => {
-        console.error("CDLパーサの初期化に失敗しました:", error);
+        console.error("CDL/cdeclパーサの初期化に失敗しました:", error);
       });
   });
 }

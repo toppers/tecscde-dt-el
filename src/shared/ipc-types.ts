@@ -36,10 +36,12 @@ export interface CppResult {
   readonly executableFound: boolean;
 }
 
-/** tree-sitterランタイムとCDL文法のWASMバイト列。 */
+/** tree-sitterランタイムとCDL/cdecl文法のWASMバイト列。 */
 export interface CdlGrammarAssetBytes {
   readonly runtimeWasm: Uint8Array;
   readonly cdlWasm: Uint8Array;
+  /** [[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09B CdeclExtractor設計]] 9B.3 */
+  readonly cdeclWasm: Uint8Array;
 }
 
 /**

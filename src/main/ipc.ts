@@ -11,13 +11,15 @@ import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types
 
 export function registerIpcHandlers(fileService: FileService, tecsgenRunner: TecsgenRunner): void {
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
+  // CDL文法とcdecl文法（9B章9B.3）は同じ起動シーケンスで一度に渡す。
   ipcMain.handle("cdl:grammar-assets", async () => {
     const wasmDir = join(app.getAppPath(), "public", "wasm");
-    const [runtimeWasm, cdlWasm] = await Promise.all([
+    const [runtimeWasm, cdlWasm, cdeclWasm] = await Promise.all([
       readFile(join(wasmDir, "tree-sitter.wasm")),
       readFile(join(wasmDir, "tree-sitter-cdl.wasm")),
+      readFile(join(wasmDir, "tree-sitter-tecs_cdecl.wasm")),
     ]);
-    return { runtimeWasm, cdlWasm };
+    return { runtimeWasm, cdlWasm, cdeclWasm };
   });
   ipcMain.handle("file:save", (_e, path: string, content: string) => fileService.save(path, content));
   ipcMain.handle("file:saveAs", (_e, content: string, suggestedName: string) =>

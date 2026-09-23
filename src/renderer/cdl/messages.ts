@@ -21,6 +21,8 @@ export const W_CODES = {
   LAYOUT_PARSE_ERROR: "W-LAYOUT-PARSE-ERROR",
   NEWER_FORMAT: "W-NEWER-FORMAT",
   UNRESOLVED_REF_FILE: "W-UNRESOLVED-REF-FILE",
+  CPP_FALLBACK: "W-CPP-FALLBACK",
+  CDECL_PARSE_ERROR: "W-CDECL-PARSE",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -86,5 +88,32 @@ export function unresolvedReferenceFile(fileName: string): Diagnostic {
     severity: "warning",
     code: W_CODES.UNRESOLVED_REF_FILE,
     message: `参照専用ファイル \`${fileName}\` は未解決です（再度ファイル選択してください）`,
+  };
+}
+
+/**
+ * [[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09 tecsgen連携設計#9.6]]:
+ * import_CのCヘッダに対しCプリプロセッサの実行が見つからない・失敗したため、未展開の
+ * 生ヘッダテキストへフォールバックしたことを利用者に提示する。#include未展開・#ifdef
+ * 未評価の差分が生じ得る（[[work/active/TECSCDE外部仕様/TECSCDE外部仕様 - 08 CDL 連携#8.1.2]]）。
+ */
+export function cppFallback(headerPath: string): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.CPP_FALLBACK,
+    message: `Cプリプロセッサを実行できなかったため、\`${headerPath}\` は未展開のまま型を抽出しました（#include未展開・#ifdef未評価の差分が生じ得ます）`,
+  };
+}
+
+/**
+ * [[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09B CdeclExtractor設計#9B.5]]:
+ * CdeclExtractorがCヘッダの一部を解析できなかった（tree-sitterのERROR/MISSINGノード）。
+ * 走査自体は継続し、捕捉できた範囲のtypedef/structは反映されている。
+ */
+export function cdeclParseError(headerPath: string): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.CDECL_PARSE_ERROR,
+    message: `\`${headerPath}\` の一部を解析できませんでした（構文エラー）。捕捉できた範囲のtypedef/structのみ反映しています`,
   };
 }

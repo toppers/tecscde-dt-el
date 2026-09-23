@@ -123,13 +123,16 @@ export class AppShell {
       requireEl<HTMLElement>(root, "#file-browser"),
       this.store,
       this.gateway,
-      (path) => void openFromPath(this.store, this.gateway, path).catch((err: unknown) => this.reportActionError("openFolder", err)),
       (path) =>
-        void addAsReference(this.store, this.gateway, path).catch((err: unknown) =>
+        void openFromPath(this.store, this.gateway, this.tecsgen, path).catch((err: unknown) =>
+          this.reportActionError("openFolder", err),
+        ),
+      (path) =>
+        void addAsReference(this.store, this.gateway, this.tecsgen, path).catch((err: unknown) =>
           this.reportActionError("addAsReference", err),
         ),
       (path) =>
-        void loadOptionsFile(this.store, this.gateway, path).catch((err: unknown) =>
+        void loadOptionsFile(this.store, this.gateway, this.tecsgen, path).catch((err: unknown) =>
           this.reportActionError("loadOptionsFile", err),
         ),
     );
