@@ -30,8 +30,10 @@ if (require("electron-squirrel-startup")) {
 // [[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]（2026-09-23）:
 // origin（toppers/tecscde-dt-el、public）のGitHub Releasesを自動更新元とする。
 // update-electron-app は内部で app.isPackaged を見るため、`npm start`（未パッケージ）
-// では実質何もしない——開発フローに影響しない。
-updateElectronApp();
+updateElectronApp({
+  repo: "toppers/tecscde-dt-el",
+  logger: console,
+});
 
 let pendingOpenPath: string | null = null;
 
