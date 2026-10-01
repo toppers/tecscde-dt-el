@@ -9,6 +9,33 @@ import type { TecsgenResult, CppResult } from "../shared/ipc-types.js";
 
 const execFileAsync = promisify(execFile);
 
+// __tool_info__("cpp") is a command line. Preserve quoted paths and options,
+// including backslashes in Windows paths, when passing it to execFile.
+function splitCommand(command: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let started = false;
+  for (const char of command) {
+    if (char === quote) {
+      quote = null;
+    } else if (quote === null && (char === '"' || char === "'")) {
+      quote = char;
+      started = true;
+    } else if (quote === null && /\s/.test(char)) {
+      if (started) args.push(current);
+      current = "";
+      started = false;
+    } else {
+      current += char;
+      started = true;
+    }
+  }
+  if (quote !== null) throw new Error("Unclosed quote in C preprocessor command");
+  if (started) args.push(current);
+  return args;
+}
+
 export class TecsgenRunner {
   async run(args: readonly string[]): Promise<TecsgenResult> {
     try {
@@ -27,9 +54,9 @@ export class TecsgenRunner {
 
   async preprocess(headerPath: string, cppCommand?: string): Promise<CppResult> {
     const cmd = cppCommand?.trim() || "gcc -E -DTECSGEN";
-    const [exec, ...baseArgs] = cmd.split(/\s+/);
     try {
-      const { stdout, stderr } = await execFileAsync(exec!, [...baseArgs, headerPath], { timeout: 30_000 });
+      const [executable, ...baseArgs] = splitCommand(cmd);
+      const { stdout, stderr } = await execFileAsync(executable!, [...baseArgs, headerPath], { timeout: 30_000 });
       return { stdout, stderr, exitCode: 0, executableFound: true };
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };

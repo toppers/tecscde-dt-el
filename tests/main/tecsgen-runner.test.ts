@@ -82,6 +82,28 @@ describe("TecsgenRunner", () => {
     expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], { timeout: 30_000 });
   });
 
+  it("preprocess() keeps quoted executable paths and option values intact", async () => {
+    execFileMock.mockResolvedValue({ stdout: "expanded", stderr: "" });
+    const runner = new TecsgenRunner();
+
+    await runner.preprocess("C:\\headers\\my header.h", '"C:\\Program Files\\LLVM\\bin\\clang.exe" -E -DNAME="two words"');
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      "C:\\Program Files\\LLVM\\bin\\clang.exe",
+      ["-E", "-DNAME=two words", "C:\\headers\\my header.h"],
+      { timeout: 30_000 },
+    );
+  });
+
+  it("preprocess() reports an unmatched quote as a command failure", async () => {
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", '"C:\\Program Files\\clang.exe -E');
+
+    expect(result).toEqual({ stdout: "", stderr: "", exitCode: 1, executableFound: true });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
   it("preprocess() returns executableFound=false on ENOENT", async () => {
     const enoent = Object.assign(new Error("not found"), { code: "ENOENT" });
     execFileMock.mockRejectedValue(enoent);
