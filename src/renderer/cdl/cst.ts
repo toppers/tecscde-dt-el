@@ -67,6 +67,8 @@ export interface ImportDecl {
 
 export interface CompositeDecl {
   readonly name: string;
+  readonly ports: readonly PortDecl[];
+  readonly attributes: readonly string[];
 }
 
 export interface ParsedCdl {
@@ -170,6 +172,11 @@ export class CdlDocumentBuilder {
           if (celltype) celltypes.push(celltype);
           break;
         }
+        case "composite_celltype": {
+          const composite = CdlDocumentBuilder.collectComposite(statement, parentPath);
+          if (composite) composites.push(composite);
+          break;
+        }
         case "signature": {
           const name = statement.childForFieldName("name");
           if (name) signatures.push(name.text);
@@ -223,8 +230,8 @@ export class CdlDocumentBuilder {
           break;
         }
         case "composite_celltype": {
-          const name = statement.childForFieldName("name");
-          if (name) composites.push({ name: name.text });
+          const composite = CdlDocumentBuilder.collectComposite(statement, "::");
+          if (composite) composites.push(composite);
           break;
         }
         default:
@@ -269,6 +276,34 @@ export class CdlDocumentBuilder {
       if (name !== undefined) names.push(name);
     }
     return names;
+  }
+
+  private static collectComposite(compositeNode: Node, parentPath: string): CompositeDecl | undefined {
+    const name = compositeNode.childForFieldName("name");
+    if (!name) return undefined;
+    const ports: PortDecl[] = [];
+    const attributes: string[] = [];
+    const body = compositeNode.childForFieldName("body");
+    if (body) {
+      for (const child of body.namedChildren) {
+        if (!child) continue;
+        const statement = child.type === "specified_composite_celltype_statement"
+          ? child.childForFieldName("statement")
+          : child;
+        if (!statement) continue;
+        for (const member of statement.namedChildren) {
+          if (!member) continue;
+          if (member.type === "port") {
+            const port = CdlDocumentBuilder.collectPort(member);
+            if (port) ports.push(port);
+          } else if (member.type === "composite_attribute") {
+            attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+          }
+        }
+      }
+    }
+    const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
+    return { name: qualifiedName, ports, attributes };
   }
 
   private static collectCelltype(celltypeNode: Node): CelltypeDecl | undefined {
