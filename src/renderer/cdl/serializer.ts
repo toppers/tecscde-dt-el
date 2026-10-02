@@ -1,14 +1,13 @@
 // TECSCDE-TS内部仕様 2.2 — TecscdeDocument を .cde（CDL本体）テキストへ書き戻す（CdlSerializer）。
-// 外部仕様5.1.1が確定した3ブロックの順序をそのまま踏襲する:
-//   ① __tool_info__("tecsgen")  — 解釈せず保持した値をそのまま書き戻す（5.1.2）
-//   ② cell定義（editable なセルのみ、5.4.1）
-//   ③ __tool_info__("tecscde") — 用紙・配置・結合経路。未知キーも保持する（5.5.2）
+// 既存ファイルではCDLのスコープ・未対応構文を保持してセル定義とtool_infoを更新する。
+// 新規ドキュメントは既定の3ブロック形式で出力する。
 
 import type { Cell } from "../model/cell";
 import type { EdgeSide } from "../model/port";
 import { CDE_FORMAT_VERSION, TECSCDE_TS_VERSION } from "../model/tool-info-types";
 import type { TecscdeDocument } from "../model/document";
 import { ToolInfoValidator, type CellLayout, type JoinLayout } from "./tool-info";
+import { CdlDocumentBuilder } from "./cst";
 
 function formatToolInfoBlock(toolName: string, json: string): string {
   return `__tool_info__("${toolName}") ${json}`;
@@ -36,6 +35,70 @@ function serializeCellBlock(doc: TecscdeDocument, cell: Cell): string {
   const body = [...cellJoinLines(doc, cell), ...cellAttrLines(cell)];
   // 末尾の `;` はCDL文法上必須（tecsgen の bnf.y.rb が cell 定義の終端として要求する）。
   return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `};`].join("\n");
+}
+
+interface TextEdit { readonly start: number; readonly end: number; readonly text: string }
+
+function serializeFromTemplate(
+  doc: TecscdeDocument,
+  cells: readonly Cell[],
+  tecsgenBlock: string,
+  tecscdeBlock: string,
+): string {
+  const template = doc.sourceTemplate!;
+  for (const cell of cells) {
+    const region = doc.regions.findById(cell.regionId);
+    if (!region || !region.cellIds.includes(cell.id)) {
+      throw new Error(`リージョン所属が不整合です: ${cell.name}`);
+    }
+  }
+  if (new Set(template.cells.map((cell) => cell.cellName)).size !== template.cells.length) {
+    throw new Error("同名セルが複数あるため、CDLを安全に保存できません。");
+  }
+  const edits: TextEdit[] = template.cells.map((cell) => ({
+    start: cell.startIndex, end: cell.endIndex, text: "",
+  }));
+  const insertions = new Map<string, string[]>();
+  const originalCells = new Map(template.cells.map((cell) => [cell.cellName, cell]));
+  const scopeEnd = new Map<string, number>(template.scopes.map((scope) => [scope.path, scope.bodyEndIndex]));
+  for (const cell of cells) {
+    const path = doc.regions.findById(cell.regionId)?.namespacePath;
+    if (!path || (path !== "::" && !scopeEnd.has(path))) {
+      throw new Error(`保存先リージョンが編集ファイルにありません: ${cell.name}`);
+    }
+    const blocks = insertions.get(path) ?? [];
+    blocks.push((originalCells.get(cell.id)?.leadingText ?? "") + serializeCellBlock(doc, cell));
+    insertions.set(path, blocks);
+  }
+  for (const [path, blocks] of insertions) {
+    const start = path === "::" ? template.text.length : scopeEnd.get(path)!;
+    edits.push({ start, end: start, text: `\n${blocks.join("\n\n")}\n` });
+  }
+  let hasTecsgen = false;
+  let hasTecscde = false;
+  for (const block of template.toolInfoBlocks) {
+    if (block.toolName !== "tecsgen" && block.toolName !== "tecscde") continue;
+    const replacement = block.toolName === "tecsgen" ? tecsgenBlock : tecscdeBlock;
+    const alreadyWritten = block.toolName === "tecsgen" ? hasTecsgen : hasTecscde;
+    edits.push({ start: block.startIndex, end: block.endIndex, text: alreadyWritten ? "" : replacement });
+    if (block.toolName === "tecsgen") hasTecsgen = true;
+    else hasTecscde = true;
+  }
+  if (!hasTecsgen) edits.push({ start: 0, end: 0, text: `${tecsgenBlock}\n\n` });
+  if (!hasTecscde) edits.push({ start: template.text.length, end: template.text.length, text: `\n${tecscdeBlock}\n` });
+  let result = template.text;
+  for (const edit of edits.sort((a, b) => b.start - a.start || b.end - a.end)) {
+    result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+  }
+  const sourceWithBlanks = ToolInfoValidator.extractBlocks(result).sourceWithBlanks;
+  const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
+  const expected = new Map(cells.map((cell) => [cell.name, doc.regions.findById(cell.regionId)?.namespacePath]));
+  if (parsed.diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+      parsed.cells.length !== cells.length ||
+      parsed.cells.some((cell) => expected.get(cell.cellName) !== cell.regionPath)) {
+    throw new Error("保存後のCDLでセルの所属を復元できません。");
+  }
+  return result.endsWith("\n") ? result : `${result}\n`;
 }
 
 export class CdlSerializer {
@@ -95,6 +158,8 @@ export class CdlSerializer {
       "tecscde",
       ToolInfoValidator.serializeTecscde(doc.paper, cellList, joinList, doc.unknownToolInfoTecscde),
     );
+
+    if (doc.sourceTemplate) return serializeFromTemplate(doc, editableCells, tecsgenBlock, tecscdeBlock);
 
     // 内部仕様3章: モデルに反映しない構文（import / import_C）は入力時のテキストの
     // まま書き戻す。tecsgen は import をファイル先頭付近で解決するため、

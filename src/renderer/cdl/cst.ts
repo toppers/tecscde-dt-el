@@ -1,14 +1,11 @@
 // TECSCDE-TS内部仕様 2.2 — tree-sitterのCSTを走査して中間表現を組み立てる（CdlDocumentBuilder）。
 //
 // パーサはCDLの全構文を解析する（tecsgen自身の構文定義からの移植文法を用いるため
-// 解析範囲を絞る理由がない）。ただし図のモデルへ反映する対象は cell定義・
-// __tool_info__・ポート構成の解決に必要な celltype/signature 定義に限る。
-// それ以外の構文（composite・region・generate・typedef等）は解析はするが
-// モデルには反映しない。
+// 解析範囲を絞る理由がない）。図のモデルには cell・celltype・signature と
+// namespace/region の入れ子を反映する。generate・typedef 等は原文を保持する。
 //
-// 本ファイルは旧 CdlLexer / CdlParser を置き換える。中間表現（ParsedCdl）の形は
-// 旧実装と同一に保っている——CdlDocumentLoader に手を入れずに済ませ、round-trip
-// テストが「パーサだけを入れ替えた」ことの検証として機能するようにするため。
+// 本ファイルは旧 CdlLexer / CdlParser を置き換える。ParsedCdl は所属パスと
+// 保存用の構文位置も返す。
 
 import type { Node } from "web-tree-sitter";
 import { CdlGrammar } from "./grammar";
@@ -48,6 +45,14 @@ export interface CellDecl {
   readonly attrs: readonly AttrAssignDecl[];
   readonly line: number;
   readonly column: number;
+  readonly regionPath: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+export interface CdlScope {
+  readonly path: string;
+  readonly kind: "namespace" | "region";
+  readonly bodyEndIndex: number;
 }
 
 export interface ImportDecl {
@@ -71,9 +76,10 @@ export interface ParsedCdl {
   readonly imports: readonly ImportDecl[];
   readonly composites: readonly CompositeDecl[];
   readonly diagnostics: Diagnostic[];
+  readonly scopes: readonly CdlScope[];
 }
 
-/** 文字列リテラルノードのテキストから囲みの引用符を外す。 */
+/** 文字列リテラルやシステムインポートノードのテキストから囲みの引用符・山括弧を外す。 */
 function unquote(text: string): string {
   if (
     text.length >= 2 &&
@@ -128,15 +134,60 @@ export class CdlDocumentBuilder {
     const cells: CellDecl[] = [];
     const imports: ImportDecl[] = [];
     const composites: CompositeDecl[] = [];
+    const scopes: CdlScope[] = [];
 
     const root = tree?.rootNode;
-    if (!root) return { signatures, celltypes, cells, imports, composites, diagnostics };
+    if (!root) return { signatures, celltypes, cells, imports, composites, diagnostics, scopes };
+
+    const visitNested = (node: Node, parentPath: string): void => {
+      const statement = node.type === "specified_statement" ? node.childForFieldName("statement") :
+        node.type === "region_cell" ? node.childForFieldName("cell") : node;
+      if (!statement) return;
+      if (statement.type === "namespace" || statement.type === "region") {
+        const name = statement.childForFieldName("name");
+        if (!name) return;
+        const path = `${parentPath === "::" ? "" : parentPath}::${name.text}`;
+        const bodyEndIndex = sourceWithBlanks.lastIndexOf("}", statement.endIndex - 1);
+        scopes.push({ path, kind: statement.type, bodyEndIndex });
+        if (statement.type === "namespace") {
+          const body = statement.childForFieldName("body");
+          if (body) for (const child of body.namedChildren) if (child) visitNested(child, path);
+        } else {
+          for (const child of statement.namedChildren) {
+            if (child && (child.type === "region" || child.type === "region_cell")) visitNested(child, path);
+          }
+        }
+        return;
+      }
+      switch (statement.type) {
+        case "cell": {
+          const cell = CdlDocumentBuilder.collectCell(statement, parentPath);
+          if (cell) cells.push(cell);
+          break;
+        }
+        case "celltype": {
+          const celltype = CdlDocumentBuilder.collectCelltype(statement);
+          if (celltype) celltypes.push(celltype);
+          break;
+        }
+        case "signature": {
+          const name = statement.childForFieldName("name");
+          if (name) signatures.push(name.text);
+          break;
+        }
+        case "import":
+        case "import_c": {
+          const path = statement.childForFieldName(statement.type === "import" ? "path" : "header");
+          if (path) imports.push({ kind: statement.type === "import" ? "import" : "import_C", path: unquote(path.text), rawText: statement.text });
+          break;
+        }
+      }
+    };
 
     for (let i = 0; i < root.namedChildCount; i += 1) {
       const top = root.namedChild(i);
       if (!top) continue;
-      // トップレベルのみを対象とする（namespace/region に入れ子のセルは
-      // 現行のシリアライザが平坦に書き出すため、収集すると保存時に失う）。
+      // 入れ子の namespace/region は visitNested で再帰走査する。
       const statement =
         top.type === "specified_statement" ? top.childForFieldName("statement") : top;
       if (!statement) continue;
@@ -177,7 +228,7 @@ export class CdlDocumentBuilder {
           break;
         }
         default:
-          // モデルに反映しない構文（namespace/region/generate/typedef等）。
+          if (statement.type === "namespace" || statement.type === "region") visitNested(statement, "::");
           break;
       }
     }
@@ -185,7 +236,7 @@ export class CdlDocumentBuilder {
     if (root.hasError) CdlDocumentBuilder.collectSyntaxDiagnostics(root, diagnostics);
 
     tree?.delete();
-    return { signatures, celltypes, cells, imports, composites, diagnostics };
+    return { signatures, celltypes, cells, imports, composites, diagnostics, scopes };
   }
 
   private static collectPort(portNode: Node): PortDecl | undefined {
@@ -248,7 +299,7 @@ export class CdlDocumentBuilder {
     return { name: name.text, ports, attributes };
   }
 
-  private static collectCell(cellNode: Node): CellDecl | undefined {
+  private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {
     const type = cellNode.childForFieldName("type");
     const name = cellNode.childForFieldName("name");
     if (!type || !name) return undefined;
@@ -291,6 +342,9 @@ export class CdlDocumentBuilder {
       attrs,
       line: cellNode.startPosition.row + 1,
       column: cellNode.startPosition.column + 1,
+      regionPath,
+      startIndex: cellNode.startIndex,
+      endIndex: cellNode.endIndex,
     };
   }
 

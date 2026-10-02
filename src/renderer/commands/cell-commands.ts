@@ -218,7 +218,11 @@ export class ChangeRegionCommand extends Command {
 
   apply(doc: TecscdeDocument): TecscdeDocument {
     const cell = doc.getCell(this.cellId);
-    if (!cell || !cell.editable) return doc;
+    if (!cell || !cell.editable || cell.regionId === this.regionId) return doc;
+    const target = doc.regions.findById(this.regionId);
+    if (!target) return doc;
+    if (doc.sourceTemplate && this.regionId !== ROOT_REGION_ID &&
+        !doc.sourceTemplate.scopes.some((scope) => scope.path === target.namespacePath)) return doc;
     return doc.withCell(rebuildCell(cell, { regionId: this.regionId }));
   }
 }

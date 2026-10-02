@@ -250,6 +250,20 @@ describe("FileService", () => {
         cpp: undefined,
       });
     });
+
+    it("parses hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts accurately", async () => {
+      const optsPath = resolve("hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(optsPath);
+
+      expect(result.cdlFiles).toEqual([resolve("hr-tecs/workspace/sd/tEV3Sample.cdl")]);
+      expect(result.importPaths).toContain(".");
+      expect(result.importPaths).toContain("./gen");
+      expect(result.importPaths).toContain("../../tecs_kernel");
+      expect(result.importPaths).toContain("../../target/ev3_gcc/drivers/common/virtual-linux-kernel/include");
+      expect(result.importPaths).toContain("../../tecs_lib/mindstorms_ev3");
+    });
   });
 
   it("openPath normalizes the returned path (第7D章7.5節: resolveImportsとの重複排除に必要)", async () => {

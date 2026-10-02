@@ -10,6 +10,13 @@ import { PaperSpec } from "./paper";
 import { RegionTree } from "./region";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "./tool-info-types";
 
+export interface CdlSourceTemplate {
+  readonly text: string;
+  readonly cells: readonly { readonly cellName: string; readonly regionPath: string; readonly startIndex: number; readonly endIndex: number; readonly leadingText: string }[];
+  readonly scopes: readonly { readonly path: string; readonly bodyEndIndex: number }[];
+  readonly toolInfoBlocks: readonly { readonly toolName: string; readonly startIndex: number; readonly endIndex: number }[];
+}
+
 export interface TecscdeDocumentBuildParams {
   readonly cells: ReadonlyMap<CellId, Cell>;
   readonly joins: ReadonlyMap<JoinId, Join>;
@@ -28,6 +35,7 @@ export interface TecscdeDocumentBuildParams {
    * まま保持し、保存時にそのまま書き戻す。参照先は追跡しない（外部仕様8.1.2）。
    */
   readonly preservedImports?: readonly string[];
+  readonly sourceTemplate?: CdlSourceTemplate;
 }
 
 export class TecscdeDocument {
@@ -42,6 +50,7 @@ export class TecscdeDocument {
     readonly editingFileName: string | undefined,
     readonly unknownToolInfoTecscde: Readonly<Record<string, unknown>>,
     readonly preservedImports: readonly string[],
+    readonly sourceTemplate: CdlSourceTemplate | undefined,
   ) {}
 
   static empty(): TecscdeDocument {
@@ -56,6 +65,7 @@ export class TecscdeDocument {
       undefined,
       {},
       [],
+      undefined,
     );
   }
 
@@ -72,6 +82,7 @@ export class TecscdeDocument {
       params.editingFileName,
       params.unknownToolInfoTecscde,
       params.preservedImports ?? [],
+      params.sourceTemplate,
     );
   }
 
@@ -112,19 +123,21 @@ export class TecscdeDocument {
   }
 
   withCell(cell: Cell): TecscdeDocument {
+    if (!this.regions.findById(cell.regionId)) return this;
     const next = new Map(this.cellsById);
     next.set(cell.id, cell);
     return new TecscdeDocument(
       next,
       this.joinsById,
       this.celltypesByName,
-      this.regions,
+      this.regions.assignCell(cell.id, cell.regionId),
       this.toolInfoTecsgen,
       this.paper,
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
       this.preservedImports,
+      this.sourceTemplate,
     );
   }
 
@@ -135,13 +148,14 @@ export class TecscdeDocument {
       next,
       this.joinsById,
       this.celltypesByName,
-      this.regions,
+      this.regions.removeCell(id),
       this.toolInfoTecsgen,
       this.paper,
       this.referenceFiles,
       this.editingFileName,
       this.unknownToolInfoTecscde,
       this.preservedImports,
+      this.sourceTemplate,
     );
   }
 
@@ -159,6 +173,7 @@ export class TecscdeDocument {
       this.editingFileName,
       this.unknownToolInfoTecscde,
       this.preservedImports,
+      this.sourceTemplate,
     );
   }
 
@@ -176,6 +191,7 @@ export class TecscdeDocument {
       this.editingFileName,
       this.unknownToolInfoTecscde,
       this.preservedImports,
+      this.sourceTemplate,
     );
   }
 }

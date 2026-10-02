@@ -15,6 +15,8 @@ export interface RawToolInfoBlock {
   readonly json: string;
   readonly line: number;
   readonly column: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
 }
 
 export interface ExtractResult {
@@ -188,7 +190,7 @@ export class ToolInfoValidator {
 
       const json = working.slice(jsonStart, end);
       const { line, column } = lineColAt(source, kwIndex);
-      blocks.push({ toolName, json, line, column });
+      blocks.push({ toolName, json, line, column, startIndex: kwIndex, endIndex: end });
 
       working = blank(working, kwIndex, end);
       searchFrom = end;

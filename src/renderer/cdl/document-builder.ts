@@ -5,13 +5,14 @@
 import { alignRound } from "../model/align";
 import { Cell } from "../model/cell";
 import { CelltypeRef, type PortTemplate } from "../model/celltype";
-import { asCellId, asJoinId, ROOT_REGION_ID, type CellId, type JoinId } from "../model/ids";
+import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../model/ids";
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
 import { PaperSpec } from "../model/paper";
 import { CPort, EPort, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
-import { TecscdeDocument } from "../model/document";
+import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
+import { Region, RegionTree } from "../model/region";
 import { CdlDocumentBuilder, type CellDecl } from "./cst";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { compositeUnsupported, duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
@@ -77,6 +78,51 @@ interface ParsedSource {
   readonly cells: readonly CellDecl[];
 }
 
+function buildRegionTree(paths: ReadonlySet<string>, cells: ReadonlyMap<CellId, Cell>): RegionTree {
+  const childrenByPath = new Map<string, string[]>();
+  for (const path of paths) {
+    if (path === "::") continue;
+    const lastSeparator = path.lastIndexOf("::");
+    const parent = lastSeparator === 0 ? "::" : path.slice(0, lastSeparator);
+    const children = childrenByPath.get(parent) ?? [];
+    children.push(path);
+    childrenByPath.set(parent, children);
+  }
+  const create = (path: string): Region => Region.create(
+    asRegionId(path), path,
+    (childrenByPath.get(path) ?? []).sort().map(create),
+    [...cells.values()].filter((cell) => cell.regionId === path).map((cell) => cell.id),
+  );
+  return RegionTree.of(create("::"));
+}
+
+/** A comment immediately above a cell follows that cell when its region changes. */
+function attachedCommentStart(source: string, cellStart: number): number {
+  const cellLineStart = source.lastIndexOf("\n", cellStart - 1) + 1;
+  let start = cellLineStart;
+  while (start > 0) {
+    const previousEnd = start - 1;
+    const previousStart = source.lastIndexOf("\n", previousEnd - 1) + 1;
+    const previousLine = source.slice(previousStart, previousEnd).trim();
+    if (previousLine.startsWith("//")) {
+      start = previousStart;
+      continue;
+    }
+    if (previousLine.endsWith("*/")) {
+      let blockStart = previousStart;
+      while (blockStart > 0 && !source.slice(blockStart, previousEnd).trimStart().startsWith("/*")) {
+        blockStart = source.lastIndexOf("\n", blockStart - 2) + 1;
+      }
+      if (source.slice(blockStart, previousEnd).trim().startsWith("/*")) {
+        start = blockStart;
+        continue;
+      }
+    }
+    break;
+  }
+  return start === cellLineStart ? cellStart : start;
+}
+
 export class CdlDocumentLoader {
   /**
    * 複数ファイルをまとめて読み込む（8.1.2）。編集対象ファイルのcellのみeditable=trueとなり、
@@ -90,10 +136,36 @@ export class CdlDocumentLoader {
     let toolInfoTecsgen: ToolInfoTecsgen = emptyToolInfoTecsgen();
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
     let paper: PaperSpec = PaperSpec.default();
+    const regionPaths = new Set<string>(["::"]);
+    const editableRegionPaths = new Set<string>(["::"]);
+    let sourceTemplate: CdlSourceTemplate | undefined;
 
     for (const source of sources) {
       const { blocks, sourceWithBlanks } = ToolInfoValidator.extractBlocks(source.text);
       const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
+      for (const scope of parsed.scopes) {
+        let path = scope.path;
+        while (path !== "::") {
+          regionPaths.add(path);
+          if (source.editable) editableRegionPaths.add(path);
+          const separator = path.lastIndexOf("::");
+          path = separator === 0 ? "::" : path.slice(0, separator);
+        }
+      }
+      if (source.editable) {
+        sourceTemplate = {
+          text: source.text,
+          cells: parsed.cells.map((cell) => {
+            const startIndex = attachedCommentStart(source.text, cell.startIndex);
+            return {
+              cellName: cell.cellName, regionPath: cell.regionPath, startIndex, endIndex: cell.endIndex,
+              leadingText: source.text.slice(startIndex, cell.startIndex),
+            };
+          }),
+          scopes: parsed.scopes.map((scope) => ({ path: scope.path, bodyEndIndex: scope.bodyEndIndex })),
+          toolInfoBlocks: blocks.map((block) => ({ toolName: block.toolName, startIndex: block.startIndex, endIndex: block.endIndex })),
+        };
+      }
       for (const d of parsed.diagnostics) diagnostics.push(withLocation(d, source.fileName));
       for (const composite of parsed.composites) diagnostics.push(compositeUnsupported(composite.name));
       // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
@@ -152,6 +224,14 @@ export class CdlDocumentLoader {
         const id = asCellId(decl.cellName);
         const celltype = celltypes.get(decl.celltypeName);
         const layout = tecscdeParsed.cellList[decl.cellName];
+        const savedRegion = layout?.region;
+        const regionPath = decl.regionPath !== "::" ? decl.regionPath :
+          savedRegion && (src.editable ? editableRegionPaths : regionPaths).has(savedRegion) ? savedRegion : "::";
+        if (savedRegion && savedRegion !== regionPath) diagnostics.push({
+          severity: "warning", code: "W-REGION-MISMATCH",
+          message: `セル ${decl.cellName} のリージョン情報 ${savedRegion} とCDLの所属 ${regionPath} が一致しません。`,
+          location: { file: src.fileName, line: decl.line, column: decl.column },
+        });
 
         let x: number;
         let y: number;
@@ -183,7 +263,7 @@ export class CdlDocumentLoader {
               y,
               width,
               height,
-              regionId: ROOT_REGION_ID, // RegionTreeへの割り当ては11.3の実装単位では未接続（全セルを根に置く）
+            regionId: asRegionId(regionPath),
               editable: src.editable,
               cports: [],
               eports: [],
@@ -237,7 +317,7 @@ export class CdlDocumentLoader {
             y,
             width,
             height,
-            regionId: ROOT_REGION_ID,
+          regionId: asRegionId(regionPath),
             editable: src.editable,
             cports,
             eports,
@@ -298,12 +378,14 @@ export class CdlDocumentLoader {
       cells,
       joins,
       celltypes,
+      regions: buildRegionTree(regionPaths, cells),
       toolInfoTecsgen,
       paper,
       referenceFiles,
       editingFileName: editingSource?.fileName,
       unknownToolInfoTecscde: tecscdeParsed.unknownFields,
       preservedImports,
+      sourceTemplate,
     });
 
     return { document, diagnostics };

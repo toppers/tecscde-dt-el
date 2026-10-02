@@ -3,15 +3,11 @@
 // 複数選択時は個別編集不可の旨を示す。編集不可のオブジェクトは入力欄を読み取り専用にし、
 // その旨を文言で示す（色のみによる区別はしない、3.4.2）。
 //
-// regionフィールドは読み取り専用: 11.3の実装単位ではRegionTreeへのセル割り当てが未接続
-// （全セルがROOTに置かれる、cdl/document-builder.ts参照）のため、切り替え先のリージョンが
-// 実質存在しない。`ChangeRegionCommand`自体は第4章に実装済みだが、UIからの配線は
-// RegionTreeが実際に複数ノードを持つようになってから行う。
-
-import { RenameCellCommand, EditAttrCommand } from "../commands";
+import { RenameCellCommand, EditAttrCommand, ChangeRegionCommand } from "../commands";
 import type { Cell } from "../model/cell";
 import type { Join } from "../model/join";
 import type { TecscdeDocument } from "../model/document";
+import type { Region } from "../model/region";
 import type { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 
@@ -96,6 +92,7 @@ export class PropertyPanelView {
     const cell = doc.getCell(cellId);
     if (!cell) return `cell-missing|${cellId}`;
     const region = doc.regions.findById(cell.regionId)?.namespacePath ?? cell.regionId;
+    const regionOptions = this.regionOptions(doc).map((r) => r.namespacePath).join(",");
     const attrsSig = Object.entries(cell.attrs)
       .map(([k, v]) => `${k}=${v}`)
       .join(",");
@@ -107,6 +104,7 @@ export class PropertyPanelView {
       cell.celltypeName,
       cell.celltypeUnresolved,
       region,
+      regionOptions,
       attrsSig,
     ].join("|");
   }
@@ -142,8 +140,22 @@ export class PropertyPanelView {
     this.root.appendChild(typeField.wrapper);
 
     const regionField = field("region");
-    regionField.input.value = doc.regions.findById(cell.regionId)?.namespacePath ?? cell.regionId;
-    regionField.input.readOnly = true;
+    const regionSelect = document.createElement("select");
+    regionSelect.setAttribute("aria-label", "region");
+    for (const region of this.regionOptions(doc)) {
+      const option = document.createElement("option");
+      option.value = region.id;
+      option.textContent = region.namespacePath;
+      option.disabled = region.id !== doc.regions.root.id &&
+        !!doc.sourceTemplate && !doc.sourceTemplate.scopes.some((scope) => scope.path === region.namespacePath);
+      regionSelect.appendChild(option);
+    }
+    regionSelect.value = cell.regionId;
+    regionSelect.disabled = !cell.editable;
+    regionSelect.addEventListener("change", () => {
+      this.store.dispatch(new ChangeRegionCommand(cell.id, regionSelect.value as Cell["regionId"]));
+    });
+    regionField.input.replaceWith(regionSelect);
     this.root.appendChild(regionField.wrapper);
 
     if (cell.celltypeUnresolved) {
@@ -161,5 +173,15 @@ export class PropertyPanelView {
       });
       this.root.appendChild(attrField.wrapper);
     }
+  }
+
+  private regionOptions(doc: TecscdeDocument): Region[] {
+    const result: Region[] = [];
+    const visit = (region: Region): void => {
+      result.push(region);
+      for (const child of region.children) visit(child);
+    };
+    visit(doc.regions.root);
+    return result;
   }
 }

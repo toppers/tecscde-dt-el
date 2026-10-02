@@ -23,6 +23,10 @@ export class Region {
     return new Region(this.id, this.namespacePath, this.children, [...this.cellIds, cellId]);
   }
 
+  withChildrenAndCells(children: readonly Region[], cellIds: readonly CellId[]): Region {
+    return new Region(this.id, this.namespacePath, children, cellIds);
+  }
+
   findById(id: RegionId): Region | undefined {
     if (this.id === id) return this;
     for (const child of this.children) {
@@ -46,5 +50,25 @@ export class RegionTree {
 
   findById(id: RegionId): Region | undefined {
     return this.root.findById(id);
+  }
+
+  /** Keep the reverse membership index in sync with Cell.regionId. */
+  assignCell(cellId: CellId, regionId: RegionId): RegionTree {
+    if (!this.findById(regionId)) return this;
+    const visit = (region: Region): Region => {
+      const children = region.children.map(visit);
+      const cellIds = region.cellIds.filter((id) => id !== cellId);
+      if (region.id === regionId) cellIds.push(cellId);
+      return region.withChildrenAndCells(children, cellIds);
+    };
+    return new RegionTree(visit(this.root));
+  }
+
+  removeCell(cellId: CellId): RegionTree {
+    const visit = (region: Region): Region => region.withChildrenAndCells(
+      region.children.map(visit),
+      region.cellIds.filter((id) => id !== cellId),
+    );
+    return new RegionTree(visit(this.root));
   }
 }
