@@ -162,6 +162,7 @@ export class CdlDocumentLoader {
               leadingText: source.text.slice(startIndex, cell.startIndex),
             };
           }),
+          composites: parsed.composites.map((composite) => ({ name: composite.name, rawText: composite.structure.rawText })),
           scopes: parsed.scopes.map((scope) => ({ path: scope.path, bodyEndIndex: scope.bodyEndIndex })),
           toolInfoBlocks: blocks.map((block) => ({ toolName: block.toolName, startIndex: block.startIndex, endIndex: block.endIndex })),
         };
@@ -187,6 +188,7 @@ export class CdlDocumentLoader {
       }
 
       for (const ct of [...parsed.celltypes, ...parsed.composites]) {
+        const composite = parsed.composites.find((decl) => decl === ct)?.structure;
         const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire);
         const eportDecls = ct.ports.filter((p) => p.kind === "entry");
         const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
@@ -199,6 +201,7 @@ export class CdlDocumentLoader {
             attributeNames: ct.attributes,
             hiddenRequirePortCount,
             locale: source.fileName,
+            composite,
           }),
         );
       }

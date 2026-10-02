@@ -384,6 +384,12 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     // The composite interface is resolved, so the unsupported warning is absent.
     expect(diagnostics.some((d) => d.code === W_CODES.COMPOSITE_UNSUPPORTED)).toBe(false);
     expect(document.getCelltype("nMruby::tMruby")?.eportTemplates.map((port) => port.name)).toContain("eMrubyBody");
+    const composite = document.getCelltype("nMruby::tMruby")?.composite;
+    expect(composite?.internalCells.map((cell) => cell.name)).toEqual(["MrubyVM", "MrubyTaskBody", "TLSFMalloc"]);
+    expect(composite?.internalCells[0]?.bindings.some((binding) => binding.kind === "external" && binding.name === "cInit")).toBe(true);
+    expect(composite?.portExports).toEqual([
+      expect.objectContaining({ externalPortName: "eMrubyBody", cellName: "MrubyTaskBody", portName: "eMrubyBody" }),
+    ]);
 
     // セルタイプ一覧の検証
     expect(document.celltypeCount).toBeGreaterThan(10);

@@ -11,6 +11,7 @@ import type { Node } from "web-tree-sitter";
 import { CdlGrammar } from "./grammar";
 import { syntaxError, unexpectedEof } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
+import type { CompositeInternalBinding, CompositeStructure } from "../model/composite";
 
 export interface PortDecl {
   readonly kind: "call" | "entry";
@@ -69,6 +70,7 @@ export interface CompositeDecl {
   readonly name: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly structure: CompositeStructure;
 }
 
 export interface ParsedCdl {
@@ -283,6 +285,8 @@ export class CdlDocumentBuilder {
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const internalCells: CompositeStructure["internalCells"][number][] = [];
+    const portExports: CompositeStructure["portExports"][number][] = [];
     const body = compositeNode.childForFieldName("body");
     if (body) {
       for (const child of body.namedChildren) {
@@ -298,12 +302,57 @@ export class CdlDocumentBuilder {
             if (port) ports.push(port);
           } else if (member.type === "composite_attribute") {
             attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+          } else if (member.type === "internal_cell") {
+            const type = member.childForFieldName("type");
+            const cellName = member.childForFieldName("name");
+            if (type && cellName) {
+              const bindings: CompositeInternalBinding[] = [];
+              const collectBindings = (node: Node): void => {
+                if (node.type === "specified_join" || node.type === "external_join") {
+                  const join = node.type === "specified_join" ? node.childForFieldName("join") : node;
+                  if (!join) return;
+                  const bindingName = join.childForFieldName("name");
+                  const exportName = join.type === "external_join" ? join.childForFieldName("export_name") : null;
+                  const assignedValue = join.type === "join" ? node.text.split("=").slice(1).join("=").trim().replace(/;$/, "") : null;
+                  const target = exportName?.text ?? assignedValue;
+                  if (bindingName && target) {
+                    bindings.push({
+                      kind: join.type === "external_join" ? "external" : "join",
+                      name: bindingName.text,
+                      target,
+                      rawText: node.text,
+                    });
+                  }
+                  return;
+                }
+                for (const child of node.namedChildren) if (child) collectBindings(child);
+              };
+              collectBindings(member);
+              internalCells.push({ celltypeName: type.text, name: cellName.text, bindings, rawText: member.text });
+            }
+          } else if (member.type === "export_join") {
+            const externalPort = member.childForFieldName("export_name");
+            const cell = member.childForFieldName("cell");
+            const port = member.childForFieldName("port");
+            if (externalPort && cell && port) {
+              portExports.push({
+                externalPortName: externalPort.text,
+                cellName: cell.text,
+                portName: port.text,
+                rawText: member.text,
+              });
+            }
           }
         }
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: qualifiedName, ports, attributes };
+    return {
+      name: qualifiedName,
+      ports,
+      attributes,
+      structure: { internalCells, portExports, rawText: compositeNode.text },
+    };
   }
 
   private static collectCelltype(celltypeNode: Node): CelltypeDecl | undefined {

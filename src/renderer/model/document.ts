@@ -13,6 +13,7 @@ import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "./tool-info-types";
 export interface CdlSourceTemplate {
   readonly text: string;
   readonly cells: readonly { readonly cellName: string; readonly regionPath: string; readonly startIndex: number; readonly endIndex: number; readonly leadingText: string }[];
+  readonly composites: readonly { readonly name: string; readonly rawText: string }[];
   readonly scopes: readonly { readonly path: string; readonly bodyEndIndex: number }[];
   readonly toolInfoBlocks: readonly { readonly toolName: string; readonly startIndex: number; readonly endIndex: number }[];
 }
