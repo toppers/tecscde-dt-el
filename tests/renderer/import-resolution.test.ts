@@ -381,8 +381,9 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(taskCell?.attrs["priority"]).toBe('C_EXP("EV3_MRUBY_VM_PRIORITY")');
     expect(taskCell?.attrs["systemStackSize"]).toBe('C_EXP("MRUBY_VM_STACK_SIZE")');
 
-    // 診断の検証: composite tMruby は非対応警告 (W-COMPOSITE-UNSUPPORTED) として検出される
-    expect(diagnostics.some((d) => d.code === W_CODES.COMPOSITE_UNSUPPORTED)).toBe(true);
+    // The composite interface is resolved, so the unsupported warning is absent.
+    expect(diagnostics.some((d) => d.code === W_CODES.COMPOSITE_UNSUPPORTED)).toBe(false);
+    expect(document.getCelltype("nMruby::tMruby")?.eportTemplates.map((port) => port.name)).toContain("eMrubyBody");
 
     // セルタイプ一覧の検証
     expect(document.celltypeCount).toBeGreaterThan(10);
@@ -411,7 +412,10 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(taskCelltype?.eportTemplates.find((p) => p.name === "eTask")).toBeDefined();
 
     // 結合（セル間の接続）の検証
-    expect(document.joinCount).toBe(2);
+    expect(document.joinCount).toBe(3);
+    const compositeJoin = document.getJoin(asJoinId("MrubyTask1.cBody"));
+    expect(compositeJoin?.eportCellId).toBe(asCellId("Mruby"));
+    expect(compositeJoin?.eportName).toBe("eMrubyBody");
 
     // 結合 1: LCD.cButton -> Button.eButton
     const lcdJoin = document.getJoin(asJoinId("LCD.cButton"));
@@ -491,7 +495,7 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
 
     const doc = store.getDocument();
     expect(doc.cellCount).toBe(60);
-    expect(doc.celltypeCount).toBe(54);
-    expect(doc.joinCount).toBe(2);
+    expect(doc.celltypeCount).toBe(58);
+    expect(doc.joinCount).toBe(3);
   });
 });

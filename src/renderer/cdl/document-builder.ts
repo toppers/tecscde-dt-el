@@ -15,7 +15,7 @@ import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
 import { Region, RegionTree } from "../model/region";
 import { CdlDocumentBuilder, type CellDecl } from "./cst";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
-import { compositeUnsupported, duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
+import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 
 export interface CdlSource {
@@ -167,7 +167,6 @@ export class CdlDocumentLoader {
         };
       }
       for (const d of parsed.diagnostics) diagnostics.push(withLocation(d, source.fileName));
-      for (const composite of parsed.composites) diagnostics.push(compositeUnsupported(composite.name));
       // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
       if (source.editable) preservedImports = parsed.imports.map((i) => i.rawText);
 
@@ -187,7 +186,7 @@ export class CdlDocumentLoader {
         // 5.1.1: 自分に向けられていないツール名のブロックは読み飛ばす。
       }
 
-      for (const ct of parsed.celltypes) {
+      for (const ct of [...parsed.celltypes, ...parsed.composites]) {
         const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire);
         const eportDecls = ct.ports.filter((p) => p.kind === "entry");
         const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
