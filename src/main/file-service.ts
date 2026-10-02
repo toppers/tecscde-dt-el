@@ -18,6 +18,19 @@ import { saveAppSettings } from "./app-settings.js";
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
 const BROWSABLE_EXTENSION = /\.(cde|cdl|tecsgen-opts)$/i;
 
+/** UTF-8を第一候補とし、レガシーCDL用にShift_JIS/EUC-JPへのフォールバックを試行する。 */
+function decodeBuffer(buf: Buffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder("shift_jis", { fatal: true }).decode(buf);
+    } catch {
+      return new TextDecoder("euc-jp", { fatal: true }).decode(buf);
+    }
+  }
+}
+
 export class FileService {
   /**
    * 実機確認で判明（2026-09-21）: 毎回同じ既定ディレクトリが出るのは不便なため、
@@ -55,7 +68,8 @@ export class FileService {
   }
 
   private async readPaths(paths: readonly string[]): Promise<OpenResult> {
-    const contents = await Promise.all(paths.map((p) => fs.readFile(p, "utf-8")));
+    const buffers = await Promise.all(paths.map((p) => fs.readFile(p)));
+    const contents = buffers.map(decodeBuffer);
     // 第7D章7.5節: renderer側でresolveImportsが返す正規化済み絶対パスと文字列比較で
     // 重複排除できるよう、ここで返すパスも正規化する（renderer はNode APIを持たないため
     // 正規化は必ずmain側で行う）。
@@ -178,9 +192,8 @@ export class FileService {
         return { request, error: "read-failed" };
       }
       try {
-        // TextDecoderのfatalオプションで、不正なUTF-8バイト列を無音でU+FFFDへ置換せず
-        // 例外として検出する（第7D章7.5.2節が「実装時に確定」としていた点）。
-        const content = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+        // UTF-8を優先し、Shift_JIS / EUC-JP等のレガシーCDLにもフォールバックしてデコードする。
+        const content = decodeBuffer(buf);
         return { request, canonicalPath: resolve(candidate), content };
       } catch {
         return { request, error: "not-utf8" };
@@ -197,7 +210,13 @@ export class FileService {
    * トークンは`cdlFiles`へ分類する（`-D`等その他のオプションは本節の範囲外として無視する）。
    */
   async parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile> {
-    const text = await fs.readFile(path, "utf-8");
+    const buf = await fs.readFile(path);
+    let text: string;
+    try {
+      text = decodeBuffer(buf);
+    } catch {
+      text = buf.toString("utf-8");
+    }
     const tokens = text
       .split(/\r?\n/)
       .filter((line) => !line.trim().startsWith("#"))
@@ -219,6 +238,8 @@ export class FileService {
         }
       } else if (token.startsWith("--import-path=")) {
         importPaths.push(token.slice("--import-path=".length));
+      } else if (token.startsWith("-I") && token.length > 2) {
+        importPaths.push(token.slice(2));
       } else if (token === "-c" || token === "--cpp") {
         const value = tokens[i + 1];
         if (value) {
@@ -227,6 +248,8 @@ export class FileService {
         }
       } else if (token.startsWith("--cpp=")) {
         cpp = token.slice("--cpp=".length);
+      } else if (token.startsWith("-c") && token.length > 2) {
+        cpp = token.slice(2);
       } else if (token === "-D" || token === "--define") {
         // -D/--define等その他のオプションは本節の範囲外として無視するが、値を消費しない
         // とその値がCDLファイル名としてcdlFilesへ誤って混入するため、値も一緒に読み飛ばす。

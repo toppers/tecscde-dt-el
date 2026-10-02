@@ -10,7 +10,12 @@ import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-t
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { CdeclExtractor, type CdeclResult } from "../cdecl/extractor";
-import type { ImportRequest, ImportResolutionOptions, OpenFileEntry } from "../../shared/ipc-types.js";
+import type {
+  ImportRequest,
+  ImportResolutionOptions,
+  OpenFileEntry,
+  ResolvedImport,
+} from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics/types";
 
 function toImportRequest(decl: ImportDecl): ImportRequest {
@@ -58,6 +63,11 @@ async function ingestImportC(
   return result;
 }
 
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
 /**
  * `import`/`import_C`/`manual`（第7C章7.7.2節、手動追加）を推移的に解決する共通エンジン。
  * `kind !== "import_C"`のものだけ`references`へ追加し（`import_C`の解決結果は図に現れない
@@ -74,19 +84,55 @@ async function resolveImportClosure(
   toolInfo: ToolInfoTecsgen,
   initialFrontier: readonly ImportRequest[],
   seedResolvedPaths: ReadonlySet<string>,
+  existingReferences: readonly OpenFileEntry[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."] };
   const resolvedPaths = new Set(seedResolvedPaths);
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
+  for (const r of existingReferences) {
+    const dir = dirnameOf(r.path);
+    if (dir && !extraSearchDirs.includes(dir)) extraSearchDirs.push(dir);
+  }
   const references: OpenFileEntry[] = [];
   const diagnostics: Diagnostic[] = [];
   const cdeclResults = new Map<string, CdeclResult>();
 
+  const knownByPath = new Map<string, OpenFileEntry>();
+  const knownByBase = new Map<string, OpenFileEntry>();
+  for (const r of existingReferences) {
+    knownByPath.set(r.path, r);
+    knownByPath.set(r.path.replace(/\\/g, "/"), r);
+    knownByBase.set(baseName(r.path), r);
+  }
+
   let frontier = initialFrontier;
   while (frontier.length > 0) {
-    // extraSearchDirsは以後の周回でも書き換えられる可変配列のため、呼び出しごとに
-    // その時点のスナップショットを渡す（呼び出し側に配列の参照を握らせない）。
-    const resolved = await gateway.resolveImports(editablePath, frontier, { ...options, extraSearchDirs: [...extraSearchDirs] });
+    const unresolvedFrontier: ImportRequest[] = [];
+    const directResolved: ResolvedImport[] = [];
+
+    for (const req of frontier) {
+      const norm = req.specifier.replace(/\\/g, "/");
+      const found =
+        (req.kind === "manual" ? knownByPath.get(req.specifier) : undefined) ??
+        knownByPath.get(norm) ??
+        knownByBase.get(baseName(req.specifier));
+      if (found) {
+        directResolved.push({ request: req, canonicalPath: found.path, content: found.content });
+      } else {
+        unresolvedFrontier.push(req);
+      }
+    }
+
+    let resolvedFromGateway: readonly ResolvedImport[] = [];
+    if (unresolvedFrontier.length > 0) {
+      resolvedFromGateway = await gateway.resolveImports(
+        editablePath,
+        unresolvedFrontier,
+        { ...options, extraSearchDirs: [...extraSearchDirs] },
+      );
+    }
+
+    const resolved = [...directResolved, ...resolvedFromGateway];
     const nextFrontier: ImportRequest[] = [];
 
     for (const r of resolved) {
@@ -130,6 +176,7 @@ export async function resolveAllImports(
   editableText: string,
   toolInfo: ToolInfoTecsgen,
   extraImportPaths: readonly string[] = [],
+  existingReferences: readonly OpenFileEntry[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
@@ -140,6 +187,7 @@ export async function resolveAllImports(
     mergedToolInfo,
     extractImportRequests(editableText),
     new Set([editablePath]),
+    existingReferences,
   );
 }
 

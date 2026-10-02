@@ -11,6 +11,7 @@ export interface OpenFileEntry {
 export interface OpenResult {
   readonly editable: OpenFileEntry;
   readonly references: readonly OpenFileEntry[];
+  readonly extraImportPaths?: readonly string[];
 }
 
 /** [[TECSCDE-DT-EL内部仕様]] 第7章7.6.1節: FileService.listDirectory() が返す1エントリ。 */
@@ -98,7 +99,11 @@ export interface TecscdeApi {
      * 第7C章7.7.1節: 前回終了時に開いていたファイル集合を永続化する。`editablePath`が
      * `null`の場合（消去後、7.7.3節）はreferencesのみ保存し復元対象から外す。
      */
-    saveSession(editablePath: string | null, referencePaths: readonly string[]): Promise<void>;
+    saveSession(
+      editablePath: string | null,
+      referencePaths: readonly string[],
+      extraImportPaths?: readonly string[],
+    ): Promise<void>;
     /** 第7D章7.5.2節: import/import_C文の参照先をバッチで解決する。 */
     resolveImports(
       editablePath: string,

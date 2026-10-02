@@ -75,7 +75,10 @@ export interface ParsedCdl {
 
 /** 文字列リテラルノードのテキストから囲みの引用符を外す。 */
 function unquote(text: string): string {
-  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+  if (
+    text.length >= 2 &&
+    ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("<") && text.endsWith(">")))
+  ) {
     return text.slice(1, -1);
   }
   return text;

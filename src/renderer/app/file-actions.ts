@@ -46,7 +46,7 @@ export async function applyOpenResult(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
   result: OpenResult,
-  extraImportPaths: readonly string[] = [],
+  extraImportPaths: readonly string[] = result.extraImportPaths ?? [],
 ): Promise<void> {
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
   const { references: autoReferences, diagnostics: importDiagnostics } = await resolveAllImports(
@@ -56,6 +56,7 @@ export async function applyOpenResult(
     result.editable.content,
     toolInfo,
     extraImportPaths,
+    result.references,
   );
   const references = mergeReferences(result.references, autoReferences);
 
@@ -66,7 +67,14 @@ export async function applyOpenResult(
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
   const referenceFilePaths = references.map((r) => r.path);
   const referenceSources = new Map(references.map((r) => [r.path, r.content]));
-  store.loadDocument(document, result.editable.path, [...importDiagnostics, ...diagnostics], referenceFilePaths, referenceSources);
+  store.loadDocument(
+    document,
+    result.editable.path,
+    [...importDiagnostics, ...diagnostics],
+    referenceFilePaths,
+    referenceSources,
+    extraImportPaths,
+  );
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
@@ -92,9 +100,9 @@ export async function openFromPath(
     if (!proceed) return;
   }
   const result = await gateway.openPath(path);
-  await applyOpenResult(store, gateway, tecsgenGateway, result, options.extraImportPaths ?? []);
+  await applyOpenResult(store, gateway, tecsgenGateway, result, options.extraImportPaths);
   // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
 }
 
 /**
@@ -111,13 +119,13 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
   const referenceFilePaths = store.getReferenceFilePaths();
   const referenceSources = store.getReferenceSources(); // #8: 消去後もaddAsReferenceが使えるよう維持する
   const document = TecscdeDocument.empty();
-  store.loadDocument(document, null, [], referenceFilePaths, referenceSources);
+  store.loadDocument(document, null, [], referenceFilePaths, referenceSources, []);
   // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
   // 7.7.1節: editablePathは無し（未保存の新規作成はセッション復元の対象外）、
   // references集合は維持されたまま保存する。
-  await gateway.saveSession(null, referenceFilePaths);
+  await gateway.saveSession(null, referenceFilePaths, []);
 }
 
 /**
@@ -140,11 +148,13 @@ export async function addAsReference(
   if (path === editablePath || existingPaths.includes(path)) return; // #8決定: 既読み込み済みなら無視
 
   const toolInfo = store.getDocument().toolInfoTecsgen;
+  const extraImportPaths = store.getExtraImportPaths();
+  const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
     gateway,
     tecsgenGateway,
     editablePath,
-    toolInfo,
+    mergedToolInfo,
     path,
     existingPaths,
   );
@@ -159,10 +169,17 @@ export async function addAsReference(
     { text: editableText, fileName: baseName(editablePath), editable: true },
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
-  store.loadDocument(document, editablePath, [...importDiagnostics, ...diagnostics], [...mergedSources.keys()], mergedSources);
+  store.loadDocument(
+    document,
+    editablePath,
+    [...importDiagnostics, ...diagnostics],
+    [...mergedSources.keys()],
+    mergedSources,
+    extraImportPaths,
+  );
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths());
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
 }
 
 /**
@@ -196,6 +213,7 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
   const text = CdlSerializer.serialize(store.getDocument());
   await gateway.save(path, text);
   store.markSaved(path);
+  await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
 }
 
 /** ［名前を付けて保存］: 保存ダイアログを開く。キャンセル時は何もしない。 */
@@ -203,5 +221,8 @@ export async function saveAs(store: AppStore, gateway: FileGateway): Promise<voi
   const text = CdlSerializer.serialize(store.getDocument());
   const suggested = store.filePath ? baseName(store.filePath) : "untitled.cde";
   const savedPath = await gateway.saveAs(text, suggested);
-  if (savedPath) store.markSaved(savedPath);
+  if (savedPath) {
+    store.markSaved(savedPath);
+    await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
+  }
 }

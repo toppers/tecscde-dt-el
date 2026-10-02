@@ -72,6 +72,9 @@ describe("FileGateway", () => {
     gateway.saveSession("/root/main.cde", ["/root/celltypes.cdl"]);
     expect(api.file.saveSession).toHaveBeenCalledWith("/root/main.cde", ["/root/celltypes.cdl"]);
 
+    gateway.saveSession("/root/main.cde", ["/root/celltypes.cdl"], ["/root/include"]);
+    expect(api.file.saveSession).toHaveBeenCalledWith("/root/main.cde", ["/root/celltypes.cdl"], ["/root/include"]);
+
     const requests = [{ kind: "import" as const, specifier: "celltypes.cdl" }];
     const options = { importPaths: ["."] };
     gateway.resolveImports("/root/main.cde", requests, options);

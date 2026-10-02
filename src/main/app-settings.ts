@@ -16,6 +16,7 @@ export interface AppSettings {
   readonly lastSession?: {
     readonly editablePath?: string;
     readonly referencePaths: readonly string[];
+    readonly extraImportPaths?: readonly string[];
   };
 }
 

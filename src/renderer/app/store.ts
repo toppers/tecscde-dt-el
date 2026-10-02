@@ -49,7 +49,10 @@ export class AppStore {
    * `TecscdeDocument.referenceFiles`はbasenameのみ保持するため（8.2.2）、
    * `TecsgenCommandBuilder`が実際に`execFile`へ渡せる形はここでのみ保持する。
    */
+  /** 第9章9.5節: `TecsgenCommandBuilder`が参照専用ファイルの実パスとして使う。 */
   private referenceFilePaths: readonly string[] = [];
+  /** 第7C章7.7.4節: .tecsgen-opts等から与えられた追加のインポート探索パス。 */
+  private extraImportPaths: readonly string[] = [];
   /**
    * 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキスト（パス→内容）。`addAsReference`が
    * 新規参照を1件追加するたびeditable＋全referencesを合わせて再パースする必要があり、
@@ -103,6 +106,11 @@ export class AppStore {
   /** 第9章9.5節: `TecsgenCommandBuilder`が参照専用ファイルの実パスとして使う。 */
   getReferenceFilePaths(): readonly string[] {
     return this.referenceFilePaths;
+  }
+
+  /** 第7C章7.7.4節: 追加のインポート探索パスを取得する。 */
+  getExtraImportPaths(): readonly string[] {
+    return this.extraImportPaths;
   }
 
   /** 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキストのキャッシュ（パス→内容）。 */
@@ -235,6 +243,7 @@ export class AppStore {
     loadDiagnostics: readonly Diagnostic[] = [],
     referenceFilePaths: readonly string[] = [],
     referenceSources: ReadonlyMap<string, string> = new Map(),
+    extraImportPaths: readonly string[] = [],
   ): void {
     this.historyState = History.begin(document);
     this.selectionState = SelectionState.empty();
@@ -243,6 +252,7 @@ export class AppStore {
     this.loadDiagnostics = loadDiagnostics;
     this.referenceSources = referenceSources;
     this.referenceFilePaths = referenceFilePaths;
+    this.extraImportPaths = extraImportPaths;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
     this.notify();

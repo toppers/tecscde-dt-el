@@ -236,6 +236,20 @@ describe("FileService", () => {
 
       expect(result.cdlFiles).toEqual([absoluteCdl]);
     });
+
+    it("supports attached -I<path> flags (without spaces)", async () => {
+      const path = join(dir, "build5.tecsgen-opts");
+      writeFileSync(path, "-I./first -I../second main.cdl");
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result).toEqual({
+        cdlFiles: [join(dir, "main.cdl")],
+        importPaths: ["./first", "../second"],
+        cpp: undefined,
+      });
+    });
   });
 
   it("openPath normalizes the returned path (第7D章7.5節: resolveImportsとの重複排除に必要)", async () => {

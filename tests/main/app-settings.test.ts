@@ -73,6 +73,23 @@ describe("app-settings", () => {
     });
   });
 
+  it("saveAppSettings then loadAppSettings round-trips lastSession with extraImportPaths", async () => {
+    await saveAppSettings({
+      lastSession: {
+        editablePath: "/root/main.cde",
+        referencePaths: ["/root/celltypes.cdl"],
+        extraImportPaths: ["/root/include", "/root/lib"],
+      },
+    });
+    await expect(loadAppSettings()).resolves.toEqual({
+      lastSession: {
+        editablePath: "/root/main.cde",
+        referencePaths: ["/root/celltypes.cdl"],
+        extraImportPaths: ["/root/include", "/root/lib"],
+      },
+    });
+  });
+
   it("saveAppSettings merges lastSession without clobbering a previously saved fileBrowserRoot (2026-09-22)", async () => {
     await saveAppSettings({ fileBrowserRoot: "/root/project" });
     await saveAppSettings({ lastSession: { editablePath: "/root/main.cde", referencePaths: [] } });

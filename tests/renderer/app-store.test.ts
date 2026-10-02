@@ -110,12 +110,14 @@ describe("AppStore — subscription & loadDocument", () => {
 });
 
 describe("AppStore — 第9章9.5節: tecsgen連携の状態", () => {
-  it("loadDocument records reference file paths, defaulting to empty", () => {
+  it("loadDocument records reference file paths and extraImportPaths, defaulting to empty", () => {
     const store = new AppStore(loadDoc());
     expect(store.getReferenceFilePaths()).toEqual([]);
+    expect(store.getExtraImportPaths()).toEqual([]);
 
-    store.loadDocument(loadDoc(), "main.cde", [], ["/proj/celltypes.cdl"]);
+    store.loadDocument(loadDoc(), "main.cde", [], ["/proj/celltypes.cdl"], new Map(), ["/proj/include"]);
     expect(store.getReferenceFilePaths()).toEqual(["/proj/celltypes.cdl"]);
+    expect(store.getExtraImportPaths()).toEqual(["/proj/include"]);
   });
 
   it("loadDocument clears any previous tecsgen diagnostics (they belong to the old file)", () => {

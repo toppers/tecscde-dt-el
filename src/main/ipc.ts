@@ -34,8 +34,16 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
   ipcMain.handle("file:confirmDiscardChanges", () => fileService.confirmDiscardChanges());
   // 第7C章7.7.1節: 前回セッションの永続化（2026-09-22追加）。ウィンドウに紐づかない
   // アプリケーション設定のため、FileServiceを経由せず直接saveAppSettingsを呼ぶ。
-  ipcMain.handle("file:saveSession", (_e, editablePath: string | null, referencePaths: readonly string[]) =>
-    saveAppSettings({ lastSession: editablePath ? { editablePath, referencePaths } : { referencePaths } }),
+  ipcMain.handle(
+    "file:saveSession",
+    (_e, editablePath: string | null, referencePaths: readonly string[], extraImportPaths?: readonly string[]) =>
+      saveAppSettings({
+        lastSession: {
+          ...(editablePath ? { editablePath } : {}),
+          referencePaths,
+          ...(extraImportPaths && extraImportPaths.length > 0 ? { extraImportPaths } : {}),
+        },
+      }),
   );
   // 第7D章7.5.2節: import/import_C文の参照先解決（2026-09-22追加）。
   ipcMain.handle(

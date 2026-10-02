@@ -46,8 +46,14 @@ export class FileGateway {
   }
 
   /** 7C章7.7.1節: 前回終了時に開いていたファイル集合の永続化。 */
-  saveSession(editablePath: string | null, referencePaths: readonly string[]): Promise<void> {
-    return window.tecscde.file.saveSession(editablePath, referencePaths);
+  saveSession(
+    editablePath: string | null,
+    referencePaths: readonly string[],
+    extraImportPaths?: readonly string[],
+  ): Promise<void> {
+    return extraImportPaths !== undefined
+      ? window.tecscde.file.saveSession(editablePath, referencePaths, extraImportPaths)
+      : window.tecscde.file.saveSession(editablePath, referencePaths);
   }
 
   /** 第7D章7.5.2節: import/import_C文の参照先をバッチで解決する。 */

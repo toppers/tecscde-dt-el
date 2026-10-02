@@ -37,8 +37,10 @@ updateElectronApp({ repo: "toppers/tecscde-dt-el" });
 
 let pendingOpenPath: string | null = null;
 
-// Windows/Linux: コマンドライン引数、または .cde/.cdl ファイルの「アプリで開く」
-const argPath = process.argv.find((a) => a.endsWith(".cde") || a.endsWith(".cdl"));
+// Windows/Linux: コマンドライン引数、または .cde/.cdl/.tecsgen-opts ファイルの「アプリで開く」
+const argPath = process.argv.find(
+  (a) => a.endsWith(".cde") || a.endsWith(".cdl") || a.endsWith(".tecsgen-opts"),
+);
 if (argPath) pendingOpenPath = argPath;
 
 // macOS: Dockアイコンへのドロップ、Finderでの「このアプリで開く」
@@ -97,7 +99,21 @@ function createWindow(): BrowserWindow {
     try {
       let data: OpenResult;
       if (pendingOpenPath) {
-        data = await fileService.openPath(pendingOpenPath);
+        if (pendingOpenPath.endsWith(".tecsgen-opts")) {
+          const parsed = await fileService.parseTecsgenOptionsFile(pendingOpenPath);
+          const [last, ...rest] = [...parsed.cdlFiles].reverse();
+          if (last) {
+            const opened = await fileService.openPaths([...rest.reverse(), last]);
+            data = {
+              ...opened,
+              extraImportPaths: parsed.importPaths,
+            };
+          } else {
+            data = await loadSamples(fileService);
+          }
+        } else {
+          data = await fileService.openPath(pendingOpenPath);
+        }
         pendingOpenPath = null;
         // 7.7.1節: 起動時オープン（第7章7.4節）も前回セッションの保存対象——
         // 次回、引数無しで起動した際にこのファイルを復元できるようにする。
@@ -105,6 +121,9 @@ function createWindow(): BrowserWindow {
           lastSession: {
             editablePath: data.editable.path,
             referencePaths: data.references.map((r) => r.path),
+            ...(data.extraImportPaths && data.extraImportPaths.length > 0
+              ? { extraImportPaths: data.extraImportPaths }
+              : {}),
           },
         });
       } else {
@@ -113,9 +132,17 @@ function createWindow(): BrowserWindow {
         if (lastSession?.editablePath) {
           // 7.7.1節「復元失敗時」: 記憶されたパスが存在しない・読めない場合は
           // エラーにせず次善のフォールバック（samples）へ進む。
-          data = await fileService
+          const opened = await fileService
             .openPaths([...lastSession.referencePaths, lastSession.editablePath])
-            .catch(() => loadSamples(fileService));
+            .catch(() => null);
+          if (opened) {
+            data = {
+              ...opened,
+              ...(lastSession.extraImportPaths ? { extraImportPaths: lastSession.extraImportPaths } : {}),
+            };
+          } else {
+            data = await loadSamples(fileService);
+          }
         } else {
           data = await loadSamples(fileService);
         }

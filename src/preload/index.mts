@@ -27,8 +27,14 @@ const api: TecscdeApi = {
     listDirectory: (dirPath: string): Promise<readonly DirEntry[]> => ipcRenderer.invoke("file:listDirectory", dirPath),
     openPath: (path: string): Promise<OpenResult> => ipcRenderer.invoke("file:openPath", path),
     confirmDiscardChanges: (): Promise<boolean> => ipcRenderer.invoke("file:confirmDiscardChanges"),
-    saveSession: (editablePath: string | null, referencePaths: readonly string[]): Promise<void> =>
-      ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
+    saveSession: (
+      editablePath: string | null,
+      referencePaths: readonly string[],
+      extraImportPaths?: readonly string[],
+    ): Promise<void> =>
+      extraImportPaths !== undefined
+        ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths)
+        : ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
     resolveImports: (
       editablePath: string,
       requests: readonly ImportRequest[],
