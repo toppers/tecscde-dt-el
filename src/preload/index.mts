@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   OpenResult,
   TecsgenResult,
+  GeneratedCdlResult,
   CppResult,
   TecscdeApi,
   DirEntry,
@@ -31,10 +32,13 @@ const api: TecscdeApi = {
       editablePath: string | null,
       referencePaths: readonly string[],
       extraImportPaths?: readonly string[],
+      optionsFilePath?: string,
     ): Promise<void> =>
-      extraImportPaths !== undefined
-        ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths)
-        : ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
+      optionsFilePath !== undefined
+        ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths, optionsFilePath)
+        : extraImportPaths !== undefined
+          ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths)
+          : ipcRenderer.invoke("file:saveSession", editablePath, referencePaths),
     resolveImports: (
       editablePath: string,
       requests: readonly ImportRequest[],
@@ -45,6 +49,8 @@ const api: TecscdeApi = {
   },
   tecsgen: {
     generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),
+    generatedTypes: (args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult> =>
+      ipcRenderer.invoke("tecsgen:generatedTypes", args, editingFilePath, optionsFilePath),
     preprocess: (headerPath: string, cppCommand?: string): Promise<CppResult> =>
       ipcRenderer.invoke("tecsgen:preprocess", headerPath, cppCommand),
     version: (): Promise<string | null> => ipcRenderer.invoke("tecsgen:version"),

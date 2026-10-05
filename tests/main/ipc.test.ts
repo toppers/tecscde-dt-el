@@ -40,6 +40,7 @@ describe("registerIpcHandlers", () => {
     };
     const tecsgenRunner = {
       run: vi.fn().mockResolvedValue("run-result"),
+      generatedTypes: vi.fn().mockResolvedValue("generated-types-result"),
       preprocess: vi.fn().mockResolvedValue("preprocess-result"),
       version: vi.fn().mockResolvedValue("1.9.1"),
     };
@@ -62,6 +63,7 @@ describe("registerIpcHandlers", () => {
         "file:saveAs",
         "file:saveSession",
         "tecsgen:generate",
+        "tecsgen:generatedTypes",
         "tecsgen:preprocess",
         "tecsgen:version",
       ].sort(),
@@ -108,6 +110,11 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("tecsgen:generate")!({}, ["-c", "main.cde"]);
     expect(tecsgenRunner.run).toHaveBeenCalledWith(["-c", "main.cde"]);
+
+    handlers.get("tecsgen:generatedTypes")!({}, ["main.cde"], "/tmp/root/main.cde", "/tmp/root/build.tecsgen-opts");
+    expect(tecsgenRunner.generatedTypes).toHaveBeenCalledWith(
+      ["main.cde"], "/tmp/root/main.cde", "/tmp/root/build.tecsgen-opts",
+    );
 
     handlers.get("tecsgen:preprocess")!({}, "header.h", "gcc -E");
     expect(tecsgenRunner.preprocess).toHaveBeenCalledWith("header.h", "gcc -E");

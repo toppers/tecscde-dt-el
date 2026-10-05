@@ -1,6 +1,7 @@
 // TECSCDE-TS内部仕様 3.2 — CelltypeRef。参照のみを保持する値クラス、編集対象には含めない。
 
 import type { EdgeSide } from "./port";
+import type { CompositeStructure } from "./composite";
 
 /** セルタイプが持つポートの雛形。セル生成時にCPort/EPortへ複製される（require指定は含めない、4.3.1）。 */
 export interface PortTemplate {
@@ -21,6 +22,7 @@ export interface CelltypeRefCreateParams {
   readonly hiddenRequirePortCount: number;
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
+  readonly composite?: CompositeStructure;
 }
 
 export class CelltypeRef {
@@ -31,6 +33,7 @@ export class CelltypeRef {
     readonly attributeNames: readonly string[],
     readonly hiddenRequirePortCount: number,
     readonly locale: string | undefined,
+    readonly composite: CompositeStructure | undefined,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -41,6 +44,7 @@ export class CelltypeRef {
       params.attributeNames,
       params.hiddenRequirePortCount,
       params.locale,
+      params.composite,
     );
   }
 }

@@ -40,6 +40,12 @@ npm run forge:package # electron-forge package (asar, no installer)
 npm run forge:make    # electron-forge make (Squirrel .exe installer, Windows only)
 ```
 
+## Plugin-generated celltypes
+
+Opening a CDL runs `tecsgen` with a temporary `-g` directory, then reads every generated `.cdl` as type definitions. Generated cells and temporary paths are excluded from the diagram, saved CDL, and session references. Opening a `.tecsgen-opts` file uses its original command-line options, including Plugin library paths. Only open trusted projects: tecsgen executes their Plugins.
+
+`tecsgen` must be on `PATH`. Alternatively, set `TECSGEN_COMMAND` to a command such as `ruby "C:\path\to\tecsgen.rb"` or `python -m tecsgen` before starting the app. On Windows, run `ridk enable` in the same terminal first if Ruby's Plugins need `gcc`. If tecsgen is unavailable, ordinary CDL still opens and unresolved generated types remain diagnostic warnings.
+
 ## What's verified vs. not
 
 - ✅ Model + CDL parser/serializer round trip (ported tests, still passing).

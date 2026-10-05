@@ -27,6 +27,9 @@ function stubApi(): TecscdeApi {
     },
     tecsgen: {
       generate: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
+      generatedTypes: vi.fn().mockResolvedValue({
+        result: { stdout: "", stderr: "", exitCode: 0, executableFound: true }, sources: [],
+      }),
       preprocess: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
       version: vi.fn().mockResolvedValue(null),
     },

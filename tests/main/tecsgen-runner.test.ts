@@ -2,10 +2,14 @@
 // child_process.execFile をモックし、成功・非0終了・実行ファイル未検出(ENOENT)の
 // 3パターンを検証する。
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
+import { access, mkdir, mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { TecsgenRunner } from "../../src/main/tecsgen-runner.js";
 
 const execFileMock = vi.fn();
+const originalTecsgenCommand = process.env.TECSGEN_COMMAND;
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => {
@@ -21,6 +25,58 @@ vi.mock("node:child_process", () => ({
 describe("TecsgenRunner", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    delete process.env.TECSGEN_COMMAND;
+  });
+
+  afterAll(() => {
+    if (originalTecsgenCommand === undefined) delete process.env.TECSGEN_COMMAND;
+    else process.env.TECSGEN_COMMAND = originalTecsgenCommand;
+  });
+
+  it("uses a configured Ruby or Python command without shell interpolation", async () => {
+    process.env.TECSGEN_COMMAND = 'ruby "C:\\Program Files\\tecsgen.rb"';
+    execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+    await new TecsgenRunner().run(["main.cdl"]);
+    expect(execFileMock).toHaveBeenCalledWith(
+      "ruby", ["C:\\Program Files\\tecsgen.rb", "main.cdl"], { timeout: 30_000 },
+    );
+  });
+
+  it("generatedTypes() reads all generated CDL and removes its temporary output", async () => {
+    let outputDir = "";
+    execFileMock.mockImplementation(async (_command: string, args: readonly string[], options: { cwd: string }) => {
+      outputDir = args[1]!;
+      expect(args[0]).toBe("-g");
+      expect(options.cwd).toBe(process.cwd());
+      await mkdir(join(outputDir, "nested"));
+      await writeFile(join(outputDir, "tmp_Plugin_0.cdl"), "celltype tOne {};", "utf8");
+      await writeFile(join(outputDir, "nested", "other.cdl"), "celltype tTwo {};", "utf8");
+      await writeFile(join(outputDir, "generated.c"), "ignored", "utf8");
+      return { stdout: "ok", stderr: "" };
+    });
+    const result = await new TecsgenRunner().generatedTypes(["main.cdl"], join(process.cwd(), "main.cdl"));
+    expect(result.result.exitCode).toBe(0);
+    expect(result.sources.map((source) => source.fileName).sort()).toEqual(["nested/other.cdl", "tmp_Plugin_0.cdl"]);
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("generatedTypes() uses the original options and isolates their output directory", async () => {
+    const optionsDir = await mkdtemp(join(tmpdir(), "tecscde-options-test-"));
+    const optionsFilePath = join(optionsDir, "input.tecsgen-opts");
+    try {
+      await writeFile(optionsFilePath, '-I ./includes -L "user plugins" -D FLAG=1 -g old-gen main.cdl', "utf8");
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      const runner = new TecsgenRunner();
+      await runner.generatedTypes(["ignored.cdl"], join(optionsDir, "main.cdl"), optionsFilePath);
+      const [command, args, options] = execFileMock.mock.calls[0]!;
+      expect(command).toBe("tecsgen");
+      expect(options.cwd).toBe(optionsDir);
+      expect(args[0]).toBe("-g");
+      expect(args.slice(2)).toEqual(["-I", "./includes", "-L", "user plugins", "-D", "FLAG=1", "main.cdl"]);
+    } finally {
+      await rm(optionsFilePath, { force: true });
+      await rmdir(optionsDir);
+    }
   });
 
   it("run() returns exitCode 0 and executableFound=true on success", async () => {

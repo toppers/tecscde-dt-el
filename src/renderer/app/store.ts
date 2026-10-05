@@ -23,6 +23,7 @@ import { TecscdeDocument } from "../model/document";
 import { SelectionState } from "../render/view";
 import { ViewState } from "../view-state/view-state";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
+import type { GeneratedCdlFile } from "../../shared/ipc-types.js";
 
 export type InputMode = "select" | "newCell";
 
@@ -53,6 +54,8 @@ export class AppStore {
   private referenceFilePaths: readonly string[] = [];
   /** 第7C章7.7.4節: .tecsgen-opts等から与えられた追加のインポート探索パス。 */
   private extraImportPaths: readonly string[] = [];
+  private optionsFilePath: string | undefined;
+  private generatedTypeSources: readonly GeneratedCdlFile[] = [];
   /**
    * 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキスト（パス→内容）。`addAsReference`が
    * 新規参照を1件追加するたびeditable＋全referencesを合わせて再パースする必要があり、
@@ -111,6 +114,14 @@ export class AppStore {
   /** 第7C章7.7.4節: 追加のインポート探索パスを取得する。 */
   getExtraImportPaths(): readonly string[] {
     return this.extraImportPaths;
+  }
+
+  getOptionsFilePath(): string | undefined {
+    return this.optionsFilePath;
+  }
+
+  getGeneratedTypeSources(): readonly GeneratedCdlFile[] {
+    return this.generatedTypeSources;
   }
 
   /** 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキストのキャッシュ（パス→内容）。 */
@@ -244,6 +255,8 @@ export class AppStore {
     referenceFilePaths: readonly string[] = [],
     referenceSources: ReadonlyMap<string, string> = new Map(),
     extraImportPaths: readonly string[] = [],
+    optionsFilePath?: string,
+    generatedTypeSources: readonly GeneratedCdlFile[] = [],
   ): void {
     this.historyState = History.begin(document);
     this.selectionState = SelectionState.empty();
@@ -253,6 +266,8 @@ export class AppStore {
     this.referenceSources = referenceSources;
     this.referenceFilePaths = referenceFilePaths;
     this.extraImportPaths = extraImportPaths;
+    this.optionsFilePath = optionsFilePath;
+    this.generatedTypeSources = generatedTypeSources;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
     this.notify();

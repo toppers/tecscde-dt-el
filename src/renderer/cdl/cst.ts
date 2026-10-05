@@ -11,6 +11,7 @@ import type { Node } from "web-tree-sitter";
 import { CdlGrammar } from "./grammar";
 import { syntaxError, unexpectedEof } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
+import type { CompositeInternalBinding, CompositeStructure } from "../model/composite";
 
 export interface PortDecl {
   readonly kind: "call" | "entry";
@@ -22,6 +23,7 @@ export interface PortDecl {
 
 export interface CelltypeDecl {
   readonly name: string;
+  readonly qualifiedName: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
 }
@@ -65,17 +67,32 @@ export interface ImportDecl {
   readonly rawText: string;
 }
 
+export interface GenerateDecl {
+  readonly pluginName: string;
+  readonly signatureName: string;
+  readonly argumentText: string;
+  readonly scopePath: string;
+  readonly rawText: string;
+}
+
+export interface SignatureDecl {
+  readonly name: string;
+  readonly hasFunctions: boolean;
+}
+
 export interface CompositeDecl {
   readonly name: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly structure: CompositeStructure;
 }
 
 export interface ParsedCdl {
-  readonly signatures: readonly string[];
+  readonly signatures: readonly SignatureDecl[];
   readonly celltypes: readonly CelltypeDecl[];
   readonly cells: readonly CellDecl[];
   readonly imports: readonly ImportDecl[];
+  readonly generates: readonly GenerateDecl[];
   readonly composites: readonly CompositeDecl[];
   readonly diagnostics: Diagnostic[];
   readonly scopes: readonly CdlScope[];
@@ -131,15 +148,16 @@ export class CdlDocumentBuilder {
     const parser = CdlGrammar.parserInstance;
     const tree = parser.parse(sourceWithBlanks);
     const diagnostics: Diagnostic[] = [];
-    const signatures: string[] = [];
+    const signatures: SignatureDecl[] = [];
     const celltypes: CelltypeDecl[] = [];
     const cells: CellDecl[] = [];
     const imports: ImportDecl[] = [];
+    const generates: GenerateDecl[] = [];
     const composites: CompositeDecl[] = [];
     const scopes: CdlScope[] = [];
 
     const root = tree?.rootNode;
-    if (!root) return { signatures, celltypes, cells, imports, composites, diagnostics, scopes };
+    if (!root) return { signatures, celltypes, cells, imports, generates, composites, diagnostics, scopes };
 
     const visitNested = (node: Node, parentPath: string): void => {
       const statement = node.type === "specified_statement" ? node.childForFieldName("statement") :
@@ -168,7 +186,7 @@ export class CdlDocumentBuilder {
           break;
         }
         case "celltype": {
-          const celltype = CdlDocumentBuilder.collectCelltype(statement);
+          const celltype = CdlDocumentBuilder.collectCelltype(statement, parentPath);
           if (celltype) celltypes.push(celltype);
           break;
         }
@@ -179,7 +197,15 @@ export class CdlDocumentBuilder {
         }
         case "signature": {
           const name = statement.childForFieldName("name");
-          if (name) signatures.push(name.text);
+          if (name) signatures.push({
+            name: parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`,
+            hasFunctions: Boolean(statement.childForFieldName("body")),
+          });
+          break;
+        }
+        case "generate_statement": {
+          const generate = CdlDocumentBuilder.collectGenerate(statement, parentPath);
+          if (generate) generates.push(generate);
           break;
         }
         case "import":
@@ -202,11 +228,16 @@ export class CdlDocumentBuilder {
       switch (statement.type) {
         case "signature": {
           const name = statement.childForFieldName("name");
-          if (name) signatures.push(name.text);
+          if (name) signatures.push({ name: name.text, hasFunctions: Boolean(statement.childForFieldName("body")) });
+          break;
+        }
+        case "generate_statement": {
+          const generate = CdlDocumentBuilder.collectGenerate(statement, "::");
+          if (generate) generates.push(generate);
           break;
         }
         case "celltype": {
-          const celltype = CdlDocumentBuilder.collectCelltype(statement);
+          const celltype = CdlDocumentBuilder.collectCelltype(statement, "::");
           if (celltype) celltypes.push(celltype);
           break;
         }
@@ -243,7 +274,21 @@ export class CdlDocumentBuilder {
     if (root.hasError) CdlDocumentBuilder.collectSyntaxDiagnostics(root, diagnostics);
 
     tree?.delete();
-    return { signatures, celltypes, cells, imports, composites, diagnostics, scopes };
+    return { signatures, celltypes, cells, imports, generates, composites, diagnostics, scopes };
+  }
+
+  private static collectGenerate(node: Node, scopePath: string): GenerateDecl | undefined {
+    const plugin = node.childForFieldName("plugin");
+    const signature = node.childForFieldName("signature");
+    const argument = node.childForFieldName("argument");
+    if (!plugin || !signature || !argument) return undefined;
+    return {
+      pluginName: plugin.text,
+      signatureName: signature.text,
+      argumentText: argument.text,
+      scopePath,
+      rawText: node.text,
+    };
   }
 
   private static collectPort(portNode: Node): PortDecl | undefined {
@@ -283,6 +328,8 @@ export class CdlDocumentBuilder {
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const internalCells: CompositeStructure["internalCells"][number][] = [];
+    const portExports: CompositeStructure["portExports"][number][] = [];
     const body = compositeNode.childForFieldName("body");
     if (body) {
       for (const child of body.namedChildren) {
@@ -298,15 +345,60 @@ export class CdlDocumentBuilder {
             if (port) ports.push(port);
           } else if (member.type === "composite_attribute") {
             attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+          } else if (member.type === "internal_cell") {
+            const type = member.childForFieldName("type");
+            const cellName = member.childForFieldName("name");
+            if (type && cellName) {
+              const bindings: CompositeInternalBinding[] = [];
+              const collectBindings = (node: Node): void => {
+                if (node.type === "specified_join" || node.type === "external_join") {
+                  const join = node.type === "specified_join" ? node.childForFieldName("join") : node;
+                  if (!join) return;
+                  const bindingName = join.childForFieldName("name");
+                  const exportName = join.type === "external_join" ? join.childForFieldName("export_name") : null;
+                  const assignedValue = join.type === "join" ? node.text.split("=").slice(1).join("=").trim().replace(/;$/, "") : null;
+                  const target = exportName?.text ?? assignedValue;
+                  if (bindingName && target) {
+                    bindings.push({
+                      kind: join.type === "external_join" ? "external" : "join",
+                      name: bindingName.text,
+                      target,
+                      rawText: node.text,
+                    });
+                  }
+                  return;
+                }
+                for (const child of node.namedChildren) if (child) collectBindings(child);
+              };
+              collectBindings(member);
+              internalCells.push({ celltypeName: type.text, name: cellName.text, bindings, rawText: member.text });
+            }
+          } else if (member.type === "export_join") {
+            const externalPort = member.childForFieldName("export_name");
+            const cell = member.childForFieldName("cell");
+            const port = member.childForFieldName("port");
+            if (externalPort && cell && port) {
+              portExports.push({
+                externalPortName: externalPort.text,
+                cellName: cell.text,
+                portName: port.text,
+                rawText: member.text,
+              });
+            }
           }
         }
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: qualifiedName, ports, attributes };
+    return {
+      name: qualifiedName,
+      ports,
+      attributes,
+      structure: { internalCells, portExports, rawText: compositeNode.text },
+    };
   }
 
-  private static collectCelltype(celltypeNode: Node): CelltypeDecl | undefined {
+  private static collectCelltype(celltypeNode: Node, parentPath: string): CelltypeDecl | undefined {
     const name = celltypeNode.childForFieldName("name");
     if (!name) return undefined;
     const ports: PortDecl[] = [];
@@ -331,7 +423,8 @@ export class CdlDocumentBuilder {
         }
       }
     }
-    return { name: name.text, ports, attributes };
+    const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
+    return { name: name.text, qualifiedName, ports, attributes };
   }
 
   private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {

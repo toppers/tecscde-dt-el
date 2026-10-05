@@ -107,6 +107,7 @@ function createWindow(): BrowserWindow {
             data = {
               ...opened,
               extraImportPaths: parsed.importPaths,
+              optionsFilePath: pendingOpenPath,
             };
           } else {
             data = await loadSamples(fileService);
@@ -124,6 +125,7 @@ function createWindow(): BrowserWindow {
             ...(data.extraImportPaths && data.extraImportPaths.length > 0
               ? { extraImportPaths: data.extraImportPaths }
               : {}),
+            ...(data.optionsFilePath ? { optionsFilePath: data.optionsFilePath } : {}),
           },
         });
       } else {
@@ -139,6 +141,7 @@ function createWindow(): BrowserWindow {
             data = {
               ...opened,
               ...(lastSession.extraImportPaths ? { extraImportPaths: lastSession.extraImportPaths } : {}),
+              ...(lastSession.optionsFilePath ? { optionsFilePath: lastSession.optionsFilePath } : {}),
             };
           } else {
             data = await loadSamples(fileService);

@@ -167,6 +167,41 @@ describe("AppShell — DOM wiring", () => {
     document.body.innerHTML = "";
   });
 
+  it("opens a composite's read-only child diagram and returns without changing the document", () => {
+    const text = `celltype tRegular { entry sTask eTask; };
+composite tComposite {
+  entry sTask eTask;
+  cell tRegular Inner {};
+  composite.eTask => Inner.eTask;
+};
+cell tComposite Composite {};
+cell tRegular Regular {};
+`;
+    const doc = CdlDocumentLoader.loadSources([{ text, fileName: "composite.cdl", editable: true }]).document;
+    const { store } = mountShell(fakeClipboard(), doc);
+    const originalDirty = store.isDirty();
+    const originalUndo = store.canUndo;
+    const dialog = document.querySelector<HTMLElement>(".composite-overlay")!;
+
+    document.querySelector<SVGGElement>('[data-cell-id="Composite"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(dialog.hidden).toBe(false);
+    expect(dialog.querySelectorAll(".composite-node")).toHaveLength(1);
+    dialog.querySelector<HTMLButtonElement>(".composite-header button")!.click();
+    expect(dialog.hidden).toBe(true);
+
+    document.querySelector<SVGGElement>('[data-cell-id="Regular"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(dialog.hidden).toBe(true);
+    store.setSelection(SelectionState.ofCells([asCellId("Composite")]));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(dialog.hidden).toBe(false);
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(dialog.hidden).toBe(true);
+    expect(store.getDocument()).toBe(doc);
+    expect(store.selection).toEqual(SelectionState.ofCells([asCellId("Composite")]));
+    expect(store.isDirty()).toBe(originalDirty);
+    expect(store.canUndo).toBe(originalUndo);
+  });
+
   it("renders one <g> per cell under #cells after start()", () => {
     mountShell();
     const cells = document.querySelector("#cells");

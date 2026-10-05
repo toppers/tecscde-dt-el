@@ -251,6 +251,13 @@ describe("FileService", () => {
       });
     });
 
+    it("does not treat Plugin search paths and other option values as CDL files", async () => {
+      const path = join(dir, "plugins.tecsgen-opts");
+      writeFileSync(path, "-L ./plugins -g build -k utf8 main.cdl");
+      const result = await new FileService({} as never).parseTecsgenOptionsFile(path);
+      expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
+    });
+
     it("parses hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts accurately", async () => {
       const optsPath = resolve("hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
       const service = new FileService({} as never);

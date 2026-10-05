@@ -92,6 +92,12 @@ function serializeFromTemplate(
   }
   const sourceWithBlanks = ToolInfoValidator.extractBlocks(result).sourceWithBlanks;
   const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
+  if (parsed.composites.length !== template.composites.length ||
+      parsed.composites.some((composite, index) =>
+        composite.name !== template.composites[index]?.name ||
+        composite.structure.rawText !== template.composites[index]?.rawText)) {
+    throw new Error("複合セルタイプの内部構造を保持できません。");
+  }
   const expected = new Map(cells.map((cell) => [cell.name, doc.regions.findById(cell.regionId)?.namespacePath]));
   if (parsed.diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
       parsed.cells.length !== cells.length ||
