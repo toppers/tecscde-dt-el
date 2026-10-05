@@ -419,6 +419,36 @@
         stroke-width: 1;
         stroke-dasharray: 3 2;
       }
+      .composite-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-items: center;
+        background: rgba(20, 27, 36, 0.5);
+      }
+      .composite-overlay[hidden] { display: none; }
+      .composite-panel {
+        width: min(960px, 94vw);
+        max-height: 88vh;
+        overflow: auto;
+        padding: 16px;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+      }
+      .composite-header { display: flex; align-items: center; gap: 12px; }
+      .composite-header nav { flex: 1; font-weight: 600; }
+      .composite-hint { color: #555; font-size: 12px; }
+      .composite-canvas { display: block; width: 100%; min-height: 320px; background: #fafafa; }
+      .composite-node rect { fill: #fff; stroke: #606c7b; stroke-width: 2; }
+      .composite-node.can-open { cursor: pointer; }
+      .composite-node.can-open:hover rect, .composite-node.can-open:focus rect { stroke: var(--accent); stroke-width: 3; }
+      .composite-node-name { font-size: 16px; font-weight: 600; }
+      .composite-node-type, .composite-node-binding { font-size: 11px; fill: #555; }
+      .composite-link { stroke: #6b7e91; stroke-width: 2; }
+      .composite-link-external, .composite-link-export { stroke-dasharray: 5 4; }
+      .composite-port-label, .composite-empty { font-size: 12px; fill: #333; }
     </style>
   </head>
   <body>
