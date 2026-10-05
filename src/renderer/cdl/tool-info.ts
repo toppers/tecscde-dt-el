@@ -342,7 +342,14 @@ export class ToolInfoValidator {
     joinList: Readonly<Record<string, JoinLayout>>,
     unknownFields: Readonly<Record<string, unknown>>,
   ): string {
-    const obj = { ...unknownFields, paper, cell_list: cellList, join_list: joinList };
+    // tecsgen は __tool_info__ 内の空オブジェクト `{}` を構文エラー（G1016）にする
+    // （tecsgen 1.9.1 で確認）。空のときはキーごと省くが、読み込み側は欠落を空として扱う。
+    const obj = {
+      ...unknownFields,
+      paper,
+      ...(Object.keys(cellList).length > 0 ? { cell_list: cellList } : {}),
+      ...(Object.keys(joinList).length > 0 ? { join_list: joinList } : {}),
+    };
     return JSON.stringify(obj, null, 2);
   }
 }
