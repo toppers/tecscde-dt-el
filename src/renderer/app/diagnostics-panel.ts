@@ -5,6 +5,7 @@
 // ジャンプ先が無いため、テキスト位置の提示に留める（同節）。
 
 import type { Diagnostic } from "../diagnostics/types";
+import { formatDiagnostic } from "../diagnostics/format";
 import { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 
@@ -59,7 +60,7 @@ export class DiagnosticsPanelView {
         item.classList.add("diag-jumpable");
         item.dataset["diagIndex"] = String(i);
       }
-      item.textContent = this.formatDiagnostic(d);
+      item.textContent = formatDiagnostic(d);
       this.panelEl.appendChild(item);
     });
   }
@@ -68,10 +69,6 @@ export class DiagnosticsPanelView {
     return d.relatedCellId !== undefined || d.relatedJoinId !== undefined;
   }
 
-  private formatDiagnostic(d: Diagnostic): string {
-    const loc = d.location ? `${d.location.file}:${d.location.line}:${d.location.column}: ` : "";
-    return `[${d.code}] ${loc}${d.message}`;
-  }
 
   private jumpTo(index: number): void {
     const d = this.store.getReport().items[index];

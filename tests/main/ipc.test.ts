@@ -45,7 +45,9 @@ describe("registerIpcHandlers", () => {
       version: vi.fn().mockResolvedValue("1.9.1"),
     };
 
-    registerIpcHandlers(fileService as never, tecsgenRunner as never);
+    const logService = { append: vi.fn().mockResolvedValue(undefined) };
+
+    registerIpcHandlers(fileService as never, tecsgenRunner as never, logService as never);
 
     expect([...handlers.keys()].sort()).toEqual(
       [
@@ -62,6 +64,7 @@ describe("registerIpcHandlers", () => {
         "file:save",
         "file:saveAs",
         "file:saveSession",
+        "log:append",
         "tecsgen:generate",
         "tecsgen:generatedTypes",
         "tecsgen:preprocess",
@@ -121,6 +124,9 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("tecsgen:version")!({});
     expect(tecsgenRunner.version).toHaveBeenCalled();
+
+    handlers.get("log:append")!({}, ["[W-X] a"]);
+    expect(logService.append).toHaveBeenCalledWith(["[W-X] a"]);
 
     handlers.get("clipboard:writeText")!({}, "hello");
     expect(clipboardMock.writeText).toHaveBeenCalledWith("hello");

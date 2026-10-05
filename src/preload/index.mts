@@ -61,6 +61,9 @@ const api: TecscdeApi = {
     writeText: (text: string): Promise<void> => ipcRenderer.invoke("clipboard:writeText", text),
     readText: (): Promise<string> => ipcRenderer.invoke("clipboard:readText"),
   },
+  log: {
+    append: (lines: readonly string[]): Promise<void> => ipcRenderer.invoke("log:append", lines),
+  },
   // 第7章7.4節: main が did-finish-load 後に一度だけ送る起動ドキュメント。
   onBootstrap: (listener: (data: OpenResult | null) => void): void => {
     ipcRenderer.once("app:bootstrap", (_event, data: OpenResult | null) => listener(data));

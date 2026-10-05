@@ -6,10 +6,15 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
+import type { LogService } from "./log-service.js";
 import { saveAppSettings } from "./app-settings.js";
 import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
 
-export function registerIpcHandlers(fileService: FileService, tecsgenRunner: TecsgenRunner): void {
+export function registerIpcHandlers(
+  fileService: FileService,
+  tecsgenRunner: TecsgenRunner,
+  logService: LogService,
+): void {
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
   // CDL文法とcdecl文法（9B章9B.3）は同じ起動シーケンスで一度に渡す。
   ipcMain.handle("cdl:grammar-assets", async () => {
@@ -63,6 +68,7 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
     tecsgenRunner.preprocess(headerPath, cppCommand),
   );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
+  ipcMain.handle("log:append", (_e, lines: readonly string[]) => logService.append(lines));
 
   // 第4章4.1節・第2章2.4節: clipboardはpreloadから直接requireできない
   // （実機確認で判明——ESM/CJS問わずpreloadに公開されるelectronモジュールには

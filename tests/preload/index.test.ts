@@ -51,6 +51,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:export", "/out.txt", "data");
   });
 
+  it("log.append invokes log:append with the lines", () => {
+    exposedApi().log.append(["[W-X] a", "[W-Y] b"]);
+    expect(invoke).toHaveBeenCalledWith("log:append", ["[W-X] a", "[W-Y] b"]);
+  });
+
   it("file.chooseFolder invokes the file:chooseFolder channel", () => {
     exposedApi().file.chooseFolder();
     expect(invoke).toHaveBeenCalledWith("file:chooseFolder");

@@ -6,6 +6,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { FileGateway } from "../../src/renderer/gateways/file-gateway.js";
 import { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway.js";
 import { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway.js";
+import { LogGateway } from "../../src/renderer/gateways/log-gateway.js";
 import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
@@ -36,6 +37,9 @@ function stubApi(): TecscdeApi {
     clipboard: {
       writeText: vi.fn(),
       readText: vi.fn().mockReturnValue(""),
+    },
+    log: {
+      append: vi.fn().mockResolvedValue(undefined),
     },
     onBootstrap: vi.fn(),
     onRestoreFileBrowserRoot: vi.fn(),
@@ -105,6 +109,16 @@ describe("TecsgenGateway", () => {
 
     gateway.version();
     expect(api.tecsgen.version).toHaveBeenCalled();
+  });
+});
+
+describe("LogGateway", () => {
+  it("delegates to window.tecscde.log", () => {
+    const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
+
+    new LogGateway().append(["[W-X] a"]);
+
+    expect(api.log.append).toHaveBeenCalledWith(["[W-X] a"]);
   });
 });
 

@@ -136,6 +136,10 @@ export interface TecscdeApi {
     writeText(text: string): Promise<void>;
     readText(): Promise<string>;
   };
+  /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
+  readonly log: {
+    append(lines: readonly string[]): Promise<void>;
+  };
   /**
    * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・
    * ファイル関連付けで開かれた場合はそのファイル、指定が無ければ samples。読み込み

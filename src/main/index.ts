@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { updateElectronApp } from "update-electron-app";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
+import { LogService } from "./log-service.js";
 import { registerIpcHandlers } from "./ipc.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
@@ -34,6 +35,9 @@ if (require("electron-squirrel-startup")) {
 // package.jsonのrepositoryフィールド欠如で`npm start`が起動時に例外を投げてしまう
 // （実機確認、2026-09-26）。forge.config.jsのpublisher-github設定と同じrepoを渡す。
 updateElectronApp({ repo: "toppers/tecscde-dt-el" });
+
+// 診断ログ: 起動時のカレントディレクトリを第一候補に、書き込めなければuserData配下へ。
+const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")]);
 
 let pendingOpenPath: string | null = null;
 
@@ -85,7 +89,7 @@ function createWindow(): BrowserWindow {
 
   const fileService = new FileService(win);
   const tecsgenRunner = new TecsgenRunner();
-  registerIpcHandlers(fileService, tecsgenRunner);
+  registerIpcHandlers(fileService, tecsgenRunner, logService);
 
   // モジュールG（renderer HTMLシェル）の成果物。`npm run build:renderer` が esbuild で
   // dist/renderer/{index.html,renderer.js} を出力する。

@@ -8,6 +8,8 @@
 import { FileGateway } from "./gateways/file-gateway";
 import { ClipboardGateway } from "./gateways/clipboard-gateway";
 import { TecsgenGateway } from "./gateways/tecsgen-gateway";
+import { LogGateway } from "./gateways/log-gateway";
+import { DiagnosticsLogger } from "./app/diagnostics-logger";
 import { AppStore } from "./app/store";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
@@ -34,6 +36,10 @@ function main(): void {
   const tecsgen = new TecsgenGateway();
   const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, win: window });
   shell.start();
+
+  // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
+  const logger = new DiagnosticsLogger(store, (lines) => new LogGateway().append(lines));
+  store.subscribe(() => logger.sync());
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {

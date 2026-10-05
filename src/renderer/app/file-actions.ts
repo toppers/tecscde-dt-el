@@ -7,6 +7,7 @@ import { CdlDocumentLoader } from "../cdl/document-builder";
 import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
 import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
+import { describeTecsgenFailure } from "../tecsgen/failure-summary";
 import type { GeneratedCdlFile, OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
@@ -80,10 +81,7 @@ export async function applyOpenResult(
         );
       }
       if (generated.result.exitCode !== 0) {
-        const detail = [generated.result.stdout, generated.result.stderr]
-          .map((output) => output.trim())
-          .find(Boolean);
-        throw new Error(detail ? detail.slice(0, 500) : "tecsgen を正常に実行できませんでした");
+        throw new Error(describeTecsgenFailure(generated.result));
       }
       generatedTypeSources = generated.sources;
     } catch (error) {
