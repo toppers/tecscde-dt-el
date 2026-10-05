@@ -11,8 +11,16 @@ import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { AppStore } from "../../src/renderer/app/store";
 import { FileBrowserView } from "../../src/renderer/app/file-browser-panel";
 
-function fakeStore(filePath: string | null, referenceFilePaths: readonly string[] = []): AppStore {
-  return { filePath, getReferenceFilePaths: () => referenceFilePaths } as unknown as AppStore;
+function fakeStore(
+  filePath: string | null,
+  referenceFilePaths: readonly string[] = [],
+  optionsFilePath?: string,
+): AppStore {
+  return {
+    filePath,
+    getReferenceFilePaths: () => referenceFilePaths,
+    getOptionsFilePath: () => optionsFilePath,
+  } as unknown as AppStore;
 }
 
 function fakeGateway(opts: {
@@ -159,6 +167,27 @@ describe("FileBrowserView", () => {
 
     expect(el.querySelector('[data-path="/root/a.cde"]')!.classList.contains("active")).toBe(false);
     expect(el.querySelector('[data-path="/root/b.cde"]')!.classList.contains("active")).toBe(true);
+  });
+
+  it("also highlights the .tecsgen-opts row the current document was loaded from", async () => {
+    const el = document.createElement("div");
+    const { gateway } = fakeGateway({
+      chooseFolder: async () => "/root",
+      listDirectory: async () => [
+        { name: "a.cdl", path: "/root/a.cdl", kind: "file" },
+        { name: "a.tecsgen-opts", path: "/root/a.tecsgen-opts", kind: "file" },
+        { name: "b.tecsgen-opts", path: "/root/b.tecsgen-opts", kind: "file" },
+      ],
+    });
+    const view = new FileBrowserView(
+      el, fakeStore("/root/a.cdl", [], "/root/a.tecsgen-opts"), gateway, vi.fn(), vi.fn(), vi.fn(),
+    );
+
+    await view.chooseRoot();
+
+    expect(el.querySelector('[data-path="/root/a.cdl"]')!.classList.contains("active")).toBe(true);
+    expect(el.querySelector('[data-path="/root/a.tecsgen-opts"]')!.classList.contains("active")).toBe(true);
+    expect(el.querySelector('[data-path="/root/b.tecsgen-opts"]')!.classList.contains("active")).toBe(false);
   });
 
   it("highlights a reference-loaded file with a different class than the active file (第7C章7.7.5節#11(a))", async () => {

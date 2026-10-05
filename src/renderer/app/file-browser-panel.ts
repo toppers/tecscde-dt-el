@@ -123,7 +123,12 @@ export class FileBrowserView {
     } else {
       row.className = "file-browser-file";
       // 3.5.1節: 現在編集対象になっているファイルはツリー上で強調表示する。
-      row.classList.toggle("active", entry.path === this.store.filePath);
+      // `.tecsgen-opts`は編集対象のCDLを開く入口なので、読み込み元のオプションファイルも
+      // 強調表示する（さもないとクリックしても何も選択されないように見える）。
+      row.classList.toggle(
+        "active",
+        entry.path === this.store.filePath || entry.path === this.store.getOptionsFilePath(),
+      );
       // 第7C章7.7.5節（#11(a)）: 参照読み込み済みのファイルも編集中とは異なる見た目で示す
       // （editable/referencesは排他集合のため両方に該当するノードは無い）。
       row.classList.toggle("reference", this.store.getReferenceFilePaths().includes(entry.path));
