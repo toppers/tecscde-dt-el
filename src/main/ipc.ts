@@ -36,12 +36,13 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
   // アプリケーション設定のため、FileServiceを経由せず直接saveAppSettingsを呼ぶ。
   ipcMain.handle(
     "file:saveSession",
-    (_e, editablePath: string | null, referencePaths: readonly string[], extraImportPaths?: readonly string[]) =>
+    (_e, editablePath: string | null, referencePaths: readonly string[], extraImportPaths?: readonly string[], optionsFilePath?: string) =>
       saveAppSettings({
         lastSession: {
           ...(editablePath ? { editablePath } : {}),
           referencePaths,
           ...(extraImportPaths && extraImportPaths.length > 0 ? { extraImportPaths } : {}),
+          ...(optionsFilePath ? { optionsFilePath } : {}),
         },
       }),
   );
@@ -55,6 +56,9 @@ export function registerIpcHandlers(fileService: FileService, tecsgenRunner: Tec
   ipcMain.handle("file:parseTecsgenOptionsFile", (_e, path: string) => fileService.parseTecsgenOptionsFile(path));
 
   ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));
+  ipcMain.handle("tecsgen:generatedTypes", (_e, args: readonly string[], editingFilePath: string, optionsFilePath?: string) =>
+    tecsgenRunner.generatedTypes(args, editingFilePath, optionsFilePath),
+  );
   ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string) =>
     tecsgenRunner.preprocess(headerPath, cppCommand),
   );

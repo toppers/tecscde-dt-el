@@ -206,8 +206,8 @@ export class FileService {
    * 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルのテキストを解析する。内容はtecsgenの
    * コマンドライン引数をそのまま記述したプレーンテキスト——`#`始まりの行はコメント、
    * `-I <path>`/`--import-path=<path>`は`importPaths`へ、`-c <cmd>`/`--cpp=<cmd>`
-   * （[[tecsgen外部仕様]]第5章の実際のオプション表記）は`cpp`へ、それ以外の`-`始まりでない
-   * トークンは`cdlFiles`へ分類する（`-D`等その他のオプションは本節の範囲外として無視する）。
+   * （[[tecsgen外部仕様]]第5章の実際のオプション表記）は`cpp`へ、CDL/CDE拡張子の
+   * トークンのみ`cdlFiles`へ分類する。他の引数はPlugin実行時に元のオプションファイルから渡す。
    */
   async parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile> {
     const buf = await fs.readFile(path);
@@ -254,7 +254,7 @@ export class FileService {
         // -D/--define等その他のオプションは本節の範囲外として無視するが、値を消費しない
         // とその値がCDLファイル名としてcdlFilesへ誤って混入するため、値も一緒に読み飛ばす。
         if (tokens[i + 1]) i += 1;
-      } else if (!token.startsWith("-")) {
+      } else if (/\.(?:cdl|cde)$/i.test(token)) {
         cdlFiles.push(token);
       }
       // token.startsWith("-")かつ上記いずれにも一致しない（例: "--define=FOO=1"）その他の

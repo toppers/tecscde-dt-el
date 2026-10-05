@@ -6,7 +6,8 @@
 import { CdlDocumentLoader } from "../cdl/document-builder";
 import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
-import type { OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
+import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
+import type { GeneratedCdlFile, OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { TecscdeDocument } from "../model/document";
@@ -60,9 +61,40 @@ export async function applyOpenResult(
   );
   const references = mergeReferences(result.references, autoReferences);
 
+  let generatedTypeSources: readonly GeneratedCdlFile[] = [];
+  const pluginDiagnostics: Array<{ severity: "warning"; code: string; message: string }> = [];
+  if (typeof tecsgenGateway.generatedTypes === "function") {
+    const args = TecsgenCommandBuilder.buildArgs({
+      importPath: [...(toolInfo.importPath ?? []), ...extraImportPaths],
+      defineMacro: toolInfo.defineMacro,
+      cpp: toolInfo.cpp,
+      referenceFilePaths: references.map((reference) => reference.path),
+      editingFilePath: result.editable.path,
+    });
+    try {
+      const generated = await tecsgenGateway.generatedTypes(args, result.editable.path, result.optionsFilePath);
+      if (!generated.result.executableFound || generated.result.exitCode !== 0) {
+        const detail = [generated.result.stdout, generated.result.stderr]
+          .map((output) => output.trim())
+          .find(Boolean);
+        throw new Error(detail ? detail.slice(0, 500) : "tecsgen を正常に実行できませんでした");
+      }
+      generatedTypeSources = generated.sources;
+    } catch (error) {
+      pluginDiagnostics.push({
+        severity: "warning",
+        code: "W-PLUGIN-TYPE-LOAD",
+        message: `Plugin生成型を読み込めませんでした: ${String(error)}`,
+      });
+    }
+  }
+
   const sources: CdlSource[] = [
     ...references.map((r) => ({ text: r.content, fileName: baseName(r.path), editable: false })),
     { text: result.editable.content, fileName: baseName(result.editable.path), editable: true },
+    ...generatedTypeSources.map((source) => ({
+      text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
+    })),
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
   const referenceFilePaths = references.map((r) => r.path);
@@ -70,10 +102,12 @@ export async function applyOpenResult(
   store.loadDocument(
     document,
     result.editable.path,
-    [...importDiagnostics, ...diagnostics],
+    [...importDiagnostics, ...pluginDiagnostics, ...diagnostics],
     referenceFilePaths,
     referenceSources,
     extraImportPaths,
+    result.optionsFilePath,
+    generatedTypeSources,
   );
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
@@ -93,16 +127,20 @@ export async function openFromPath(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
   path: string,
-  options: { extraImportPaths?: readonly string[] } = {},
+  options: { extraImportPaths?: readonly string[]; optionsFilePath?: string } = {},
 ): Promise<void> {
   if (store.isDirty()) {
     const proceed = await gateway.confirmDiscardChanges();
     if (!proceed) return;
   }
   const result = await gateway.openPath(path);
-  await applyOpenResult(store, gateway, tecsgenGateway, result, options.extraImportPaths);
+  await applyOpenResult(
+    store, gateway, tecsgenGateway,
+    options.optionsFilePath ? { ...result, optionsFilePath: options.optionsFilePath } : result,
+    options.extraImportPaths,
+  );
   // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /**
@@ -167,6 +205,9 @@ export async function addAsReference(
   const sources: CdlSource[] = [
     ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), editable: false })),
     { text: editableText, fileName: baseName(editablePath), editable: true },
+    ...store.getGeneratedTypeSources().map((source) => ({
+      text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
+    })),
   ];
   const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
   store.loadDocument(
@@ -176,10 +217,12 @@ export async function addAsReference(
     [...mergedSources.keys()],
     mergedSources,
     extraImportPaths,
+    store.getOptionsFilePath(),
+    store.getGeneratedTypeSources(),
   );
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /**
@@ -197,7 +240,7 @@ export async function loadOptionsFile(
   const parsed = await gateway.parseTecsgenOptionsFile(path);
   const [last, ...rest] = [...parsed.cdlFiles].reverse();
   if (!last) return;
-  await openFromPath(store, gateway, tecsgenGateway, last, { extraImportPaths: parsed.importPaths });
+  await openFromPath(store, gateway, tecsgenGateway, last, { extraImportPaths: parsed.importPaths, optionsFilePath: path });
   for (const refPath of rest.reverse()) {
     await addAsReference(store, gateway, tecsgenGateway, refPath);
   }
@@ -213,7 +256,7 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
   const text = CdlSerializer.serialize(store.getDocument());
   await gateway.save(path, text);
   store.markSaved(path);
-  await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
+  await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /** ［名前を付けて保存］: 保存ダイアログを開く。キャンセル時は何もしない。 */
@@ -223,6 +266,6 @@ export async function saveAs(store: AppStore, gateway: FileGateway): Promise<voi
   const savedPath = await gateway.saveAs(text, suggested);
   if (savedPath) {
     store.markSaved(savedPath);
-    await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths());
+    await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
   }
 }

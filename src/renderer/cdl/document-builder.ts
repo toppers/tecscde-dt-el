@@ -13,7 +13,7 @@ import { CPort, EPort, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
 import { Region, RegionTree } from "../model/region";
-import { CdlDocumentBuilder, type CellDecl } from "./cst";
+import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDecl, type GenerateDecl } from "./cst";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
@@ -23,6 +23,12 @@ export interface CdlSource {
   readonly fileName: string;
   /** 8.1.2: 最後に選択／ドロップされたファイルのみtrue。他は参照専用。 */
   readonly editable: boolean;
+  /** Plugin生成CDLは型定義のみ採用し、図・参照パス・保存元へ混ぜない。 */
+  readonly generated?: boolean;
+}
+
+function isOrdinaryCelltype(decl: CelltypeDecl | CompositeDecl): decl is CelltypeDecl {
+  return "qualifiedName" in decl;
 }
 
 export interface LoadResult {
@@ -70,6 +76,78 @@ function assignDefaultPortLayout(
     subscript: null,
     arraySize: p.arraySize ?? null,
   }));
+}
+
+/** generate のスコープから、既に読んだ署名の完全修飾名を探す。 */
+function resolveGenerateSignature(
+  declaration: GenerateDecl,
+  signatures: ReadonlySet<string>,
+): string | undefined {
+  const name = declaration.signatureName.replace(/^::/, "");
+  if (declaration.signatureName.startsWith("::")) return signatures.has(name) ? name : undefined;
+  let scope = declaration.scopePath;
+  while (scope !== "::") {
+    const candidate = `${scope.slice(2)}::${name}`;
+    if (signatures.has(candidate)) return candidate;
+    const separator = scope.lastIndexOf("::");
+    scope = separator === 0 ? "::" : scope.slice(0, separator);
+  }
+  return signatures.has(name) ? name : undefined;
+}
+
+/** MrubyBridgeSignaturePlugin の外部インターフェースだけを表示モデルに反映する。 */
+function registerMrubyBridgeCelltypes(
+  celltypes: Map<string, CelltypeRef>,
+  signatures: ReadonlySet<string>,
+  declarations: readonly { readonly generate: GenerateDecl; readonly fileName: string }[],
+): void {
+  for (const { generate, fileName } of declarations) {
+    if (generate.pluginName !== "MrubyBridgePlugin") continue;
+    const signature = resolveGenerateSignature(generate, signatures);
+    if (!signature) continue;
+    const typeName = `t${signature.replace(/::/g, "_")}`;
+    const bridgeName = `nMruby::${typeName}`;
+    if (!celltypes.has(bridgeName)) {
+      celltypes.set(bridgeName, CelltypeRef.create({
+        name: bridgeName,
+        cportTemplates: assignDefaultPortLayout([{ name: "cTECS", signature: `::${signature}` }], "LEFT", 15),
+        eportTemplates: [],
+        attributeNames: ["VMname", "bridgeName"],
+        hiddenRequirePortCount: 0,
+        locale: fileName,
+      }));
+    }
+    const initializerName = `${bridgeName}_Initializer`;
+    if (!celltypes.has(initializerName)) {
+      celltypes.set(initializerName, CelltypeRef.create({
+        name: initializerName,
+        cportTemplates: [],
+        eportTemplates: assignDefaultPortLayout([
+          { name: "eInitialize", signature: "sInitializeTECSBridge" },
+        ], "RIGHT", 15),
+        attributeNames: [],
+        hiddenRequirePortCount: 0,
+        locale: fileName,
+      }));
+    }
+  }
+}
+
+function resolveCelltypeInScope(
+  celltypes: ReadonlyMap<string, CelltypeRef>,
+  name: string,
+  scopePath: string,
+): CelltypeRef | undefined {
+  const normalized = name.replace(/^::/, "");
+  if (name.startsWith("::")) return celltypes.get(normalized);
+  let scope = scopePath;
+  while (scope !== "::") {
+    const scoped = celltypes.get(`${scope.slice(2)}::${normalized}`);
+    if (scoped) return scoped;
+    const separator = scope.lastIndexOf("::");
+    scope = separator === 0 ? "::" : scope.slice(0, separator);
+  }
+  return celltypes.get(normalized);
 }
 
 interface ParsedSource {
@@ -132,6 +210,8 @@ export class CdlDocumentLoader {
     const diagnostics: Diagnostic[] = [];
     const celltypes = new Map<string, CelltypeRef>();
     const parsedSources: ParsedSource[] = [];
+    const signatures = new Set<string>();
+    const generates: Array<{ generate: GenerateDecl; fileName: string }> = [];
     let preservedImports: readonly string[] = [];
     let toolInfoTecsgen: ToolInfoTecsgen = emptyToolInfoTecsgen();
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
@@ -143,7 +223,11 @@ export class CdlDocumentLoader {
     for (const source of sources) {
       const { blocks, sourceWithBlanks } = ToolInfoValidator.extractBlocks(source.text);
       const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
-      for (const scope of parsed.scopes) {
+      for (const signature of parsed.signatures) {
+        if (signature.hasFunctions) signatures.add(signature.name);
+      }
+      for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
+      for (const scope of source.generated ? [] : parsed.scopes) {
         let path = scope.path;
         while (path !== "::") {
           regionPaths.add(path);
@@ -152,7 +236,7 @@ export class CdlDocumentLoader {
           path = separator === 0 ? "::" : path.slice(0, separator);
         }
       }
-      if (source.editable) {
+      if (source.editable && !source.generated) {
         sourceTemplate = {
           text: source.text,
           cells: parsed.cells.map((cell) => {
@@ -171,7 +255,7 @@ export class CdlDocumentLoader {
       // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
       if (source.editable) preservedImports = parsed.imports.map((i) => i.rawText);
 
-      for (const block of blocks) {
+      for (const block of source.generated ? [] : blocks) {
         if (block.toolName === "tecsgen") {
           toolInfoTecsgen = ToolInfoValidator.parseTecsgen(block.json);
           const versionDiag = ToolInfoValidator.checkFormatVersion(toolInfoTecsgen);
@@ -189,13 +273,14 @@ export class CdlDocumentLoader {
 
       for (const ct of [...parsed.celltypes, ...parsed.composites]) {
         const composite = parsed.composites.find((decl) => decl === ct)?.structure;
+        const typeName = source.generated && isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name;
         const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire);
         const eportDecls = ct.ports.filter((p) => p.kind === "entry");
         const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
         celltypes.set(
-          ct.name,
+          typeName,
           CelltypeRef.create({
-            name: ct.name,
+            name: typeName,
             cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
             eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
             attributeNames: ct.attributes,
@@ -206,8 +291,10 @@ export class CdlDocumentLoader {
         );
       }
 
-      parsedSources.push({ fileName: source.fileName, editable: source.editable, cells: parsed.cells });
+      if (!source.generated) parsedSources.push({ fileName: source.fileName, editable: source.editable, cells: parsed.cells });
     }
+
+    registerMrubyBridgeCelltypes(celltypes, signatures, generates);
 
     const { width: paperW, height: paperH } = paper.contentSize();
 
@@ -224,7 +311,7 @@ export class CdlDocumentLoader {
         }
         seenNames.add(decl.cellName);
         const id = asCellId(decl.cellName);
-        const celltype = celltypes.get(decl.celltypeName);
+        const celltype = resolveCelltypeInScope(celltypes, decl.celltypeName, decl.regionPath);
         const layout = tecscdeParsed.cellList[decl.cellName];
         const savedRegion = layout?.region;
         const regionPath = decl.regionPath !== "::" ? decl.regionPath :
@@ -314,7 +401,7 @@ export class CdlDocumentLoader {
           Cell.create({
             id,
             name: decl.cellName,
-            celltypeName: decl.celltypeName,
+            celltypeName: celltype.name,
             x,
             y,
             width,
@@ -374,7 +461,7 @@ export class CdlDocumentLoader {
     }
 
     const editingSource = sources.find((s) => s.editable);
-    const referenceFiles = sources.filter((s) => !s.editable).map((s) => s.fileName);
+    const referenceFiles = sources.filter((s) => !s.editable && !s.generated).map((s) => s.fileName);
 
     const document = TecscdeDocument.build({
       cells,

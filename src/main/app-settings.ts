@@ -17,6 +17,7 @@ export interface AppSettings {
     readonly editablePath?: string;
     readonly referencePaths: readonly string[];
     readonly extraImportPaths?: readonly string[];
+    readonly optionsFilePath?: string;
   };
 }
 

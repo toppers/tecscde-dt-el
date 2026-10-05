@@ -50,7 +50,11 @@ export class FileGateway {
     editablePath: string | null,
     referencePaths: readonly string[],
     extraImportPaths?: readonly string[],
+    optionsFilePath?: string,
   ): Promise<void> {
+    if (optionsFilePath !== undefined) {
+      return window.tecscde.file.saveSession(editablePath, referencePaths, extraImportPaths, optionsFilePath);
+    }
     return extraImportPaths !== undefined
       ? window.tecscde.file.saveSession(editablePath, referencePaths, extraImportPaths)
       : window.tecscde.file.saveSession(editablePath, referencePaths);

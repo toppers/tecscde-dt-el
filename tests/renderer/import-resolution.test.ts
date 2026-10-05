@@ -390,6 +390,13 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(composite?.portExports).toEqual([
       expect.objectContaining({ externalPortName: "eMrubyBody", cellName: "MrubyTaskBody", portName: "eMrubyBody" }),
     ]);
+    const bridgeKernel = document.getCell(asCellId("BridgeKernel"));
+    expect(bridgeKernel?.celltypeUnresolved).toBe(false);
+    expect(bridgeKernel?.cports.map((port) => port.name)).toContain("cTECS");
+    const bridgeJoin = document.getJoin(asJoinId("BridgeKernel.cTECS"));
+    expect(bridgeJoin?.eportCellId).toBe(asCellId("HRP2Kernel"));
+    expect(bridgeJoin?.eportName).toBe("eKernel");
+    expect(diagnostics.filter((item) => item.code === W_CODES.UNRESOLVED_CELLTYPE && item.relatedCellId === bridgeKernel?.id)).toEqual([]);
 
     // セルタイプ一覧の検証
     expect(document.celltypeCount).toBeGreaterThan(10);
@@ -418,7 +425,7 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(taskCelltype?.eportTemplates.find((p) => p.name === "eTask")).toBeDefined();
 
     // 結合（セル間の接続）の検証
-    expect(document.joinCount).toBe(3);
+    expect(document.joinCount).toBe(31);
     const compositeJoin = document.getJoin(asJoinId("MrubyTask1.cBody"));
     expect(compositeJoin?.eportCellId).toBe(asCellId("Mruby"));
     expect(compositeJoin?.eportName).toBe("eMrubyBody");
@@ -501,7 +508,7 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
 
     const doc = store.getDocument();
     expect(doc.cellCount).toBe(60);
-    expect(doc.celltypeCount).toBe(58);
-    expect(doc.joinCount).toBe(3);
+    expect(doc.celltypeCount).toBe(84);
+    expect(doc.joinCount).toBe(31);
   });
 });

@@ -12,6 +12,7 @@ export interface OpenResult {
   readonly editable: OpenFileEntry;
   readonly references: readonly OpenFileEntry[];
   readonly extraImportPaths?: readonly string[];
+  readonly optionsFilePath?: string;
 }
 
 /** [[TECSCDE-DT-EL内部仕様]] 第7章7.6.1節: FileService.listDirectory() が返す1エントリ。 */
@@ -27,6 +28,17 @@ export interface TecsgenResult {
   readonly stderr: string;
   readonly exitCode: number | null;
   readonly executableFound: boolean;
+}
+
+export interface GeneratedCdlFile {
+  readonly fileName: string;
+  readonly content: string;
+}
+
+/** tecsgen が一時出力先へ生成したCDL。型定義の読み取りに使い、元文書には保存しない。 */
+export interface GeneratedCdlResult {
+  readonly result: TecsgenResult;
+  readonly sources: readonly GeneratedCdlFile[];
 }
 
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.preprocess() の戻り値。 */
@@ -103,6 +115,7 @@ export interface TecscdeApi {
       editablePath: string | null,
       referencePaths: readonly string[],
       extraImportPaths?: readonly string[],
+      optionsFilePath?: string,
     ): Promise<void>;
     /** 第7D章7.5.2節: import/import_C文の参照先をバッチで解決する。 */
     resolveImports(
@@ -115,6 +128,7 @@ export interface TecscdeApi {
   };
   readonly tecsgen: {
     generate(args: readonly string[]): Promise<TecsgenResult>;
+    generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult>;
     preprocess(headerPath: string, cppCommand?: string): Promise<CppResult>;
     version(): Promise<string | null>;
   };
