@@ -18,6 +18,9 @@ import { execSync } from "node:child_process";
 const root = dirname(fileURLToPath(import.meta.url));
 
 export default {
+  // 既定は ./out。同じ場所のファイルがロックされて package が EBUSY で失敗するときに
+  // 備え、環境変数 FORGE_OUT_DIR で出力先を別の場所へ逃がせるようにしている。
+  ...(process.env.FORGE_OUT_DIR ? { outDir: process.env.FORGE_OUT_DIR } : {}),
   packagerConfig: {
     asar: true,
   },
