@@ -41,6 +41,20 @@ describe("Plugin type resolution on open", () => {
     expect(store.getReport().items.some((item) => item.code === "W-PLUGIN-TYPE-LOAD")).toBe(true);
   });
 
+  it("explains how to fix it when tecsgen is not found", async () => {
+    const generatedTypes = vi.fn().mockResolvedValue({
+      result: { stdout: "", stderr: "", exitCode: null, executableFound: false },
+      sources: [],
+    });
+    const store = new AppStore();
+    await applyOpenResult(store, fileGateway, { generatedTypes } as unknown as TecsgenGateway, opened);
+
+    const message = store.getReport().items.find((item) => item.code === "W-PLUGIN-TYPE-LOAD")?.message;
+    expect(message).toContain("tecsgen が見つかりません");
+    expect(message).toContain("TECSGEN_COMMAND");
+    expect(message).not.toContain("Error:");
+  });
+
   it("ignores partial generated CDL when tecsgen exits with an error", async () => {
     const generatedTypes = vi.fn().mockResolvedValue({
       result: { stdout: "G1014 while reading CDL", stderr: "", exitCode: 1, executableFound: true },

@@ -73,7 +73,13 @@ export async function applyOpenResult(
     });
     try {
       const generated = await tecsgenGateway.generatedTypes(args, result.editable.path, result.optionsFilePath);
-      if (!generated.result.executableFound || generated.result.exitCode !== 0) {
+      if (!generated.result.executableFound) {
+        throw new Error(
+          "tecsgen が見つかりません（PATH に tecsgen が無い）。tecsgen をインストールして PATH に追加するか、" +
+            "環境変数 TECSGEN_COMMAND に起動コマンドを設定してアプリを再起動してください。",
+        );
+      }
+      if (generated.result.exitCode !== 0) {
         const detail = [generated.result.stdout, generated.result.stderr]
           .map((output) => output.trim())
           .find(Boolean);
@@ -84,7 +90,7 @@ export async function applyOpenResult(
       pluginDiagnostics.push({
         severity: "warning",
         code: "W-PLUGIN-TYPE-LOAD",
-        message: `Plugin生成型を読み込めませんでした: ${String(error)}`,
+        message: `Plugin生成型を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   }
