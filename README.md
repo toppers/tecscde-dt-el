@@ -1,9 +1,19 @@
 # tecscde-dt-el
+TECSCDEデスクトップアプリを、AIコーディングエージェントを用いて、Electronに移植する実験プロジェクトです。
+- 今回の移植に際して、新規作成したTECSCDE-DT-EL内部仕様に基づく、Electron固有の実装です。
+- 移植対象は以下の通りです。
+ - https://www.toppers.jp/download.cgi/tecscde-MinGW-V0.5.0.tgz
+- 2026-10-11現在、開発中です。
+- 開発ドキュメント（Markdown形式ファイル）を、開発の記録として、以下で公開しています。
+ - https://github.com/toppers/obsidian-mind-yk
+ - ただし、Github上で閲覧できるぐらいのものとお考え下さい。
+- AIコーディングエージェントとして、Claude Code, Codexを用いています。
+- `tecscde-js`（JS, browser）、`tecscde-ts`（TS classes, browser）に続く第3弾です。
+ - ただし、`tecscde-js`、`tecscde-ts` は移植の実験プロジェクトのプロトタイプの位置づけであり、未公開です。
+  - どちらも、エラーが発生せずに起動し、サンプル用のCDLを図形表示するぐらいの機能しかありません。 
+- 元になったTECSCDEがRuby/GTKによるデスクトップアプリであったため、使い勝手を合わせやすいElectron版の実装を進めています。
 
-TECSCDEデスクトップアプリ。TECSCDE-DT-EL内部仕様に基づく、Electron固有の実装です。
-`tecscde`（JS, browser）、`tecscde-ts`（TS classes, browser）に続く第3弾です。
-先行の2つは、サンプルCDLを読み込んで表示する段階にとどまっています。
-元になったTECSCDEがRuby/GTKによるデスクトップアプリであったため、使い勝手を合わせやすいElectron版の実装を進めています。
+- 現在は、Windows版でのみ動作確認をしています。
 
 # 移植方法(AIコーディングエージェント使用)
  - obsidian(https://obsidian.md/), obsidian-mind(https://github.com/breferrari/obsidian-mind)を利用
@@ -40,8 +50,8 @@ TECSCDEデスクトップアプリ。TECSCDE-DT-EL内部仕様に基づく、Ele
   - プロセス(main/render/preload)境界の明確化の提案を承認し、ドキュメントに明記させた(人間はAIに指示するのみ)
  - どの状態になったら完了とするかを決定し、基本方針に明記させる。
   - Ruby版TECSCDEのテストと同一の結果が得られることなど
- - AIに、Ruby版tecsgenのテストを実行させ、Ruby版におけるテスト結果を採取させる。
- - TECSCDE-DT-EL 内部仕様（デスクトップアプリ版）をもとに、Electron向けのTypsScriptのソースコードを生成させた(人間はAIに指示するのみ)
+ - AIに、Ruby版TECSCDEのテストを実行させ、Ruby版におけるテスト結果を採取させる。
+ - TECSCDE-DT-EL 内部仕様（デスクトップアプリ版）をもとに、Electron向けのTypsScriptのソースコードを生成させ、テスト結果を報告させた(人間はAIに指示するのみ)
  - AIがすべてのフェーズの完了を報告したら、人間が必要と思う確認をし、完了を承認する。
 
 ## What this is
