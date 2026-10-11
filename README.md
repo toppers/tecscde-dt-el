@@ -25,7 +25,6 @@ TECSCDEデスクトップアプリを、AIコーディングエージェント�
   - ワークスペースは、複数のターミナルも持つことができる。
   - ターミナル内の分割も可能。
   - ターミナルを起動するのはorca。ターミナルとAIコーディングエージェントの間にorcaが介在する。
-   - ユーザとAIコーディングエージェントのセッションの文脈に合わせて、(orcaが)ユーザにプロンプトの候補を提案する。
    - ワークスペースに紐づけれらフォルダの管理、バージョン管理、AIコーディングエージェントのセッション管理を会話とは別ウィンドウで行える
  - llm-wiki(https://github.com/nvk/llm-wiki), Claude Code(plugin: wiki @ llm-wiki でインストール)で利用。llm-wikiにTECSの仕様を取り込み、参照できるようにする。
   - 「組み込みコンポーネントシステムTECS仕様書 暫定第一版(V1.0.2.32)」(https://www.toppers.jp/download.cgi/tecs_package-20120608.tar.gz に収録されている`tecs_spec.pdf`)をllm-wikiに取り込む
