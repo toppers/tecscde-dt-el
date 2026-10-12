@@ -12,8 +12,8 @@ export class TecsgenGateway {
     return window.tecscde.tecsgen.generatedTypes(args, editingFilePath, optionsFilePath);
   }
 
-  preprocess(headerPath: string, cppCommand?: string): Promise<CppResult> {
-    return window.tecscde.tecsgen.preprocess(headerPath, cppCommand);
+  preprocess(headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult> {
+    return window.tecscde.tecsgen.preprocess(headerPath, cppCommand, includeDirs);
   }
 
   version(): Promise<string | null> {

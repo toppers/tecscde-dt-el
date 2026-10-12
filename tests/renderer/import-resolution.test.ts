@@ -185,6 +185,24 @@ describe("resolveAllImports", () => {
     expect(cdeclResults.get("/root/foo.h")?.typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char" });
   });
 
+  it("passes the import_path directories (relative to the editable dir and baseDir) to the preprocessor as include dirs", async () => {
+    const { gateway } = fakeGateway({
+      "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int INT;" },
+    });
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+    const info = { ...emptyToolInfoTecsgen(), baseDir: "/base", importPath: [".", "../../include"] };
+
+    await resolveAllImports(gateway, tecsgen, "/root/sub/A.cdl", 'import_C("foo.h");', info);
+
+    const preprocess = (tecsgen as unknown as { preprocess: ReturnType<typeof vi.fn> }).preprocess;
+    expect(preprocess).toHaveBeenCalledWith("/root/foo.h", undefined, [
+      "/root/sub",
+      "/root/sub/../../include",
+      "/base",
+      "/base/../../include",
+    ]);
+  });
+
   it("emits W-CDECL-PARSE when the (fallback) header text has a syntax error, without throwing", async () => {
     const { gateway } = fakeGateway({
       "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int MyInt; struct Broken { int x" },

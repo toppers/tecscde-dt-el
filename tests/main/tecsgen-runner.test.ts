@@ -5,7 +5,7 @@
 import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
 import { access, mkdir, mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { TecsgenRunner } from "../../src/main/tecsgen-runner.js";
 
 const execFileMock = vi.fn();
@@ -136,6 +136,19 @@ describe("TecsgenRunner", () => {
     const customResult = await runner.preprocess("header.h", "clang -E");
     expect(customResult).toEqual({ stdout: "struct S {};", stderr: "", exitCode: 0, executableFound: true });
     expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], { timeout: 30_000 });
+  });
+
+  it("preprocess() passes include dirs as absolute -I options, without duplicates", async () => {
+    execFileMock.mockResolvedValue({ stdout: "expanded", stderr: "" });
+    const runner = new TecsgenRunner();
+
+    await runner.preprocess("header.h", undefined, ["inc", "inc", "other/../third"]);
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      "gcc",
+      ["-E", "-DTECSGEN", `-I${resolve("inc")}`, `-I${resolve("third")}`, "header.h"],
+      { timeout: 30_000 },
+    );
   });
 
   it("preprocess() keeps quoted executable paths and option values intact", async () => {

@@ -129,7 +129,7 @@ export interface TecscdeApi {
   readonly tecsgen: {
     generate(args: readonly string[]): Promise<TecsgenResult>;
     generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult>;
-    preprocess(headerPath: string, cppCommand?: string): Promise<CppResult>;
+    preprocess(headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult>;
     version(): Promise<string | null>;
   };
   readonly clipboard: {

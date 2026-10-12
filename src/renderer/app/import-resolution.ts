@@ -51,9 +51,10 @@ async function ingestImportC(
   canonicalPath: string,
   rawContent: string,
   cppCommand: string | undefined,
+  includeDirs: readonly string[],
   diagnostics: Diagnostic[],
 ): Promise<CdeclResult> {
-  const cpp = await tecsgenGateway.preprocess(canonicalPath, cppCommand);
+  const cpp = await tecsgenGateway.preprocess(canonicalPath, cppCommand, includeDirs);
   const usedFallback = !cpp.executableFound || cpp.exitCode !== 0;
   const text = usedFallback ? rawContent : cpp.stdout;
   if (usedFallback) diagnostics.push(cppFallback(canonicalPath));
@@ -61,6 +62,19 @@ async function ingestImportC(
   const result = CdeclExtractor.extract(text);
   if (result.hasErrors) diagnostics.push(cdeclParseError(canonicalPath));
   return result;
+}
+
+/**
+ * import_Cのヘッダをプリプロセスするときの`-I`に使う探索ディレクトリ。tecsgenの`-I`（import_path）は
+ * `.tecsgen-opts`のあるディレクトリ（＝通常は編集対象のあるディレクトリ）と`baseDir`を基点に
+ * 解決されるため、その両方を基点に`importPaths`を展開する。存在しないディレクトリはgccが無視する。
+ */
+function includeDirsFor(editablePath: string, options: ImportResolutionOptions): string[] {
+  const bases = [dirnameOf(editablePath), ...(options.baseDir ? [options.baseDir] : [])];
+  const dirs = bases.flatMap((base) =>
+    options.importPaths.map((importPath) => (importPath === "." ? base : `${base}/${importPath}`)),
+  );
+  return [...new Set(dirs)];
 }
 
 function baseName(path: string): string {
@@ -87,6 +101,7 @@ async function resolveImportClosure(
   existingReferences: readonly OpenFileEntry[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."] };
+  const includeDirs = includeDirsFor(editablePath, options);
   const resolvedPaths = new Set(seedResolvedPaths);
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
   for (const r of existingReferences) {
@@ -146,7 +161,7 @@ async function resolveImportClosure(
       if (!extraSearchDirs.includes(dir)) extraSearchDirs.push(dir); // tecsgenの$base_dir累積に相当
 
       if (r.request.kind === "import_C") {
-        const result = await ingestImportC(tecsgenGateway, r.canonicalPath, r.content!, toolInfo.cpp, diagnostics);
+        const result = await ingestImportC(tecsgenGateway, r.canonicalPath, r.content!, toolInfo.cpp, includeDirs, diagnostics);
         cdeclResults.set(r.canonicalPath, result);
       } else {
         references.push({ path: r.canonicalPath, content: r.content! });

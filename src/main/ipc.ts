@@ -64,8 +64,8 @@ export function registerIpcHandlers(
   ipcMain.handle("tecsgen:generatedTypes", (_e, args: readonly string[], editingFilePath: string, optionsFilePath?: string) =>
     tecsgenRunner.generatedTypes(args, editingFilePath, optionsFilePath),
   );
-  ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string) =>
-    tecsgenRunner.preprocess(headerPath, cppCommand),
+  ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string, includeDirs?: readonly string[]) =>
+    tecsgenRunner.preprocess(headerPath, cppCommand, includeDirs),
   );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
   ipcMain.handle("log:append", (_e, lines: readonly string[]) => logService.append(lines));

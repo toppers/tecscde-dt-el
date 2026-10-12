@@ -105,7 +105,12 @@ describe("preload", () => {
 
   it("tecsgen.preprocess invokes tecsgen:preprocess with headerPath and cppCommand", () => {
     exposedApi().tecsgen.preprocess("header.h", "gcc -E");
-    expect(invoke).toHaveBeenCalledWith("tecsgen:preprocess", "header.h", "gcc -E");
+    expect(invoke).toHaveBeenCalledWith("tecsgen:preprocess", "header.h", "gcc -E", undefined);
+  });
+
+  it("tecsgen.preprocess forwards include dirs", () => {
+    exposedApi().tecsgen.preprocess("header.h", "gcc -E", ["/inc"]);
+    expect(invoke).toHaveBeenCalledWith("tecsgen:preprocess", "header.h", "gcc -E", ["/inc"]);
   });
 
   it("tecsgen.version invokes tecsgen:version", () => {

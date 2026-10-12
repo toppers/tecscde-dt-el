@@ -19,3 +19,4 @@ CLAUDE.md
 *.code-workspace
 hr-tecs/
 tecscde-log-*.txt
+.codegraph/

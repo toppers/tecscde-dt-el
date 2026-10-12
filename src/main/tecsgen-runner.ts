@@ -6,7 +6,7 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { TecsgenResult, CppResult, GeneratedCdlResult } from "../shared/ipc-types.js";
 
@@ -127,11 +127,18 @@ export class TecsgenRunner {
     }
   }
 
-  async preprocess(headerPath: string, cppCommand?: string): Promise<CppResult> {
+  /**
+   * `includeDirs`はtecsgenの`-I`/import_pathに相当する探索ディレクトリ。これを渡さないと
+   * `#include "kernel.h"`のようなプロジェクト内のヘッダを解決できず、プリプロセスが失敗する。
+   */
+  async preprocess(headerPath: string, cppCommand?: string, includeDirs: readonly string[] = []): Promise<CppResult> {
     const cmd = cppCommand?.trim() || "gcc -E -DTECSGEN";
     try {
       const [executable, ...baseArgs] = splitCommand(cmd);
-      const { stdout, stderr } = await execFileAsync(executable!, [...baseArgs, headerPath], { timeout: 30_000 });
+      const includeArgs = [...new Set(includeDirs.map((dir) => `-I${resolve(dir)}`))];
+      const { stdout, stderr } = await execFileAsync(executable!, [...baseArgs, ...includeArgs, headerPath], {
+        timeout: 30_000,
+      });
       return { stdout, stderr, exitCode: 0, executableFound: true };
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };

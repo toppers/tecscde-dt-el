@@ -119,8 +119,8 @@ describe("registerIpcHandlers", () => {
       ["main.cde"], "/tmp/root/main.cde", "/tmp/root/build.tecsgen-opts",
     );
 
-    handlers.get("tecsgen:preprocess")!({}, "header.h", "gcc -E");
-    expect(tecsgenRunner.preprocess).toHaveBeenCalledWith("header.h", "gcc -E");
+    handlers.get("tecsgen:preprocess")!({}, "header.h", "gcc -E", ["/inc"]);
+    expect(tecsgenRunner.preprocess).toHaveBeenCalledWith("header.h", "gcc -E", ["/inc"]);
 
     handlers.get("tecsgen:version")!({});
     expect(tecsgenRunner.version).toHaveBeenCalled();
