@@ -15,6 +15,7 @@ import type { CType, CStructDef, CStructMember } from "./types";
 export interface CdeclResult {
   readonly typedefs: ReadonlyMap<string, CType>;
   readonly structs: ReadonlyMap<string, CStructDef>;
+  readonly usedFallback: boolean;
   /** ERROR/MISSINGノードが残っていたか。走査自体は継続し、捕捉できた範囲は返す（9B.5）。 */
   readonly hasErrors: boolean;
 }
@@ -27,7 +28,7 @@ export class CdeclExtractor {
     let hasErrors = false;
 
     if (!tree) {
-      return { typedefs, structs, hasErrors: true };
+      return { typedefs, structs, hasErrors: true, usedFallback: false };
     }
 
     // トップレベル限定ではなく全ノードを再帰的に走査する。文法側が
@@ -44,7 +45,7 @@ export class CdeclExtractor {
       }
     });
 
-    return { typedefs, structs, hasErrors };
+    return { typedefs, structs, hasErrors, usedFallback: false };
   }
 }
 
@@ -122,7 +123,7 @@ function resolveDeclarationSpecifiers(nodes: readonly (SyntaxNode | null)[]): CT
     if (!node) continue;
     switch (node.type) {
       case "primitive_type":
-        return { kind: "primitive", name: mapPrimitiveName(node.text) };
+        return mapPrimitiveName(node.text);
       case "struct_specifier": {
         const { tag, members } = resolveStructSpecifierMembers(node);
         return { kind: "struct", tag, members };
@@ -135,7 +136,7 @@ function resolveDeclarationSpecifiers(nodes: readonly (SyntaxNode | null)[]): CT
       case "enum_specifier": // 単独では到達不可（文法がenum単独をトリガーしない）。typedef対象にはなり得る
       case "typeof_type":
       case "union_specifier":
-        return voidType(); // Ruby版もenum/unionは「voidが宣言されたとする」扱い（C_parser.y.rb）
+        return { kind: "unsupported", name: node.text };
       default:
         continue;
     }
@@ -156,8 +157,16 @@ function resolveDeclarator(node: SyntaxNode, baseType: CType): { name?: string; 
     return inner ? resolveDeclarator(inner, arrayType) : { type: arrayType };
   }
   if (node.type === "function_declarator") {
-    const inner = node.childForFieldName("declarator");
-    const funcType: CType = { kind: "function", returns: baseType };
+    const inner = node.namedChildren.find((child) => child && child.type !== "parameter_type_list");
+    const params = node.childForFieldName("parameters")?.namedChildren
+      .filter((child): child is SyntaxNode => child?.type === "parameter_declaration")
+      .map((parameter) => {
+        const typeNode = parameter.childForFieldName("type");
+        const base = typeNode ? resolveDeclarationSpecifiers(typeNode.namedChildren) : voidType();
+        const declaration = parameter.childForFieldName("declarator");
+        return declaration ? resolveDeclarator(declaration, base).type : base;
+      }) ?? [];
+    const funcType: CType = { kind: "function", returns: baseType, parameters: params };
     return inner ? resolveDeclarator(inner, funcType) : { type: funcType };
   }
   if (node.type === "declarator") {
@@ -178,15 +187,16 @@ function resolvePointer(node: SyntaxNode, pointeeType: CType): CType {
   return { kind: "pointer", pointee: inner };
 }
 
-function mapPrimitiveName(text: string): Extract<CType, { kind: "primitive" }>["name"] {
-  // primitive_typeのテキストは "unsigned long" 等、複数トークンを含み得る（declaration_specifiersの
-  // 畳み込みでは1個目の primitive_type しか見ないため、"unsigned"/"signed"/"const" 等の修飾語は現状は
-  // 落ちる——符号・幅の精密な再現は9B.2の範囲外（ポート型解決という実利用がまだ無いため）。
+function mapPrimitiveName(text: string): CType {
+  // primitive_typeのテキストは "unsigned long" 等、複数トークンを含み得る。
+  // 基本型と元の表記を共に保持し、符号・幅を解決時に失わないようにする。
   const normalized = text.trim().split(/\s+/).pop() ?? "int";
   const known = ["void", "char", "short", "int", "long", "int64", "float", "double", "bool"] as const;
-  return (known as readonly string[]).includes(normalized) ? (normalized as (typeof known)[number]) : "int";
+  return (known as readonly string[]).includes(normalized)
+    ? { kind: "primitive", name: normalized as (typeof known)[number], ...(text.trim() === normalized ? {} : { spelling: text.trim() }) }
+    : { kind: "unsupported", name: text };
 }
 
 function voidType(): CType {
-  return { kind: "primitive", name: "void" };
+  return { kind: "unsupported", name: "型指定子なし" };
 }

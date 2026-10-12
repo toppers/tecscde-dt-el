@@ -13,7 +13,11 @@ import { CPort, EPort, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
 import { Region, RegionTree } from "../model/region";
-import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDecl, type GenerateDecl } from "./cst";
+import { CTypeRegistry, type TypeDefinition, type TypeResolution } from "../cdecl/type-registry";
+import type { CdeclResult } from "../cdecl/extractor";
+import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDecl, type GenerateDecl, type PortDecl, type SignatureDecl } from "./cst";
+import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
+import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
@@ -34,6 +38,11 @@ function isOrdinaryCelltype(decl: CelltypeDecl | CompositeDecl): decl is Celltyp
 export interface LoadResult {
   readonly document: TecscdeDocument;
   readonly diagnostics: readonly Diagnostic[];
+  readonly portTypeIndex: PortTypeIndex;
+}
+
+export interface LoadOptions {
+  readonly cdeclResults?: ReadonlyMap<string, CdeclResult>;
 }
 
 function withLocation(d: Diagnostic, file: string): Diagnostic {
@@ -93,6 +102,19 @@ function resolveGenerateSignature(
     scope = separator === 0 ? "::" : scope.slice(0, separator);
   }
   return signatures.has(name) ? name : undefined;
+}
+
+function resolveSignatureInScope(name: string, scopePath: string, signatures: ReadonlySet<string>): string | undefined {
+  const normalized = name.replace(/^::/, "");
+  if (name.startsWith("::")) return signatures.has(normalized) ? normalized : undefined;
+  let scope = scopePath;
+  while (scope !== "::") {
+    const candidate = `${scope.slice(2)}::${normalized}`;
+    if (signatures.has(candidate)) return candidate;
+    const separator = scope.lastIndexOf("::");
+    scope = separator === 0 ? "::" : scope.slice(0, separator);
+  }
+  return signatures.has(normalized) ? normalized : undefined;
 }
 
 /** MrubyBridgeSignaturePlugin の外部インターフェースだけを表示モデルに反映する。 */
@@ -206,11 +228,14 @@ export class CdlDocumentLoader {
    * 複数ファイルをまとめて読み込む（8.1.2）。編集対象ファイルのcellのみeditable=trueとなり、
    * セルタイプはどのファイルで定義されていても全ファイル分を解決対象として扱う。
    */
-  static loadSources(sources: readonly CdlSource[]): LoadResult {
+  static loadSources(sources: readonly CdlSource[], options: LoadOptions = {}): LoadResult {
     const diagnostics: Diagnostic[] = [];
     const celltypes = new Map<string, CelltypeRef>();
     const parsedSources: ParsedSource[] = [];
     const signatures = new Set<string>();
+    const signatureDeclarations: Array<{ declaration: SignatureDecl; fileName: string }> = [];
+    const localTypeDefinitions: TypeDefinition[] = [];
+    const pendingCelltypes: Array<{ declaration: CelltypeDecl | CompositeDecl; source: CdlSource }> = [];
     const generates: Array<{ generate: GenerateDecl; fileName: string }> = [];
     let preservedImports: readonly string[] = [];
     let toolInfoTecsgen: ToolInfoTecsgen = emptyToolInfoTecsgen();
@@ -225,6 +250,10 @@ export class CdlDocumentLoader {
       const parsed = CdlDocumentBuilder.build(sourceWithBlanks);
       for (const signature of parsed.signatures) {
         if (signature.hasFunctions) signatures.add(signature.name);
+        signatureDeclarations.push({ declaration: signature, fileName: source.fileName });
+      }
+      for (const definition of parsed.typedefs) {
+        localTypeDefinitions.push({ ...definition, origin: source.fileName, fallback: false });
       }
       for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
       for (const scope of source.generated ? [] : parsed.scopes) {
@@ -272,26 +301,64 @@ export class CdlDocumentLoader {
       }
 
       for (const ct of [...parsed.celltypes, ...parsed.composites]) {
-        const composite = parsed.composites.find((decl) => decl === ct)?.structure;
-        const typeName = source.generated && isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name;
-        const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire);
-        const eportDecls = ct.ports.filter((p) => p.kind === "entry");
-        const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
-        celltypes.set(
-          typeName,
-          CelltypeRef.create({
-            name: typeName,
-            cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
-            eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
-            attributeNames: ct.attributes,
-            hiddenRequirePortCount,
-            locale: source.fileName,
-            composite,
-          }),
-        );
+        pendingCelltypes.push({ declaration: ct, source });
       }
 
       if (!source.generated) parsedSources.push({ fileName: source.fileName, editable: source.editable, cells: parsed.cells });
+    }
+
+    const typeRegistry = new CTypeRegistry(options.cdeclResults, localTypeDefinitions);
+    const signatureTypes = new Map<string, ResolvedSignatureType>();
+    const resolveUse = (type: TypeUse, fileName: string): TypeResolution => {
+      const resolved = type.type ? typeRegistry.resolve(type.type) : { origins: [], fallback: false, reason: "解釈できない C 型" };
+      if (resolved.reason) diagnostics.push({
+        severity: "warning", code: "W-C-TYPE-UNRESOLVED", message: resolved.reason,
+        location: { file: fileName, line: type.line, column: type.column },
+      });
+      return resolved;
+    };
+    for (const { declaration, fileName } of signatureDeclarations) {
+      const functions = declaration.functions.map((fn) => ({
+        name: fn.name,
+        returns: resolveUse(fn.returns, fileName),
+        parameters: fn.parameters.map((parameter) => resolveUse(parameter, fileName)),
+      }));
+      signatureTypes.set(declaration.name, {
+        id: declaration.name,
+        functions,
+        valid: functions.every((fn) => Boolean(fn.returns.type) && fn.parameters.every((parameter) => Boolean(parameter.type))),
+      });
+    }
+    const portTypes = new Map<string, ResolvedPortType>();
+    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number } => {
+      const id = resolveSignatureInScope(port.signature, port.scopePath, signatures);
+      const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
+      portTypes.set(portTypeKey(celltypeName, port.kind, port.name), { signatureId: id, valid });
+      if (!id) diagnostics.push({
+        severity: "warning", code: "W-PORT-SIGNATURE-UNRESOLVED",
+        message: `ポート ${port.name} のシグニチャ ${port.signature} を解決できません。`,
+        location: { file: fileName, line: port.line, column: port.column },
+        relatedPortName: port.name,
+      });
+      return { name: port.name, signature: id ? `::${id}` : port.signature, arraySize: port.arraySize };
+    };
+    for (const { declaration: ct, source } of pendingCelltypes) {
+      const composite = isOrdinaryCelltype(ct) ? undefined : ct.structure;
+      const typeName = source.generated && isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name;
+      const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire)
+        .map((p) => portDeclaration(typeName, p, source.fileName));
+      const eportDecls = ct.ports.filter((p) => p.kind === "entry")
+        .map((p) => portDeclaration(typeName, p, source.fileName));
+      const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
+      celltypes.set(typeName, CelltypeRef.create({
+        name: typeName,
+        cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
+        eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
+        attributeNames: ct.attributes,
+        hiddenRequirePortCount,
+        locale: source.fileName,
+        composite,
+      }));
     }
 
     registerMrubyBridgeCelltypes(celltypes, signatures, generates);
@@ -477,7 +544,7 @@ export class CdlDocumentLoader {
       sourceTemplate,
     });
 
-    return { document, diagnostics };
+    return { document, diagnostics, portTypeIndex: { signatures: signatureTypes, ports: portTypes } };
   }
 
   /** 単一ファイル読み込みの簡便ラッパ（テスト・新規作成後の1ファイル読込用）。 */

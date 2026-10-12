@@ -61,7 +61,7 @@ async function ingestImportC(
 
   const result = CdeclExtractor.extract(text);
   if (result.hasErrors) diagnostics.push(cdeclParseError(canonicalPath));
-  return result;
+  return { ...result, usedFallback };
 }
 
 /**
@@ -88,8 +88,7 @@ function baseName(path: string): string {
  * Cヘッダのため対象外、第7E章7.5.5節）、`kind`が`"import"`または`"manual"`のものだけ
  * その内容から更なる`import`/`import_C`を辿る（`manual`自身が持つimportも連鎖的に
  * 解決する、第7C章7.7.2節末尾）。`import_C`は`ingestImportC`（9B章）で型を抽出し
- * `cdeclResults`へ蓄積する——このマップを実際にポート型解決へつなぐ設計は9B章9B.2の
- * 範囲外のまま、呼び出し元（file-actions.ts）へそのまま返すだけに留める。
+ * `cdeclResults`へ蓄積し、呼び出し元（file-actions.ts）がポート型解決に渡す。
  */
 async function resolveImportClosure(
   gateway: FileGateway,
@@ -200,7 +199,10 @@ export async function resolveAllImports(
     tecsgenGateway,
     editablePath,
     mergedToolInfo,
-    extractImportRequests(editableText),
+    [
+      ...extractImportRequests(editableText),
+      ...existingReferences.map((reference): ImportRequest => ({ kind: "manual", specifier: reference.path })),
+    ],
     new Set([editablePath]),
     existingReferences,
   );

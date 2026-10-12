@@ -39,9 +39,8 @@ function mergeReferences(existing: readonly OpenFileEntry[], discovered: readonl
  * 第7D・7E章: 編集対象ファイルの`import`/`import_C`文の参照先を`resolveAllImports`で
  * 推移的に解決し、既存の`result.references`（手動指定・前回セッション復元由来）と
  * 正規化済み絶対パスで重複排除して合流させる。
- * `import_C`が見つけたCヘッダの型（9B章`cdeclResults`）は、ポート型解決へつなぐ設計が
- * まだ無い（9B章9B.2の範囲外）ため、ここでは診断（`importDiagnostics`）に反映される
- * フォールバック・構文エラーの警告以外は使わず捨てる——保持先（`store`等）を今回新設しない。
+ * `import_C`で抽出した型をCDLローダへ渡し、署名関数の戻り値・引数とポートの型を解決する。
+ * 解決結果はストアの読込時情報として保持し、次のファイル読込時に置き換える。
  */
 export async function applyOpenResult(
   store: AppStore,
@@ -51,7 +50,7 @@ export async function applyOpenResult(
   extraImportPaths: readonly string[] = result.extraImportPaths ?? [],
 ): Promise<void> {
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
-  const { references: autoReferences, diagnostics: importDiagnostics } = await resolveAllImports(
+  const { references: autoReferences, diagnostics: importDiagnostics, cdeclResults } = await resolveAllImports(
     gateway,
     tecsgenGateway,
     result.editable.path,
@@ -100,7 +99,7 @@ export async function applyOpenResult(
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
   ];
-  const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
+  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, { cdeclResults });
   const referenceFilePaths = references.map((r) => r.path);
   const referenceSources = new Map(references.map((r) => [r.path, r.content]));
   store.loadDocument(
@@ -112,6 +111,7 @@ export async function applyOpenResult(
     extraImportPaths,
     result.optionsFilePath,
     generatedTypeSources,
+    portTypeIndex,
   );
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
@@ -206,6 +206,10 @@ export async function addAsReference(
   for (const r of discovered) mergedSources.set(r.path, r.content);
 
   const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
+  const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
+  const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
+    gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences,
+  );
   const sources: CdlSource[] = [
     ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), editable: false })),
     { text: editableText, fileName: baseName(editablePath), editable: true },
@@ -213,16 +217,19 @@ export async function addAsReference(
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
   ];
-  const { document, diagnostics } = CdlDocumentLoader.loadSources(sources);
+  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, { cdeclResults });
   store.loadDocument(
     document,
     editablePath,
-    [...importDiagnostics, ...diagnostics],
+    [...allImportDiagnostics, ...importDiagnostics.filter((first) =>
+      !allImportDiagnostics.some((later) => first.code === later.code && first.message === later.message)
+    ), ...diagnostics],
     [...mergedSources.keys()],
     mergedSources,
     extraImportPaths,
     store.getOptionsFilePath(),
     store.getGeneratedTypeSources(),
+    portTypeIndex,
   );
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));

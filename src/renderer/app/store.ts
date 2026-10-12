@@ -17,6 +17,7 @@ import {
   type Diagnostic,
 } from "../diagnostics";
 import { serializeCellsAsCdl } from "../cdl/fragment";
+import { emptyPortTypeIndex, type PortTypeIndex } from "../cdl/port-type-index";
 import type { Cell } from "../model/cell";
 import type { CellId } from "../model/ids";
 import { TecscdeDocument } from "../model/document";
@@ -56,6 +57,7 @@ export class AppStore {
   private extraImportPaths: readonly string[] = [];
   private optionsFilePath: string | undefined;
   private generatedTypeSources: readonly GeneratedCdlFile[] = [];
+  private portTypeIndex: PortTypeIndex = emptyPortTypeIndex();
   /**
    * 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキスト（パス→内容）。`addAsReference`が
    * 新規参照を1件追加するたびeditable＋全referencesを合わせて再パースする必要があり、
@@ -122,6 +124,10 @@ export class AppStore {
 
   getGeneratedTypeSources(): readonly GeneratedCdlFile[] {
     return this.generatedTypeSources;
+  }
+
+  getPortTypeIndex(): PortTypeIndex {
+    return this.portTypeIndex;
   }
 
   /** 第7C章7.7.2節（#8）: 参照ファイルの生CDLテキストのキャッシュ（パス→内容）。 */
@@ -257,6 +263,7 @@ export class AppStore {
     extraImportPaths: readonly string[] = [],
     optionsFilePath?: string,
     generatedTypeSources: readonly GeneratedCdlFile[] = [],
+    portTypeIndex: PortTypeIndex = emptyPortTypeIndex(),
   ): void {
     this.historyState = History.begin(document);
     this.selectionState = SelectionState.empty();
@@ -268,6 +275,7 @@ export class AppStore {
     this.extraImportPaths = extraImportPaths;
     this.optionsFilePath = optionsFilePath;
     this.generatedTypeSources = generatedTypeSources;
+    this.portTypeIndex = portTypeIndex;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
     this.notify();

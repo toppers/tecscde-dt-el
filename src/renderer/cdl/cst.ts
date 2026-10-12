@@ -12,6 +12,7 @@ import { CdlGrammar } from "./grammar";
 import { syntaxError, unexpectedEof } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import type { CompositeInternalBinding, CompositeStructure } from "../model/composite";
+import { localTypedefs, signatureFunctions, type LocalTypedefDecl, type SignatureFunctionDecl } from "./signature-types";
 
 export interface PortDecl {
   readonly kind: "call" | "entry";
@@ -19,6 +20,9 @@ export interface PortDecl {
   readonly name: string;
   readonly arraySize?: number;
   readonly isRequire: boolean;
+  readonly scopePath: string;
+  readonly line: number;
+  readonly column: number;
 }
 
 export interface CelltypeDecl {
@@ -78,6 +82,9 @@ export interface GenerateDecl {
 export interface SignatureDecl {
   readonly name: string;
   readonly hasFunctions: boolean;
+  readonly functions: readonly SignatureFunctionDecl[];
+  readonly line: number;
+  readonly column: number;
 }
 
 export interface CompositeDecl {
@@ -89,6 +96,7 @@ export interface CompositeDecl {
 
 export interface ParsedCdl {
   readonly signatures: readonly SignatureDecl[];
+  readonly typedefs: readonly LocalTypedefDecl[];
   readonly celltypes: readonly CelltypeDecl[];
   readonly cells: readonly CellDecl[];
   readonly imports: readonly ImportDecl[];
@@ -149,6 +157,7 @@ export class CdlDocumentBuilder {
     const tree = parser.parse(sourceWithBlanks);
     const diagnostics: Diagnostic[] = [];
     const signatures: SignatureDecl[] = [];
+    const typedefs: LocalTypedefDecl[] = [];
     const celltypes: CelltypeDecl[] = [];
     const cells: CellDecl[] = [];
     const imports: ImportDecl[] = [];
@@ -157,7 +166,7 @@ export class CdlDocumentBuilder {
     const scopes: CdlScope[] = [];
 
     const root = tree?.rootNode;
-    if (!root) return { signatures, celltypes, cells, imports, generates, composites, diagnostics, scopes };
+    if (!root) return { signatures, typedefs, celltypes, cells, imports, generates, composites, diagnostics, scopes };
 
     const visitNested = (node: Node, parentPath: string): void => {
       const statement = node.type === "specified_statement" ? node.childForFieldName("statement") :
@@ -200,9 +209,15 @@ export class CdlDocumentBuilder {
           if (name) signatures.push({
             name: parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`,
             hasFunctions: Boolean(statement.childForFieldName("body")),
+            functions: signatureFunctions(statement),
+            line: statement.startPosition.row + 1,
+            column: statement.startPosition.column + 1,
           });
           break;
         }
+        case "typedef":
+          typedefs.push(...localTypedefs(statement));
+          break;
         case "generate_statement": {
           const generate = CdlDocumentBuilder.collectGenerate(statement, parentPath);
           if (generate) generates.push(generate);
@@ -228,9 +243,18 @@ export class CdlDocumentBuilder {
       switch (statement.type) {
         case "signature": {
           const name = statement.childForFieldName("name");
-          if (name) signatures.push({ name: name.text, hasFunctions: Boolean(statement.childForFieldName("body")) });
+          if (name) signatures.push({
+            name: name.text,
+            hasFunctions: Boolean(statement.childForFieldName("body")),
+            functions: signatureFunctions(statement),
+            line: statement.startPosition.row + 1,
+            column: statement.startPosition.column + 1,
+          });
           break;
         }
+        case "typedef":
+          typedefs.push(...localTypedefs(statement));
+          break;
         case "generate_statement": {
           const generate = CdlDocumentBuilder.collectGenerate(statement, "::");
           if (generate) generates.push(generate);
@@ -274,7 +298,7 @@ export class CdlDocumentBuilder {
     if (root.hasError) CdlDocumentBuilder.collectSyntaxDiagnostics(root, diagnostics);
 
     tree?.delete();
-    return { signatures, celltypes, cells, imports, generates, composites, diagnostics, scopes };
+    return { signatures, typedefs, celltypes, cells, imports, generates, composites, diagnostics, scopes };
   }
 
   private static collectGenerate(node: Node, scopePath: string): GenerateDecl | undefined {
@@ -291,7 +315,7 @@ export class CdlDocumentBuilder {
     };
   }
 
-  private static collectPort(portNode: Node): PortDecl | undefined {
+  private static collectPort(portNode: Node, scopePath: string): PortDecl | undefined {
     const kindNode = portNode.childForFieldName("kind");
     const signature = portNode.childForFieldName("signature");
     const name = portNode.childForFieldName("name");
@@ -307,6 +331,9 @@ export class CdlDocumentBuilder {
       // 実際のCDLでは require は独立した celltype_statement であり、
       // ポート宣言の修飾子ではない。ポート側からは立てない。
       isRequire: false,
+      scopePath,
+      line: portNode.startPosition.row + 1,
+      column: portNode.startPosition.column + 1,
     };
   }
 
@@ -341,7 +368,7 @@ export class CdlDocumentBuilder {
         for (const member of statement.namedChildren) {
           if (!member) continue;
           if (member.type === "port") {
-            const port = CdlDocumentBuilder.collectPort(member);
+            const port = CdlDocumentBuilder.collectPort(member, parentPath);
             if (port) ports.push(port);
           } else if (member.type === "composite_attribute") {
             attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
@@ -414,7 +441,7 @@ export class CdlDocumentBuilder {
           const member = statement.namedChild(j);
           if (!member) continue;
           if (member.type === "port") {
-            const port = CdlDocumentBuilder.collectPort(member);
+            const port = CdlDocumentBuilder.collectPort(member, parentPath);
             if (port) ports.push(port);
           } else if (member.type === "attribute") {
             attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));

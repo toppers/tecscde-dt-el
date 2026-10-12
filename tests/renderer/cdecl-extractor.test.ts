@@ -10,7 +10,7 @@ describe("CdeclExtractor", () => {
   it("extracts a primitive typedef", () => {
     const { typedefs, hasErrors } = CdeclExtractor.extract("typedef unsigned char uint8_t;");
     expect(hasErrors).toBe(false);
-    expect(typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char" });
+    expect(typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char", spelling: "unsigned char" });
   });
 
   it("extracts a pointer typedef", () => {
