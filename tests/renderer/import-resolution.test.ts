@@ -160,7 +160,7 @@ describe("resolveAllImports", () => {
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({ severity: "warning", code: W_CODES.CPP_FALLBACK });
     // foo.hの内容はCDL文のため typedef/struct は0件——CdeclExtractor自体は呼ばれている。
-    expect(cdeclResults.get("/root/foo.h")).toEqual({ typedefs: new Map(), structs: new Map(), hasErrors: false });
+    expect(cdeclResults.get("/root/foo.h")).toEqual({ typedefs: new Map(), structs: new Map(), hasErrors: false, usedFallback: true });
   });
 
   it("extracts typedefs from import_C via the preprocessor when it succeeds (9B章9B.6)", async () => {
@@ -182,7 +182,7 @@ describe("resolveAllImports", () => {
     );
 
     expect(diagnostics).toEqual([]); // プリプロセッサ成功時はフォールバック診断が出ない
-    expect(cdeclResults.get("/root/foo.h")?.typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char" });
+    expect(cdeclResults.get("/root/foo.h")?.typedefs.get("uint8_t")).toEqual({ kind: "primitive", name: "char", spelling: "unsigned char" });
   });
 
   it("emits W-CDECL-PARSE when the (fallback) header text has a syntax error, without throwing", async () => {
