@@ -258,13 +258,13 @@ describe("FileService", () => {
       expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
     });
 
-    it("parses hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts accurately", async () => {
-      const optsPath = resolve("hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
+    it("parses tests/hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts accurately", async () => {
+      const optsPath = resolve("tests/hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
       const service = new FileService({} as never);
 
       const result = await service.parseTecsgenOptionsFile(optsPath);
 
-      expect(result.cdlFiles).toEqual([resolve("hr-tecs/workspace/sd/tEV3Sample.cdl")]);
+      expect(result.cdlFiles).toEqual([resolve("tests/hr-tecs/workspace/sd/tEV3Sample.cdl")]);
       expect(result.importPaths).toContain(".");
       expect(result.importPaths).toContain("./gen");
       expect(result.importPaths).toContain("../../tecs_kernel");

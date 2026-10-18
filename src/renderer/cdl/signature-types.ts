@@ -24,7 +24,14 @@ function use(node: Node | null, type: CType | undefined): TypeUse {
 
 function primitive(name: string): CType | undefined {
   const normalized = name.trim().split(/\s+/).pop() ?? "";
-  const names = ["void", "char", "short", "int", "long", "int64", "float", "double", "bool"];
+  // CDL keywords have their own type identity even when C headers also define them.
+  const names = [
+    "void", "char", "short", "int", "long", "int64", "float", "double", "bool",
+    "bool_t", "char_t", "schar_t", "uchar_t",
+    "int8_t", "int16_t", "int32_t", "int64_t", "int128_t",
+    "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uint128_t",
+    "float32_t", "double64_t",
+  ];
   if (names.includes(normalized)) return {
     kind: "primitive", name: normalized as Extract<CType, { kind: "primitive" }>["name"],
     ...(name.trim() === normalized ? {} : { spelling: name.trim() }),
@@ -51,7 +58,7 @@ export function baseType(node: Node | null): CType | undefined {
     if (node.type === "sign_int_type") return primitive(node.text);
     return baseType(node.namedChildren.find((child) => child?.type !== "type_qualifier") ?? null) ?? primitive(node.text);
   }
-  if (node.type === "primitive_type" || node.type === "int_type" || node.type === "identifier" || node.type === "type_specifier_or_identifier") {
+  if (node.type === "primitive_type" || node.type === "int_type" || node.type === "char_type" || node.type === "identifier" || node.type === "type_specifier_or_identifier") {
     return primitive(node.text);
   }
   return undefined;

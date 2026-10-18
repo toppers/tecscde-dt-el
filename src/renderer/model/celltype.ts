@@ -23,6 +23,7 @@ export interface CelltypeRefCreateParams {
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
   readonly composite?: CompositeStructure;
+  readonly hasUnsupportedSyntax?: boolean;
 }
 
 export class CelltypeRef {
@@ -34,6 +35,7 @@ export class CelltypeRef {
     readonly hiddenRequirePortCount: number,
     readonly locale: string | undefined,
     readonly composite: CompositeStructure | undefined,
+    readonly hasUnsupportedSyntax: boolean,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -45,6 +47,7 @@ export class CelltypeRef {
       params.hiddenRequirePortCount,
       params.locale,
       params.composite,
+      params.hasUnsupportedSyntax ?? false,
     );
   }
 }

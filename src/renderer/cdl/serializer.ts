@@ -5,7 +5,7 @@
 import type { Cell } from "../model/cell";
 import type { EdgeSide } from "../model/port";
 import { CDE_FORMAT_VERSION, TECSCDE_TS_VERSION } from "../model/tool-info-types";
-import type { TecscdeDocument } from "../model/document";
+import type { CdlSourceTemplate, TecscdeDocument } from "../model/document";
 import { ToolInfoValidator, type CellLayout, type JoinLayout } from "./tool-info";
 import { CdlDocumentBuilder } from "./cst";
 
@@ -31,8 +31,18 @@ function cellAttrLines(cell: Cell): string[] {
   return Object.entries(cell.attrs).map(([name, expr]) => `  ${name} = ${expr};`);
 }
 
-function serializeCellBlock(doc: TecscdeDocument, cell: Cell): string {
-  const body = [...cellJoinLines(doc, cell), ...cellAttrLines(cell)];
+function serializeCellBlock(
+  doc: TecscdeDocument,
+  cell: Cell,
+  originalJoins: CdlSourceTemplate["cells"][number]["joins"] = [],
+): string {
+  const unresolvedJoins = (originalJoins ?? []).flatMap((join) => {
+    const cport = cell.cports.find((port) => port.name === join.cport && port.subscript === (join.cportIndex ?? null));
+    if (cport?.joinId) return [];
+    const name = join.cportIndex === undefined ? join.cport : `${join.cport}[${join.cportIndex}]`;
+    return [`  ${name} = ${join.targetCell}.${join.eport};`];
+  });
+  const body = [...cellJoinLines(doc, cell), ...unresolvedJoins, ...cellAttrLines(cell)];
   // 末尾の `;` はCDL文法上必須（tecsgen の bnf.y.rb が cell 定義の終端として要求する）。
   return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `};`].join("\n");
 }
@@ -41,11 +51,11 @@ interface TextEdit { readonly start: number; readonly end: number; readonly text
 
 function serializeFromTemplate(
   doc: TecscdeDocument,
+  template: CdlSourceTemplate,
   cells: readonly Cell[],
-  tecsgenBlock: string,
-  tecscdeBlock: string,
+  tecsgenBlock?: string,
+  tecscdeBlock?: string,
 ): string {
-  const template = doc.sourceTemplate!;
   for (const cell of cells) {
     const region = doc.regions.findById(cell.regionId);
     if (!region || !region.cellIds.includes(cell.id)) {
@@ -67,7 +77,8 @@ function serializeFromTemplate(
       throw new Error(`保存先リージョンが編集ファイルにありません: ${cell.name}`);
     }
     const blocks = insertions.get(path) ?? [];
-    blocks.push((originalCells.get(cell.id)?.leadingText ?? "") + serializeCellBlock(doc, cell));
+    const original = originalCells.get(cell.sourceName);
+    blocks.push((original?.leadingText ?? "") + serializeCellBlock(doc, cell, original?.joins));
     insertions.set(path, blocks);
   }
   for (const [path, blocks] of insertions) {
@@ -77,15 +88,16 @@ function serializeFromTemplate(
   let hasTecsgen = false;
   let hasTecscde = false;
   for (const block of template.toolInfoBlocks) {
-    if (block.toolName !== "tecsgen" && block.toolName !== "tecscde") continue;
-    const replacement = block.toolName === "tecsgen" ? tecsgenBlock : tecscdeBlock;
+    const replacement = block.toolName === "tecsgen" ? tecsgenBlock :
+      block.toolName === "tecscde" ? tecscdeBlock : undefined;
+    if (replacement === undefined) continue;
     const alreadyWritten = block.toolName === "tecsgen" ? hasTecsgen : hasTecscde;
     edits.push({ start: block.startIndex, end: block.endIndex, text: alreadyWritten ? "" : replacement });
     if (block.toolName === "tecsgen") hasTecsgen = true;
     else hasTecscde = true;
   }
-  if (!hasTecsgen) edits.push({ start: 0, end: 0, text: `${tecsgenBlock}\n\n` });
-  if (!hasTecscde) edits.push({ start: template.text.length, end: template.text.length, text: `\n${tecscdeBlock}\n` });
+  if (tecsgenBlock !== undefined && !hasTecsgen) edits.push({ start: 0, end: 0, text: `${tecsgenBlock}\n\n` });
+  if (tecscdeBlock !== undefined && !hasTecscde) edits.push({ start: template.text.length, end: template.text.length, text: `\n${tecscdeBlock}\n` });
   let result = template.text;
   for (const edit of edits.sort((a, b) => b.start - a.start || b.end - a.end)) {
     result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
@@ -108,6 +120,43 @@ function serializeFromTemplate(
 }
 
 export class CdlSerializer {
+  static serializeSource(doc: TecscdeDocument, sourceKey: string): string {
+    if (sourceKey === doc.editingFileName) return CdlSerializer.serialize(doc);
+    const template = doc.sourceTemplates.get(sourceKey);
+    if (!template) throw new Error(`No editable CDL source for ${sourceKey}`);
+    const cells = doc.cellValues().filter((cell) => cell.editable && cell.locale === sourceKey);
+    const cellList: Record<string, CellLayout> = {};
+    for (const cell of cells) {
+      const ports: Record<string, { edge: EdgeSide; offset: number }> = {};
+      for (const port of [...cell.cports, ...cell.eports]) {
+        ports[port.name] = { edge: port.edgeSide, offset: port.offset };
+      }
+      cellList[cell.name] = {
+        location: [cell.x, cell.y, cell.width, cell.height], region: cell.regionId,
+        ...(Object.keys(ports).length > 0 ? { ports } : {}),
+      };
+    }
+    const cellIds = new Set(cells.map((cell) => cell.id));
+    const joinList: Record<string, JoinLayout> = {};
+    for (const join of doc.joinValues()) {
+      if (!cellIds.has(join.cellId)) continue;
+      joinList[join.id] = {
+        cell: doc.getCell(join.cellId)!.name,
+        cport: join.cportName,
+        targetCell: doc.getCell(join.eportCellId)?.name ?? "",
+        eport: join.eportName,
+        bars: join.bars.map((bar) => ({ dir: bar.direction, fixed: bar.fixed, from: bar.from, to: bar.to })),
+      };
+    }
+    const priorBlock = ToolInfoValidator.extractBlocks(template.text).blocks.find((block) => block.toolName === "tecscde");
+    const prior = priorBlock ? ToolInfoValidator.parseTecscde(priorBlock.json).parsed : undefined;
+    const tecscdeBlock = formatToolInfoBlock("tecscde", ToolInfoValidator.serializeTecscde(
+      { size: prior?.paper?.size ?? doc.paper.size, orientation: prior?.paper?.orientation ?? doc.paper.orientation },
+      cellList, joinList, prior?.unknownFields ?? {},
+    ));
+    return serializeFromTemplate(doc, template, cells, undefined, tecscdeBlock);
+  }
+
   /**
    * ドキュメントを保存可能なテキストへ直列化する。
    * 決定性のため、セルは名前順にソートして出力する（同じドキュメント内容からは常に同じ出力が得られる。
@@ -116,7 +165,7 @@ export class CdlSerializer {
   static serialize(doc: TecscdeDocument, now: Date = new Date()): string {
     const editableCells = doc
       .cellValues()
-      .filter((c) => c.editable)
+      .filter((c) => c.editable && (doc.sourceTemplates.size <= 1 || c.locale === doc.editingFileName))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -142,7 +191,7 @@ export class CdlSerializer {
       cellList[cell.name] = {
         location: [cell.x, cell.y, cell.width, cell.height],
         region: cell.regionId,
-        ports,
+        ...(Object.keys(ports).length > 0 ? { ports } : {}),
       };
     }
 
@@ -165,7 +214,7 @@ export class CdlSerializer {
       ToolInfoValidator.serializeTecscde(doc.paper, cellList, joinList, doc.unknownToolInfoTecscde),
     );
 
-    if (doc.sourceTemplate) return serializeFromTemplate(doc, editableCells, tecsgenBlock, tecscdeBlock);
+    if (doc.sourceTemplate) return serializeFromTemplate(doc, doc.sourceTemplate, editableCells, tecsgenBlock, tecscdeBlock);
 
     // 内部仕様3章: モデルに反映しない構文（import / import_C）は入力時のテキストの
     // まま書き戻す。tecsgen は import をファイル先頭付近で解決するため、

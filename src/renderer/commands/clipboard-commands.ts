@@ -36,7 +36,7 @@ const PASTE_ANCHOR_MM = 20;
  * 元の位置から`PASTE_OFFSET_MM`だけずらし、名前・結合は新規に割り当てる（結合は引き継がない）。
  * セルタイプが解決できないセルは生成しない（6.1.2と同じ方針）。
  */
-export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell[]): TecscdeDocument {
+export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell[], targetSourceKey?: string): TecscdeDocument {
   let next = doc;
   for (const source of cells) {
     const celltype = next.getCelltype(source.celltypeName);
@@ -50,13 +50,15 @@ export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell
       y: alignRound(source.y + PASTE_OFFSET_MM),
       width: source.width,
       height: source.height,
-      regionId: source.regionId,
+      regionId: targetSourceKey && source.regionId !== ROOT_REGION_ID &&
+        !doc.sourceTemplates.get(targetSourceKey)?.scopes.some((scope) => scope.path === source.regionId)
+        ? ROOT_REGION_ID : source.regionId,
       editable: true,
       cports: instantiateCPorts(celltype.cportTemplates),
       eports: instantiateEPorts(celltype.eportTemplates),
       attrs: { ...source.attrs },
       celltypeUnresolved: false,
-      locale: next.editingFileName,
+      locale: targetSourceKey ?? next.editingFileName,
     });
     next = next.withCell(cell);
   }
@@ -67,7 +69,7 @@ export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell
  * 6.7節: OSクリップボードから解析できたCDL断片からの貼り付け。断片は位置情報を持たないため、
  * `PASTE_ANCHOR_MM`を起点に`PASTE_OFFSET_MM`刻みで斜めに並べる（複数セルの重なりを避ける簡易配置）。
  */
-export function pasteFromCdlFragment(doc: TecscdeDocument, fragments: readonly CdlFragmentCell[]): TecscdeDocument {
+export function pasteFromCdlFragment(doc: TecscdeDocument, fragments: readonly CdlFragmentCell[], targetSourceKey?: string): TecscdeDocument {
   let next = doc;
   let placed = 0;
   for (const frag of fragments) {
@@ -90,7 +92,7 @@ export function pasteFromCdlFragment(doc: TecscdeDocument, fragments: readonly C
       eports: instantiateEPorts(celltype.eportTemplates),
       attrs: { ...frag.attrs },
       celltypeUnresolved: false,
-      locale: next.editingFileName,
+      locale: targetSourceKey ?? next.editingFileName,
     });
     next = next.withCell(cell);
   }
@@ -132,17 +134,18 @@ export class PasteCommand extends Command {
   constructor(
     private readonly appClipboard: readonly Cell[],
     private readonly osClipboardText: string | undefined,
+    private readonly targetSourceKey?: string,
   ) {
     super();
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
     if (this.appClipboard.length > 0) {
-      return pasteFromAppClipboard(doc, this.appClipboard);
+      return pasteFromAppClipboard(doc, this.appClipboard, this.targetSourceKey);
     }
     if (this.osClipboardText === undefined) return doc;
     const fragment = tryParseCdlFragment(this.osClipboardText);
-    return fragment ? pasteFromCdlFragment(doc, fragment) : doc;
+    return fragment ? pasteFromCdlFragment(doc, fragment, this.targetSourceKey) : doc;
   }
 }
 

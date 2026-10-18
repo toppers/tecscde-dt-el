@@ -14,7 +14,6 @@ import { GestureController } from "../render/gesture-controller";
 import { SvgRenderer } from "../render/svg-renderer";
 import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
-import { asCellId } from "../model/ids";
 import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
@@ -30,7 +29,6 @@ import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
-import { CompositeDiagramView } from "./composite-diagram";
 import type { AppStore } from "./store";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
@@ -79,7 +77,6 @@ export class AppShell {
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
   private readonly diagnosticsPanel: DiagnosticsPanelView;
-  private readonly compositeDiagram: CompositeDiagramView;
   private readonly fileBrowser: FileBrowserView;
 
   private readonly disposers: Array<() => void> = [];
@@ -106,7 +103,6 @@ export class AppShell {
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
 
     this.renderer = new SvgRenderer(this.svg);
-    this.compositeDiagram = new CompositeDiagramView(this.svg.ownerDocument);
     const host = new AppGestureHost(
       this.store,
       () => this.render(),
@@ -146,7 +142,6 @@ export class AppShell {
   start(): void {
     this.disposers.push(this.store.subscribe(() => this.render()));
     this.disposers.push(this.gesture.attach(this.svg));
-    this.bindCompositeDrilldown();
     this.bindToolbar();
     this.bindZoomSlider();
     this.bindKeyboard();
@@ -162,14 +157,12 @@ export class AppShell {
 
   dispose(): void {
     for (const d of this.disposers.splice(0)) d();
-    this.compositeDiagram.dispose();
   }
 
   // --- 描画ループ ---
 
   render(): void {
     const doc = this.store.getDocument();
-    this.compositeDiagram.sync(doc);
     const view = this.store.view;
     const canvasView = view.toCanvasView(doc.regions);
     this.renderer.render(doc, canvasView, this.store.selection, {
@@ -184,16 +177,6 @@ export class AppShell {
     this.navigator.render();
     this.diagnosticsPanel.render();
     this.fileBrowser.render();
-  }
-
-  private bindCompositeDrilldown(): void {
-    const onDoubleClick = (event: MouseEvent): void => {
-      const target = event.target as Element | null;
-      const id = target?.closest<SVGGElement>("[data-cell-id]")?.dataset["cellId"];
-      if (id && this.compositeDiagram.openCell(this.store.getDocument(), asCellId(id))) event.preventDefault();
-    };
-    this.svg.addEventListener("dblclick", onDoubleClick);
-    this.disposers.push(() => this.svg.removeEventListener("dblclick", onDoubleClick));
   }
 
   private syncScrollFromPan(doc: TecscdeDocument): void {
@@ -353,14 +336,6 @@ export class AppShell {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && TEXT_INPUT_TAGS.has(t.tagName)) return;
-      if (this.compositeDiagram.isOpen) return;
-      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-        const selected = [...this.store.selection.cellIds];
-        if (selected.length === 1 && this.compositeDiagram.openCell(this.store.getDocument(), selected[0]!)) {
-          e.preventDefault();
-          return;
-        }
-      }
       if (!(e.ctrlKey || e.metaKey)) return;
       switch (e.key.toLowerCase()) {
         case "z":

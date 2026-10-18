@@ -11,6 +11,8 @@ import { resolveAddedReference, resolveAllImports } from "../../src/renderer/app
 import { W_CODES } from "../../src/renderer/cdl/messages";
 import { emptyToolInfoTecsgen } from "../../src/renderer/model/tool-info-types";
 import { CdlDocumentLoader, type CdlSource } from "../../src/renderer/cdl/document-builder";
+import { CdlSerializer } from "../../src/renderer/cdl/serializer";
+import { RenameCellCommand } from "../../src/renderer/commands/cell-commands";
 import { asCellId, asJoinId } from "../../src/renderer/model/ids";
 import { FileService } from "../../src/main/file-service.js";
 import { FileGateway } from "../../src/renderer/gateways/file-gateway.js";
@@ -299,13 +301,13 @@ describe("resolveAddedReference", () => {
 
 describe("tEV3Sample.tecsgen-opts real resolution", () => {
   it("loads tEV3Sample.tecsgen-opts and resolves all imported CDL files transitively", async () => {
-    const optsPath = resolve("hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
+    const optsPath = resolve("tests/hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
     const fileService = new FileService({} as never);
     const parsed = await fileService.parseTecsgenOptionsFile(optsPath);
 
     expect(parsed.cdlFiles).toHaveLength(1);
     const editablePath = parsed.cdlFiles[0]!;
-    expect(editablePath).toBe(resolve("hr-tecs/workspace/sd/tEV3Sample.cdl"));
+    expect(editablePath).toBe(resolve("tests/hr-tecs/workspace/sd/tEV3Sample.cdl"));
 
     const editableContent = readFileSync(editablePath, "utf-8");
     const realGateway = {
@@ -326,29 +328,29 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(references.length).toBeGreaterThan(0);
     const resolvedPaths = references.map((r) => r.path);
     // Directly imported
-    expect(resolvedPaths).toContain(resolve("hr-tecs/workspace/sd/VM1.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/workspace/sd/VM1.cdl"));
     // Transitively imported from VM1.cdl
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/EV3_common.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/EV3_common.cdl"));
     // Transitively imported from EV3_common.cdl
-    expect(resolvedPaths).toContain(resolve("hr-tecs/include/kernel.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecsgen/tecsgen/tecs/mruby/tMruby.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tUltrasonicSensor.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tColorSensor.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tTouchSensor.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tGyroSensor.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tMotor.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tLCD.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tLED.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tButton.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tBattery.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tSpeaker.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tEV3Platform.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/mindstorms_ev3/tBalancer.cdl"));
-    expect(resolvedPaths).toContain(resolve("hr-tecs/tecs_lib/common/tSharedMemory.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/include/kernel.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecsgen/tecsgen/tecs/mruby/tMruby.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tUltrasonicSensor.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tColorSensor.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tTouchSensor.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tGyroSensor.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tMotor.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tLCD.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tLED.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tButton.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tBattery.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tSpeaker.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tEV3Platform.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/mindstorms_ev3/tBalancer.cdl"));
+    expect(resolvedPaths).toContain(resolve("tests/hr-tecs/tecs_lib/common/tSharedMemory.cdl"));
   });
 
   it("parses CDL files from tEV3Sample.tecsgen-opts and verifies cells, celltypes, and joins in TecscdeDocument", async () => {
-    const optsPath = resolve("hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
+    const optsPath = resolve("tests/hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts");
     const fileService = new FileService({} as never);
     const parsed = await fileService.parseTecsgenOptionsFile(optsPath);
 
@@ -480,7 +482,7 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
 
   it("resolves all imports without warnings when restoring session from referencePaths (no extraImportPaths)", async () => {
     const fileService = new FileService({} as unknown as Electron.BrowserWindow);
-    const optsPath = join(process.cwd(), "hr-tecs", "workspace", "sd", "tEV3Sample.tecsgen-opts");
+    const optsPath = join(process.cwd(), "tests", "hr-tecs", "workspace", "sd", "tEV3Sample.tecsgen-opts");
     const parsed = await fileService.parseTecsgenOptionsFile(optsPath);
 
     const editablePath = parsed.cdlFiles[0]!;
@@ -525,6 +527,12 @@ describe("tEV3Sample.tecsgen-opts real resolution", () => {
     expect(report.items.filter((d) => d.code === W_CODES.UNRESOLVED_REF_FILE)).toEqual([]);
 
     const doc = store.getDocument();
+    expect(doc.getCell(asCellId("Mruby"))?.editable).toBe(true);
+    expect(store.getReferenceFilePaths()).toContain(resolve("tests/hr-tecs/workspace/sd/VM1.cdl"));
+    const movedMruby = doc.withCell(doc.getCell(asCellId("Mruby"))!.moveTo(20, 20));
+    expect(CdlSerializer.serializeSource(movedMruby, resolve("tests/hr-tecs/workspace/sd/VM1.cdl"))).toContain("cInit = VM_TECSInitializer.eInitialize;");
+    const renamedMruby = new RenameCellCommand(asCellId("Mruby"), "RenamedMruby").apply(doc);
+    expect(CdlSerializer.serializeSource(renamedMruby, resolve("tests/hr-tecs/workspace/sd/VM1.cdl"))).toContain("cInit = VM_TECSInitializer.eInitialize;");
     expect(doc.cellCount).toBe(60);
     expect(doc.celltypeCount).toBe(84);
     expect(doc.joinCount).toBe(31);

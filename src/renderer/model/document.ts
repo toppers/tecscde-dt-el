@@ -12,7 +12,15 @@ import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "./tool-info-types";
 
 export interface CdlSourceTemplate {
   readonly text: string;
-  readonly cells: readonly { readonly cellName: string; readonly regionPath: string; readonly startIndex: number; readonly endIndex: number; readonly leadingText: string }[];
+  readonly cells: readonly {
+    readonly cellName: string;
+    readonly regionPath: string;
+    readonly startIndex: number;
+    readonly endIndex: number;
+    readonly leadingText: string;
+    /** Joins unresolved on load; keep their source declarations when saving other edits. */
+    readonly joins?: readonly { readonly cport: string; readonly cportIndex?: number; readonly targetCell: string; readonly eport: string }[];
+  }[];
   readonly composites: readonly { readonly name: string; readonly rawText: string }[];
   readonly scopes: readonly { readonly path: string; readonly bodyEndIndex: number }[];
   readonly toolInfoBlocks: readonly { readonly toolName: string; readonly startIndex: number; readonly endIndex: number }[];
@@ -37,6 +45,7 @@ export interface TecscdeDocumentBuildParams {
    */
   readonly preservedImports?: readonly string[];
   readonly sourceTemplate?: CdlSourceTemplate;
+  readonly sourceTemplates?: ReadonlyMap<string, CdlSourceTemplate>;
 }
 
 export class TecscdeDocument {
@@ -52,6 +61,7 @@ export class TecscdeDocument {
     readonly unknownToolInfoTecscde: Readonly<Record<string, unknown>>,
     readonly preservedImports: readonly string[],
     readonly sourceTemplate: CdlSourceTemplate | undefined,
+    readonly sourceTemplates: ReadonlyMap<string, CdlSourceTemplate>,
   ) {}
 
   static empty(): TecscdeDocument {
@@ -67,6 +77,7 @@ export class TecscdeDocument {
       {},
       [],
       undefined,
+      new Map(),
     );
   }
 
@@ -84,6 +95,7 @@ export class TecscdeDocument {
       params.unknownToolInfoTecscde,
       params.preservedImports ?? [],
       params.sourceTemplate,
+      params.sourceTemplates ?? new Map(),
     );
   }
 
@@ -139,6 +151,7 @@ export class TecscdeDocument {
       this.unknownToolInfoTecscde,
       this.preservedImports,
       this.sourceTemplate,
+      this.sourceTemplates,
     );
   }
 
@@ -157,6 +170,7 @@ export class TecscdeDocument {
       this.unknownToolInfoTecscde,
       this.preservedImports,
       this.sourceTemplate,
+      this.sourceTemplates,
     );
   }
 
@@ -175,6 +189,7 @@ export class TecscdeDocument {
       this.unknownToolInfoTecscde,
       this.preservedImports,
       this.sourceTemplate,
+      this.sourceTemplates,
     );
   }
 
@@ -193,6 +208,7 @@ export class TecscdeDocument {
       this.unknownToolInfoTecscde,
       this.preservedImports,
       this.sourceTemplate,
+      this.sourceTemplates,
     );
   }
 }

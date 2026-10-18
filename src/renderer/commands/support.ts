@@ -28,6 +28,7 @@ export function rebuildCell(cell: Cell, overrides: Partial<CellCreateParams>): C
     attrs: cell.attrs,
     celltypeUnresolved: cell.celltypeUnresolved,
     locale: cell.locale,
+    sourceName: cell.sourceName,
     ...overrides,
   });
 }

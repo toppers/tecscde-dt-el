@@ -56,9 +56,7 @@ app.on("open-file", (event, path) => {
 /** 起動ドキュメントの最終フォールバック（コマンドライン引数・前回セッションのいずれも無い場合）。 */
 async function loadSamples(fileService: FileService): Promise<OpenResult> {
   const samples = join(app.getAppPath(), "public", "samples");
-  // openPaths()は「最後のパスが編集対象、他は参照専用」（file-service.ts参照）。
-  // セル実体を持つmain.cdeを編集対象にするため最後に置く（celltypes.cdlは
-  // セルタイプ定義のみの参照専用ファイル）。
+  // Both sample CDL files are editable; the last file remains the primary save target.
   return fileService.openPaths([join(samples, "celltypes.cdl"), join(samples, "main.cde")]);
 }
 

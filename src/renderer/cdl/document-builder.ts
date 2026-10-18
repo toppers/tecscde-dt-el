@@ -25,9 +25,10 @@ import type { Diagnostic } from "../diagnostics/types";
 export interface CdlSource {
   readonly text: string;
   readonly fileName: string;
-  /** 8.1.2: 最後に選択／ドロップされたファイルのみtrue。他は参照専用。 */
+  readonly sourcePath?: string;
+  /** 読み込んだCDLは編集可能。Plugin生成CDLは参照専用。 */
   readonly editable: boolean;
-  /** Plugin生成CDLは型定義のみ採用し、図・参照パス・保存元へ混ぜない。 */
+  /** Plugin-generated cells and types are read-only and are not saved or added to reference paths. */
   readonly generated?: boolean;
 }
 
@@ -174,7 +175,9 @@ function resolveCelltypeInScope(
 
 interface ParsedSource {
   readonly fileName: string;
+  readonly sourcePath?: string;
   readonly editable: boolean;
+  readonly generated?: boolean;
   readonly cells: readonly CellDecl[];
 }
 
@@ -240,10 +243,12 @@ export class CdlDocumentLoader {
     let preservedImports: readonly string[] = [];
     let toolInfoTecsgen: ToolInfoTecsgen = emptyToolInfoTecsgen();
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
+    const layoutsBySource = new Map<string, ToolInfoTecscdeParsed>();
     let paper: PaperSpec = PaperSpec.default();
     const regionPaths = new Set<string>(["::"]);
     const editableRegionPaths = new Set<string>(["::"]);
     let sourceTemplate: CdlSourceTemplate | undefined;
+    const sourceTemplates = new Map<string, CdlSourceTemplate>();
 
     for (const source of sources) {
       const { blocks, sourceWithBlanks } = ToolInfoValidator.extractBlocks(source.text);
@@ -256,7 +261,7 @@ export class CdlDocumentLoader {
         localTypeDefinitions.push({ ...definition, origin: source.fileName, fallback: false });
       }
       for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
-      for (const scope of source.generated ? [] : parsed.scopes) {
+      for (const scope of parsed.scopes) {
         let path = scope.path;
         while (path !== "::") {
           regionPaths.add(path);
@@ -273,12 +278,14 @@ export class CdlDocumentLoader {
             return {
               cellName: cell.cellName, regionPath: cell.regionPath, startIndex, endIndex: cell.endIndex,
               leadingText: source.text.slice(startIndex, cell.startIndex),
+              joins: cell.joins,
             };
           }),
           composites: parsed.composites.map((composite) => ({ name: composite.name, rawText: composite.structure.rawText })),
           scopes: parsed.scopes.map((scope) => ({ path: scope.path, bodyEndIndex: scope.bodyEndIndex })),
           toolInfoBlocks: blocks.map((block) => ({ toolName: block.toolName, startIndex: block.startIndex, endIndex: block.endIndex })),
         };
+        sourceTemplates.set(source.sourcePath ?? source.fileName, sourceTemplate);
       }
       for (const d of parsed.diagnostics) diagnostics.push(withLocation(d, source.fileName));
       // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
@@ -292,6 +299,7 @@ export class CdlDocumentLoader {
         } else if (block.toolName === "tecscde") {
           const { parsed: p, diagnostics: d } = ToolInfoValidator.parseTecscde(block.json);
           tecscdeParsed = p;
+          layoutsBySource.set(source.sourcePath ?? source.fileName, p);
           diagnostics.push(...d);
           if (p.paper) {
             paper = PaperSpec.create(p.paper.size, p.paper.orientation ?? "LANDSCAPE");
@@ -304,7 +312,7 @@ export class CdlDocumentLoader {
         pendingCelltypes.push({ declaration: ct, source });
       }
 
-      if (!source.generated) parsedSources.push({ fileName: source.fileName, editable: source.editable, cells: parsed.cells });
+      parsedSources.push({ fileName: source.fileName, sourcePath: source.sourcePath, editable: source.editable, generated: source.generated, cells: parsed.cells });
     }
 
     const typeRegistry = new CTypeRegistry(options.cdeclResults, localTypeDefinitions);
@@ -330,6 +338,7 @@ export class CdlDocumentLoader {
       });
     }
     const portTypes = new Map<string, ResolvedPortType>();
+    const qualifiedCelltypes = new Map<string, CelltypeRef>();
     const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number } => {
       const id = resolveSignatureInScope(port.signature, port.scopePath, signatures);
       const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
@@ -350,7 +359,7 @@ export class CdlDocumentLoader {
       const eportDecls = ct.ports.filter((p) => p.kind === "entry")
         .map((p) => portDeclaration(typeName, p, source.fileName));
       const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
-      celltypes.set(typeName, CelltypeRef.create({
+      const celltype = CelltypeRef.create({
         name: typeName,
         cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
         eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
@@ -358,28 +367,48 @@ export class CdlDocumentLoader {
         hiddenRequirePortCount,
         locale: source.fileName,
         composite,
-      }));
+        hasUnsupportedSyntax: isOrdinaryCelltype(ct) ? false : ct.hasUnsupportedSyntax,
+      });
+      celltypes.set(typeName, celltype);
+      qualifiedCelltypes.set(isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name, celltype);
     }
 
     registerMrubyBridgeCelltypes(celltypes, signatures, generates);
+    const celltypeLookup = new Map([...celltypes, ...qualifiedCelltypes]);
 
     const { width: paperW, height: paperH } = paper.contentSize();
 
     // --- セル（1周目: 本体とポート。全ファイル分をまとめて処理する） ---
     const cells = new Map<CellId, Cell>();
-    const seenNames = new Set<string>();
+    const selectedCells = new Map<string, { declaration: CellDecl; source: ParsedSource }>();
+    for (const source of parsedSources) {
+      for (const declaration of source.cells) {
+        const previous = selectedCells.get(declaration.cellName);
+        if (!previous) {
+          selectedCells.set(declaration.cellName, { declaration, source });
+        } else if (source.generated && previous.source.generated) {
+          // tecsgen may emit a prototype before the populated cell definition.
+          const details = (cell: CellDecl): number => cell.joins.length + cell.attrs.length;
+          if (details(declaration) > details(previous.declaration)) {
+            selectedCells.set(declaration.cellName, { declaration, source });
+          }
+        } else if (!source.generated) {
+          diagnostics.push(duplicateCell(declaration.cellName, {
+            file: source.fileName, line: declaration.line, column: declaration.column,
+          }));
+        }
+      }
+    }
+    const selectedSources: ParsedSource[] = [...selectedCells.values()].map(({ declaration, source }) => ({
+      ...source, cells: [declaration],
+    }));
     let autoIndex = 0;
 
-    for (const src of parsedSources) {
+    for (const src of selectedSources) {
       for (const decl of src.cells) {
-        if (seenNames.has(decl.cellName)) {
-          diagnostics.push(duplicateCell(decl.cellName, { file: src.fileName, line: decl.line, column: decl.column }));
-          continue;
-        }
-        seenNames.add(decl.cellName);
         const id = asCellId(decl.cellName);
-        const celltype = resolveCelltypeInScope(celltypes, decl.celltypeName, decl.regionPath);
-        const layout = tecscdeParsed.cellList[decl.cellName];
+        const celltype = resolveCelltypeInScope(celltypeLookup, decl.celltypeName, decl.regionPath);
+        const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[decl.cellName];
         const savedRegion = layout?.region;
         const regionPath = decl.regionPath !== "::" ? decl.regionPath :
           savedRegion && (src.editable ? editableRegionPaths : regionPaths).has(savedRegion) ? savedRegion : "::";
@@ -425,7 +454,7 @@ export class CdlDocumentLoader {
               eports: [],
               attrs,
               celltypeUnresolved: true,
-              locale: src.fileName,
+              locale: src.sourcePath ?? src.fileName,
             }),
           );
           continue;
@@ -479,7 +508,7 @@ export class CdlDocumentLoader {
             eports,
             attrs,
             celltypeUnresolved: false,
-            locale: src.fileName,
+            locale: src.sourcePath ?? src.fileName,
           }),
         );
       }
@@ -487,7 +516,7 @@ export class CdlDocumentLoader {
 
     // --- 結合（2周目: 全セルが揃ってから解決） ---
     const joins = new Map<JoinId, Join>();
-    for (const src of parsedSources) {
+    for (const src of selectedSources) {
       for (const decl of src.cells) {
         const sourceCell = cells.get(asCellId(decl.cellName));
         if (!sourceCell) continue;
@@ -501,7 +530,7 @@ export class CdlDocumentLoader {
             continue;
           }
 
-          const savedBars = tecscdeParsed.joinList[jid as unknown as string]?.bars;
+          const savedBars = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).joinList[jid as unknown as string]?.bars;
           const bars: readonly Bar[] = savedBars
             ? savedBars.map((b) => ({ direction: b.dir, fixed: b.fixed, from: b.from, to: b.to }))
             : autoRouteBars(
@@ -527,8 +556,22 @@ export class CdlDocumentLoader {
       }
     }
 
-    const editingSource = sources.find((s) => s.editable);
-    const referenceFiles = sources.filter((s) => !s.editable && !s.generated).map((s) => s.fileName);
+    for (const [sourceKey, template] of sourceTemplates) {
+      const updated = {
+        ...template,
+        cells: template.cells.map((cell) => ({
+          ...cell,
+          joins: cell.joins?.filter((join) => !joins.has(asJoinId(
+            `${cell.cellName}.${join.cport}${join.cportIndex !== undefined ? `[${join.cportIndex}]` : ""}`,
+          ))),
+        })),
+      };
+      sourceTemplates.set(sourceKey, updated);
+      if (sourceTemplate === template) sourceTemplate = updated;
+    }
+
+    const editingSource = sources.slice().reverse().find((source) => source.editable);
+    const referenceFiles = sources.filter((source) => source !== editingSource && !source.generated).map((source) => source.fileName);
 
     const document = TecscdeDocument.build({
       cells,
@@ -538,10 +581,11 @@ export class CdlDocumentLoader {
       toolInfoTecsgen,
       paper,
       referenceFiles,
-      editingFileName: editingSource?.fileName,
+      editingFileName: editingSource?.sourcePath ?? editingSource?.fileName,
       unknownToolInfoTecscde: tecscdeParsed.unknownFields,
       preservedImports,
       sourceTemplate,
+      sourceTemplates,
     });
 
     return { document, diagnostics, portTypeIndex: { signatures: signatureTypes, ports: portTypes } };

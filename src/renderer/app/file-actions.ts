@@ -93,8 +93,8 @@ export async function applyOpenResult(
   }
 
   const sources: CdlSource[] = [
-    ...references.map((r) => ({ text: r.content, fileName: baseName(r.path), editable: false })),
-    { text: result.editable.content, fileName: baseName(result.editable.path), editable: true },
+    ...references.map((r) => ({ text: r.content, fileName: baseName(r.path), sourcePath: r.path, editable: true })),
+    { text: result.editable.content, fileName: baseName(result.editable.path), sourcePath: result.editable.path, editable: true },
     ...generatedTypeSources.map((source) => ({
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
@@ -170,14 +170,7 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
   await gateway.saveSession(null, referenceFilePaths, []);
 }
 
-/**
- * 第7C章7.7.2節（#8）: ファイルブラウザのCtrl+クリックで選択したファイルを参照専用として
- * 追加する。既存の編集対象(editable)は変えない。新しい参照ファイルのセルタイプを既存の
- * `cell`（celltype未解決のもの）へ反映するには、editable＋全referencesを合わせて再パース
- * する必要があり、これは`store.loadDocument()`経由でUndo/Redo履歴をリセットする
- * （`openFromPath`が別ファイルを開く際に既に持つのと同じトレードオフ）。現在の
- * 未保存の内容自体は`CdlSerializer.serialize()`で引き継ぐため失われない。
- */
+/** Add a CDL selected in the file browser to the editable, jointly loaded files. */
 export async function addAsReference(
   store: AppStore,
   gateway: FileGateway,
@@ -187,7 +180,7 @@ export async function addAsReference(
   const editablePath = store.filePath;
   if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
   const existingPaths = store.getReferenceFilePaths();
-  if (path === editablePath || existingPaths.includes(path)) return; // #8決定: 既読み込み済みなら無視
+  if (path === editablePath || existingPaths.includes(path)) return;
 
   const toolInfo = store.getDocument().toolInfoTecsgen;
   const extraImportPaths = store.getExtraImportPaths();
@@ -202,7 +195,11 @@ export async function addAsReference(
   );
   if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
 
+  const keepDirty = store.isDirty();
   const mergedSources = new Map(store.getReferenceSources());
+  for (const referencePath of store.getReferenceFilePaths()) {
+    mergedSources.set(referencePath, CdlSerializer.serializeSource(store.getDocument(), referencePath));
+  }
   for (const r of discovered) mergedSources.set(r.path, r.content);
 
   const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
@@ -211,8 +208,8 @@ export async function addAsReference(
     gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences,
   );
   const sources: CdlSource[] = [
-    ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), editable: false })),
-    { text: editableText, fileName: baseName(editablePath), editable: true },
+    ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), sourcePath: p, editable: true })),
+    { text: editableText, fileName: baseName(editablePath), sourcePath: editablePath, editable: true },
     ...store.getGeneratedTypeSources().map((source) => ({
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
@@ -230,18 +227,14 @@ export async function addAsReference(
     store.getOptionsFilePath(),
     store.getGeneratedTypeSources(),
     portTypeIndex,
+    keepDirty,
   );
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
   await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
-/**
- * 第7C章7.7.4節④（#10）: tecsgenオプション形式ファイルを読み込み、列挙されたCDLファイル群を
- * 一括で反映する。列挙順で最後のファイルを編集対象として開く（8.1.2節の規則）——
- * `addAsReference`が既存の編集対象を前提とするため、07C章の擬似コードとは逆に、
- * 残りを参照追加する前に必ず先へ`openFromPath`する。
- */
+/** Open every CDL listed by tecsgen options as editable, with the last file as primary. */
 export async function loadOptionsFile(
   store: AppStore,
   gateway: FileGateway,
@@ -249,12 +242,18 @@ export async function loadOptionsFile(
   path: string,
 ): Promise<void> {
   const parsed = await gateway.parseTecsgenOptionsFile(path);
-  const [last, ...rest] = [...parsed.cdlFiles].reverse();
-  if (!last) return;
-  await openFromPath(store, gateway, tecsgenGateway, last, { extraImportPaths: parsed.importPaths, optionsFilePath: path });
-  for (const refPath of rest.reverse()) {
-    await addAsReference(store, gateway, tecsgenGateway, refPath);
-  }
+  if (parsed.cdlFiles.length === 0) return;
+  if (store.isDirty() && !await gateway.confirmDiscardChanges()) return;
+  const opened = await Promise.all(parsed.cdlFiles.map(async (filePath) => (await gateway.openPath(filePath)).editable));
+  const editable = opened[opened.length - 1]!;
+  const references = opened.slice(0, -1);
+  await applyOpenResult(store, gateway, tecsgenGateway, {
+    editable,
+    references,
+    extraImportPaths: parsed.importPaths,
+    optionsFilePath: path,
+  });
+  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /** ［保存］: 既存パスがあれば上書き、無ければ［名前を付けて保存］へ委譲。 */
@@ -264,7 +263,12 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
     await saveAs(store, gateway);
     return;
   }
-  const text = CdlSerializer.serialize(store.getDocument());
+  const document = store.getDocument();
+  for (const referencePath of store.getReferenceFilePaths()) {
+    if (!store.isSourceDirty(referencePath)) continue;
+    await gateway.save(referencePath, CdlSerializer.serializeSource(document, referencePath));
+  }
+  const text = CdlSerializer.serialize(document);
   await gateway.save(path, text);
   store.markSaved(path);
   await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
@@ -272,10 +276,15 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
 
 /** ［名前を付けて保存］: 保存ダイアログを開く。キャンセル時は何もしない。 */
 export async function saveAs(store: AppStore, gateway: FileGateway): Promise<void> {
-  const text = CdlSerializer.serialize(store.getDocument());
+  const document = store.getDocument();
+  const text = CdlSerializer.serialize(document);
   const suggested = store.filePath ? baseName(store.filePath) : "untitled.cde";
   const savedPath = await gateway.saveAs(text, suggested);
   if (savedPath) {
+    for (const referencePath of store.getReferenceFilePaths()) {
+      if (!store.isSourceDirty(referencePath)) continue;
+      await gateway.save(referencePath, CdlSerializer.serializeSource(document, referencePath));
+    }
     store.markSaved(savedPath);
     await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
   }

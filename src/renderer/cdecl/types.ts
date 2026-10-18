@@ -5,7 +5,16 @@
 // C型の「形」を表現できれば十分で、Rubyのクラス階層は追わない。
 
 export type CType =
-  | { readonly kind: "primitive"; readonly name: "void" | "char" | "short" | "int" | "long" | "int64" | "float" | "double" | "bool"; readonly spelling?: string }
+  | {
+      readonly kind: "primitive";
+      readonly name:
+        | "void" | "char" | "short" | "int" | "long" | "int64" | "float" | "double" | "bool"
+        | "bool_t" | "char_t" | "schar_t" | "uchar_t"
+        | "int8_t" | "int16_t" | "int32_t" | "int64_t" | "int128_t"
+        | "uint8_t" | "uint16_t" | "uint32_t" | "uint64_t" | "uint128_t"
+        | "float32_t" | "double64_t";
+      readonly spelling?: string;
+    }
   | { readonly kind: "unsupported"; readonly name: string }
   | { readonly kind: "pointer"; readonly pointee: CType }
   | { readonly kind: "array"; readonly element: CType; readonly size?: string } // sizeは定数式の生テキスト。評価はしない（9B.2の範囲外）

@@ -35,7 +35,7 @@ export interface GeneratedCdlFile {
   readonly content: string;
 }
 
-/** tecsgen が一時出力先へ生成したCDL。型定義の読み取りに使い、元文書には保存しない。 */
+/** Transient tecsgen CDL supplies cells and types without changing the source document. */
 export interface GeneratedCdlResult {
   readonly result: TecsgenResult;
   readonly sources: readonly GeneratedCdlFile[];

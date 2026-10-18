@@ -1,0 +1,249 @@
+%% TECSCDE-DT-EL class dependencies from current src/ TypeScript sources.
+%% <|--: inheritance; ..>: use (type references, construction, or method references).
+%% External bases are omitted: InvariantViolation extends Error.
+%% 68 classes, 21 internal inheritance edges, 121 use edges.
+classDiagram
+    namespace main {
+        class FileService
+        class LogService
+        class TecsgenRunner
+    }
+
+    namespace renderer_app {
+        class AppGestureHost
+        class AppShell
+        class AppStore
+        class DiagnosticsLogger
+        class DiagnosticsPanelView
+        class FileBrowserView
+        class NavigatorView
+        class PaletteView
+        class PropertyPanelView
+        class SearchBoxView
+    }
+
+    namespace renderer_cdecl {
+        class CdeclExtractor
+        class CdeclGrammar
+        class CTypeRegistry
+    }
+
+    namespace renderer_cdl {
+        class CdlDocumentBuilder
+        class CdlDocumentLoader
+        class CdlGrammar
+        class CdlSerializer
+        class ToolInfoValidator
+    }
+
+    namespace renderer_commands {
+        class AddCellCommand
+        class AlignLeftCommand
+        class AlignTopCommand
+        class ChangePortEdgeCommand
+        class ChangeRegionCommand
+        class Command
+        class CopyCommand
+        class CreateJoinCommand
+        class CutCommand
+        class DeleteCommand
+        class DeleteJoinCommand
+        class EditAttrCommand
+        class History
+        class MoveCellCommand
+        class MoveCellsCommand
+        class MoveJoinBarCommand
+        class MovePortCommand
+        class PasteCommand
+        class RenameCellCommand
+    }
+
+    namespace renderer_diagnostics {
+        class DiagnosticReport
+        class DiagnosticsCollector
+        class TecsgenResultParser
+    }
+
+    namespace renderer_gateways {
+        class ClipboardGateway
+        class FileGateway
+        class LogGateway
+        class TecsgenGateway
+    }
+
+    namespace renderer_model {
+        class Cell
+        class CelltypeRef
+        class CPort
+        class EPort
+        class InvariantViolation
+        class Join
+        class PaperSpec
+        class Port
+        class Region
+        class RegionTree
+        class TecscdeDocument
+    }
+
+    namespace renderer_render {
+        class CellRenderer
+        class ElementRenderer
+        class GestureController
+        class HitTester
+        class JoinRenderer
+        class SelectionState
+        class SvgRenderer
+    }
+
+    namespace renderer_tecsgen {
+        class TecsgenCommandBuilder
+    }
+
+    namespace renderer_view_state {
+        class DisplayFilters
+        class ViewState
+    }
+
+    Command <|-- AddCellCommand : inherits
+    Command <|-- AlignLeftCommand : inherits
+    Command <|-- AlignTopCommand : inherits
+    Command <|-- ChangePortEdgeCommand : inherits
+    Command <|-- ChangeRegionCommand : inherits
+    Command <|-- CopyCommand : inherits
+    Command <|-- CreateJoinCommand : inherits
+    Command <|-- CutCommand : inherits
+    Command <|-- DeleteCommand : inherits
+    Command <|-- DeleteJoinCommand : inherits
+    Command <|-- EditAttrCommand : inherits
+    Command <|-- MoveCellCommand : inherits
+    Command <|-- MoveCellsCommand : inherits
+    Command <|-- MoveJoinBarCommand : inherits
+    Command <|-- MovePortCommand : inherits
+    Command <|-- PasteCommand : inherits
+    Command <|-- RenameCellCommand : inherits
+    ElementRenderer <|-- CellRenderer : inherits
+    ElementRenderer <|-- JoinRenderer : inherits
+    Port <|-- CPort : inherits
+    Port <|-- EPort : inherits
+
+    AddCellCommand ..> Cell : uses
+    AddCellCommand ..> TecscdeDocument : uses
+    AlignLeftCommand ..> TecscdeDocument : uses
+    AlignTopCommand ..> TecscdeDocument : uses
+    AppGestureHost ..> AppStore : uses
+    AppGestureHost ..> Command : uses
+    AppGestureHost ..> SelectionState : uses
+    AppGestureHost ..> TecscdeDocument : uses
+    AppShell ..> AppGestureHost : uses
+    AppShell ..> AppStore : uses
+    AppShell ..> ClipboardGateway : uses
+    AppShell ..> DiagnosticsPanelView : uses
+    AppShell ..> FileBrowserView : uses
+    AppShell ..> FileGateway : uses
+    AppShell ..> GestureController : uses
+    AppShell ..> NavigatorView : uses
+    AppShell ..> PaletteView : uses
+    AppShell ..> PropertyPanelView : uses
+    AppShell ..> SearchBoxView : uses
+    AppShell ..> SvgRenderer : uses
+    AppShell ..> TecscdeDocument : uses
+    AppShell ..> TecsgenGateway : uses
+    AppStore ..> Cell : uses
+    AppStore ..> ClipboardGateway : uses
+    AppStore ..> Command : uses
+    AppStore ..> CopyCommand : uses
+    AppStore ..> CutCommand : uses
+    AppStore ..> DiagnosticReport : uses
+    AppStore ..> DiagnosticsCollector : uses
+    AppStore ..> History : uses
+    AppStore ..> PasteCommand : uses
+    AppStore ..> SelectionState : uses
+    AppStore ..> TecscdeDocument : uses
+    AppStore ..> ViewState : uses
+    CdeclExtractor ..> CdeclGrammar : uses
+    CdlDocumentBuilder ..> CdlGrammar : uses
+    CdlDocumentLoader ..> CdlDocumentBuilder : uses
+    CdlDocumentLoader ..> Cell : uses
+    CdlDocumentLoader ..> CelltypeRef : uses
+    CdlDocumentLoader ..> CPort : uses
+    CdlDocumentLoader ..> CTypeRegistry : uses
+    CdlDocumentLoader ..> EPort : uses
+    CdlDocumentLoader ..> Join : uses
+    CdlDocumentLoader ..> PaperSpec : uses
+    CdlDocumentLoader ..> TecscdeDocument : uses
+    CdlDocumentLoader ..> ToolInfoValidator : uses
+    CdlSerializer ..> TecscdeDocument : uses
+    CdlSerializer ..> ToolInfoValidator : uses
+    Cell ..> CPort : uses
+    Cell ..> EPort : uses
+    CellRenderer ..> Cell : uses
+    CellRenderer ..> Port : uses
+    ChangePortEdgeCommand ..> TecscdeDocument : uses
+    ChangeRegionCommand ..> TecscdeDocument : uses
+    Command ..> TecscdeDocument : uses
+    CopyCommand ..> ClipboardGateway : uses
+    CopyCommand ..> TecscdeDocument : uses
+    CPort ..> InvariantViolation : uses
+    CreateJoinCommand ..> Join : uses
+    CreateJoinCommand ..> TecscdeDocument : uses
+    CutCommand ..> DeleteCommand : uses
+    CutCommand ..> TecscdeDocument : uses
+    DeleteCommand ..> TecscdeDocument : uses
+    DeleteJoinCommand ..> TecscdeDocument : uses
+    DiagnosticsCollector ..> DiagnosticReport : uses
+    DiagnosticsLogger ..> AppStore : uses
+    DiagnosticsPanelView ..> AppStore : uses
+    DiagnosticsPanelView ..> SelectionState : uses
+    EditAttrCommand ..> TecscdeDocument : uses
+    FileBrowserView ..> AppStore : uses
+    FileBrowserView ..> FileGateway : uses
+    GestureController ..> AddCellCommand : uses
+    GestureController ..> CreateJoinCommand : uses
+    GestureController ..> DeleteCommand : uses
+    GestureController ..> HitTester : uses
+    GestureController ..> MoveCellsCommand : uses
+    GestureController ..> MoveJoinBarCommand : uses
+    GestureController ..> SelectionState : uses
+    History ..> Command : uses
+    History ..> InvariantViolation : uses
+    History ..> TecscdeDocument : uses
+    HitTester ..> TecscdeDocument : uses
+    Join ..> CPort : uses
+    Join ..> EPort : uses
+    Join ..> InvariantViolation : uses
+    JoinRenderer ..> Join : uses
+    MoveCellCommand ..> TecscdeDocument : uses
+    MoveCellsCommand ..> TecscdeDocument : uses
+    MoveJoinBarCommand ..> TecscdeDocument : uses
+    MovePortCommand ..> TecscdeDocument : uses
+    NavigatorView ..> AppStore : uses
+    PaletteView ..> AppStore : uses
+    PaletteView ..> TecscdeDocument : uses
+    PasteCommand ..> Cell : uses
+    PasteCommand ..> TecscdeDocument : uses
+    PropertyPanelView ..> AppStore : uses
+    PropertyPanelView ..> Cell : uses
+    PropertyPanelView ..> ChangeRegionCommand : uses
+    PropertyPanelView ..> EditAttrCommand : uses
+    PropertyPanelView ..> Join : uses
+    PropertyPanelView ..> Region : uses
+    PropertyPanelView ..> RenameCellCommand : uses
+    PropertyPanelView ..> SelectionState : uses
+    PropertyPanelView ..> TecscdeDocument : uses
+    RegionTree ..> Region : uses
+    RenameCellCommand ..> TecscdeDocument : uses
+    SearchBoxView ..> AppStore : uses
+    SearchBoxView ..> SelectionState : uses
+    SvgRenderer ..> Cell : uses
+    SvgRenderer ..> CellRenderer : uses
+    SvgRenderer ..> Join : uses
+    SvgRenderer ..> JoinRenderer : uses
+    SvgRenderer ..> SelectionState : uses
+    SvgRenderer ..> TecscdeDocument : uses
+    TecscdeDocument ..> Cell : uses
+    TecscdeDocument ..> CelltypeRef : uses
+    TecscdeDocument ..> Join : uses
+    TecscdeDocument ..> PaperSpec : uses
+    TecscdeDocument ..> RegionTree : uses
+    ViewState ..> DisplayFilters : uses
+    ViewState ..> RegionTree : uses

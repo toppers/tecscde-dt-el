@@ -13,7 +13,70 @@ import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway
 const header = "typedef unsigned char Byte; struct Record { Byte value; };";
 const cdeclResults = () => new Map([["/inc/types.h", CdeclExtractor.extract(header)]]);
 
-describe("import_C port type resolution", () => {
+describe("CDL built-in and import_C port type resolution", () => {
+  const remainingTecsBuiltins = [
+    "bool_t", "schar_t", "uchar_t",
+    "int8_t", "int16_t", "int32_t", "int64_t", "int128_t",
+    "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uint128_t",
+    "double64_t",
+  ] as const;
+
+  for (const typeName of remainingTecsBuiltins) {
+    it(`resolves ${typeName} as a TECS built-in return and parameter type`, () => {
+      const { diagnostics, portTypeIndex } = CdlDocumentLoader.loadSingle(
+        `signature s { ${typeName} echo([in] ${typeName} value); };`, "builtins.cdl",
+      );
+      const signature = portTypeIndex.signatures.get("s");
+      expect(signature?.valid).toBe(true);
+      expect(signature?.functions[0]?.returns.type).toEqual({ kind: "primitive", name: typeName });
+      expect(signature?.functions[0]?.parameters[0]?.type).toEqual({ kind: "primitive", name: typeName });
+      expect(diagnostics.filter((item) => item.code === "W-C-TYPE-UNRESOLVED")).toEqual([]);
+    });
+  }
+
+  it("resolves void and a pointer to a fixed-width built-in type", () => {
+    const { diagnostics, portTypeIndex } = CdlDocumentLoader.loadSingle(
+      "signature s { void read([out] uint32_t *value); };", "builtins.cdl",
+    );
+    const signature = portTypeIndex.signatures.get("s");
+    expect(signature?.valid).toBe(true);
+    expect(signature?.functions[0]?.returns.type).toEqual({ kind: "primitive", name: "void" });
+    expect(signature?.functions[0]?.parameters[0]?.type).toEqual({
+      kind: "pointer", pointee: { kind: "primitive", name: "uint32_t" },
+    });
+    expect(diagnostics.filter((item) => item.code === "W-C-TYPE-UNRESOLVED")).toEqual([]);
+  });
+
+  it("still requires a definition for TECS typedef types", () => {
+    const { diagnostics, portTypeIndex } = CdlDocumentLoader.loadSingle(
+      "signature s { int_t get(void); };", "typedef.cdl",
+    );
+    expect(portTypeIndex.signatures.get("s")?.valid).toBe(false);
+    expect(diagnostics.some((item) => item.code === "W-C-TYPE-UNRESOLVED" && item.message.includes("int_t"))).toBe(true);
+  });
+
+  it("treats char_t in CDL signatures as a built-in type", () => {
+    const { diagnostics, portTypeIndex } = CdlDocumentLoader.loadSingle(
+      "signature s { char_t echo([in] char_t value); };", "char.cdl",
+    );
+    const signature = portTypeIndex.signatures.get("s");
+    expect(signature?.valid).toBe(true);
+    expect(signature?.functions[0]?.returns.type).toEqual({ kind: "primitive", name: "char_t" });
+    expect(signature?.functions[0]?.parameters[0]?.type).toEqual({ kind: "primitive", name: "char_t" });
+    expect(diagnostics.filter((item) => item.code === "W-C-TYPE-UNRESOLVED")).toEqual([]);
+  });
+
+  it("treats float32_t in CDL signatures as a built-in type", () => {
+    const { diagnostics, portTypeIndex } = CdlDocumentLoader.loadSingle(
+      "signature s { float32_t calibrate([in] float32_t value); };", "gyro.cdl",
+    );
+    const signature = portTypeIndex.signatures.get("s");
+    expect(signature?.valid).toBe(true);
+    expect(signature?.functions[0]?.returns.type).toEqual({ kind: "primitive", name: "float32_t" });
+    expect(signature?.functions[0]?.parameters[0]?.type).toEqual({ kind: "primitive", name: "float32_t" });
+    expect(diagnostics.filter((item) => item.code === "W-C-TYPE-UNRESOLVED")).toEqual([]);
+  });
+
   it("resolves imported typedef and struct types through a namespaced signature", () => {
     const text = `namespace n {
   signature sData { Byte get([in] struct Record *record); void reset(void); };

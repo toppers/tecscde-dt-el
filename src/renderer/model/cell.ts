@@ -23,6 +23,8 @@ export interface CellCreateParams {
   readonly celltypeUnresolved: boolean;
   /** 定義元ファイル名。保存時のdirect_import相当の判定に使う（10.2.1）。 */
   readonly locale?: string;
+  /** Name in the loaded source; retained when a cell is renamed. */
+  readonly sourceName?: string;
 }
 
 export class Cell {
@@ -41,6 +43,7 @@ export class Cell {
     readonly attrs: Readonly<Record<string, string>>,
     readonly celltypeUnresolved: boolean,
     readonly locale: string | undefined,
+    readonly sourceName: string,
   ) {}
 
   static create(params: CellCreateParams): Cell {
@@ -60,6 +63,7 @@ export class Cell {
       params.attrs,
       params.celltypeUnresolved,
       params.locale,
+      params.sourceName ?? params.name,
     );
   }
 
@@ -79,6 +83,7 @@ export class Cell {
       this.attrs,
       this.celltypeUnresolved,
       this.locale,
+      this.sourceName,
     );
   }
 
@@ -99,6 +104,7 @@ export class Cell {
       this.attrs,
       this.celltypeUnresolved,
       this.locale,
+      this.sourceName,
     );
   }
 
@@ -119,6 +125,7 @@ export class Cell {
       this.attrs,
       this.celltypeUnresolved,
       this.locale,
+      this.sourceName,
     );
   }
 

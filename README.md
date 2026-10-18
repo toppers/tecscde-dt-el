@@ -87,7 +87,7 @@ src/
 
 ```
 npm start             # build（renderer + main）してから electron . を起動
-npm test              # vitest — 346 tests（model/cdl は移植分を含む。main/preload/renderer）
+npm test              # Vitest (main/preload/renderer; performance benchmarks are opt-in)
 npm run build         # renderer の型検査 + バンドル、main+preload を dist/ へコンパイル
 npm run depcruise     # renderer ↛ electron / main ↛ renderer を強制（第10.1章）
 npm run check         # build + test + depcruise
@@ -97,9 +97,27 @@ npm run forge:make    # electron-forge make（Squirrel .exe インストーラ�
 
 `FORGE_OUT_DIR` を設定すると、forge の出力先を変更できます。
 
-## Plugin-generated celltypes
+## CDL の読み込みと保存
 
-CDLを開くと、一時的な `-g` ディレクトリを指定して `tecsgen` が実行され、生成されたすべての `.cdl` が型定義として読み込まれます。生成されたセルや一時的なパスは、ダイアグラム、保存されるCDL、およびセッションの参照対象から除外されます。`.tecsgen-opts` ファイルを開く場合は、プラグインのライブラリパスを含む元のコマンドラインオプションが使用されます。信頼できるプロジェクトのみを開いてください。tecsgenはそれらに含まれるプラグインを実行します。
+最後に開いた CDL を主ファイルとして表示します。`import` で読み込んだ CDL や `.tecsgen-opts` に列挙された CDL のセルも編集できます。［保存］は変更した各 CDL を元のパスへ書き戻します。［名前を付けて保存］は主ファイルの保存先を変更し、変更した他の CDL は元のパスへ保存します。
+
+新規セルの追加と貼り付けは、編集可能なセルを1つ選択していればそのセルが属する CDL に保存します。それ以外は主ファイルに保存します。結合先が未解決の記述も、別の編集内容を保存する際に保持します。
+
+## TECS CDL の組込型
+
+署名の戻り値・引数では、次の17種類を `import_C` や `typedef` なしで解決します。型名の幅・符号は区別して保持します。
+
+- `void`、`bool_t`
+- `char_t`、`schar_t`、`uchar_t`
+- `int8_t`、`int16_t`、`int32_t`、`int64_t`、`int128_t`
+- `uint8_t`、`uint16_t`、`uint32_t`、`uint64_t`、`uint128_t`
+- `float32_t`、`double64_t`
+
+`int_t`、`uint_t`、`long_t`、`ulong_t`、`short_t`、`ushort_t` は組込型ではありません。CDL 内の `typedef` または `import_C` で取り込んだ定義が必要です。詳細は [C 型とポート型の解決設計](docs/design/import-c-port-type-resolution.md)を参照してください。
+
+## Plugin-generated CDL
+
+CDL を開くと、`tecsgen` を一時的な `-g` ディレクトリで実行し、生成された `.cdl` から署名・セルタイプ・セルを読み込みます。生成セルは図に読み取り専用で表示します。Plugin 生成 CDL と一時パスは保存する CDL やセッションの参照先に加えません。`.tecsgen-opts` を開く場合は、Plugin の探索パスを含む元のオプションを使用します。Plugin が実行されるため、信頼できるプロジェクトのみ開いてください。
 
 `tecsgen` は `PATH` に含まれている必要があります。あるいは、起動前に `TECSGEN_COMMAND` に `ruby "C:\path\to\tecsgen.rb"` や `python -m tecsgen` といったコマンドを設定してください。Windowsで、Rubyのプラグインが `gcc` を必要とする場合は、あらかじめ同じターミナルで `ridk enable` を実行してください。`tecsgen` が利用できない場合でも通常のCDLは開けますが、未解決の生成型は診断警告（`W-PLUGIN-TYPE-LOAD`）として残ります。
 

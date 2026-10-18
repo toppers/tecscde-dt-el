@@ -60,7 +60,7 @@ export class FileService {
   }
 
   /**
-   * 複数パスをダイアログを介さずに読み込む（8.1.2: 最後が編集対象、他は参照専用）。
+   * 複数パスをダイアログを介さずに読み込む（全件編集可能、最後を主ファイルとする）。
    * 起動時の samples 読み込み（celltypes.cdl ＋ main.cde）で使う。
    */
   async openPaths(paths: readonly string[]): Promise<OpenResult> {
@@ -74,7 +74,7 @@ export class FileService {
     // 重複排除できるよう、ここで返すパスも正規化する（renderer はNode APIを持たないため
     // 正規化は必ずmain側で行う）。
     const resolvedPaths = paths.map((p) => resolve(p));
-    const editablePath = resolvedPaths[resolvedPaths.length - 1]!; // 最後に選択したファイルを編集対象とする
+    const editablePath = resolvedPaths[resolvedPaths.length - 1]!; // 最後のファイルを主ファイルとする
     return {
       editable: { path: editablePath, content: contents[contents.length - 1]! },
       references: resolvedPaths.slice(0, -1).map((p, i) => ({ path: p, content: contents[i]! })),

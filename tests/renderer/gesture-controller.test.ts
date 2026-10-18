@@ -85,6 +85,21 @@ function harness(opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; cel
 }
 
 describe("newCell mode", () => {
+  it("adds a cell to the selected editable CDL", () => {
+    const referencePath = "/project/reference.cdl";
+    const doc = CdlDocumentLoader.loadSources([
+      { text: "signature s { void run(void); }; celltype tRef { entry s e; }; cell tRef Ref {};", fileName: "reference.cdl", sourcePath: referencePath, editable: true },
+      { text: "signature sMain { void run(void); }; celltype tMain { entry sMain e; }; cell tMain Main {};", fileName: "main.cdl", sourcePath: "/project/main.cdl", editable: true },
+    ]).document;
+    const h = harness({ doc, mode: "newCell", celltype: "tRef" });
+    h.setSelection(SelectionState.ofCells([asCellId("Ref")]));
+
+    h.gesture.pointerDown({ x: 300, y: 200 });
+
+    const added = h.doc().cellValues().find((cell) => cell.name !== "Ref" && cell.name !== "Main");
+    expect(added?.locale).toBe(referencePath);
+  });
+
   it("dispatches AddCellCommand on an empty-space click when a celltype is active", () => {
     const h = harness({ mode: "newCell", celltype: "tController" });
     h.gesture.pointerDown({ x: 300, y: 200 });

@@ -103,6 +103,7 @@ export class PropertyPanelView {
       cell.name,
       cell.celltypeName,
       cell.celltypeUnresolved,
+      doc.getCelltype(cell.celltypeName)?.hasUnsupportedSyntax ?? false,
       region,
       regionOptions,
       attrsSig,
@@ -142,12 +143,13 @@ export class PropertyPanelView {
     const regionField = field("region");
     const regionSelect = document.createElement("select");
     regionSelect.setAttribute("aria-label", "region");
+    const sourceTemplate = doc.sourceTemplates.get(cell.locale ?? "") ?? doc.sourceTemplate;
     for (const region of this.regionOptions(doc)) {
       const option = document.createElement("option");
       option.value = region.id;
       option.textContent = region.namespacePath;
       option.disabled = region.id !== doc.regions.root.id &&
-        !!doc.sourceTemplate && !doc.sourceTemplate.scopes.some((scope) => scope.path === region.namespacePath);
+        !!sourceTemplate && !sourceTemplate.scopes.some((scope) => scope.path === region.namespacePath);
       regionSelect.appendChild(option);
     }
     regionSelect.value = cell.regionId;
@@ -162,7 +164,10 @@ export class PropertyPanelView {
       this.root.appendChild(note("セルタイプが解決できないため、ポート構成が不明です。", "prop-readonly-note"));
     }
 
-    const celltype = doc.celltypeValues().find((c) => c.name === cell.celltypeName);
+    const celltype = doc.getCelltype(cell.celltypeName);
+    if (celltype?.hasUnsupportedSyntax) {
+      this.root.appendChild(note("未対応構文があります。", "prop-readonly-note"));
+    }
     const attrNames = celltype?.attributeNames ?? Object.keys(cell.attrs);
     for (const attrName of attrNames) {
       const attrField = field(attrName);

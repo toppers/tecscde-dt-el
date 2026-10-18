@@ -141,7 +141,11 @@ export class GestureController {
     if (this.host.getMode() === "newCell") {
       const celltypeName = this.host.getActiveCelltypeName();
       if (hit.kind === "none" && celltypeName) {
-        this.host.dispatch(new AddCellCommand(celltypeName, point.x, point.y));
+        const selectedIds = [...this.host.getSelection().cellIds];
+        const selectedCell = selectedIds.length === 1 ? doc.getCell(selectedIds[0]!) : undefined;
+        const targetSource = selectedCell?.editable && selectedCell.locale && doc.sourceTemplates.has(selectedCell.locale)
+          ? selectedCell.locale : undefined;
+        this.host.dispatch(new AddCellCommand(celltypeName, point.x, point.y, targetSource));
       }
       return;
     }

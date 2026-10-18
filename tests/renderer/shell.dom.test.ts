@@ -167,7 +167,7 @@ describe("AppShell — DOM wiring", () => {
     document.body.innerHTML = "";
   });
 
-  it("opens a composite's read-only child diagram and returns without changing the document", () => {
+  it("shows only the outer composite cell after double-click and Enter", () => {
     const text = `celltype tRegular { entry sTask eTask; };
 composite tComposite {
   entry sTask eTask;
@@ -181,23 +181,17 @@ cell tRegular Regular {};
     const { store } = mountShell(fakeClipboard(), doc);
     const originalDirty = store.isDirty();
     const originalUndo = store.canUndo;
-    const dialog = document.querySelector<HTMLElement>(".composite-overlay")!;
+    const outer = document.querySelector<SVGGElement>('[data-cell-id="Composite"]')!;
 
-    document.querySelector<SVGGElement>('[data-cell-id="Composite"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    expect(dialog.hidden).toBe(false);
-    expect(dialog.querySelectorAll(".composite-node")).toHaveLength(1);
-    dialog.querySelector<HTMLButtonElement>(".composite-header button")!.click();
-    expect(dialog.hidden).toBe(true);
-
-    document.querySelector<SVGGElement>('[data-cell-id="Regular"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    expect(dialog.hidden).toBe(true);
+    expect(outer).toBeTruthy();
+    expect(document.querySelector('[data-cell-id="Inner"]')).toBeNull();
+    expect(doc.getCell(asCellId("Composite"))?.eports.map((port) => port.name)).toEqual(["eTask"]);
+    outer.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     store.setSelection(SelectionState.ofCells([asCellId("Composite")]));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(dialog.hidden).toBe(false);
-    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(dialog.hidden).toBe(true);
+
+    expect(document.querySelector(".composite-overlay")).toBeNull();
     expect(store.getDocument()).toBe(doc);
-    expect(store.selection).toEqual(SelectionState.ofCells([asCellId("Composite")]));
     expect(store.isDirty()).toBe(originalDirty);
     expect(store.canUndo).toBe(originalUndo);
   });
@@ -866,10 +860,10 @@ cell tRegular Regular {};
       expect(store.getReferenceFilePaths()).toEqual(["/root/extra.cdl"]);
     });
 
-    it("does nothing when Ctrl+clicking a file that is already loaded as a reference", async () => {
+    it("does nothing when Ctrl+clicking a file that is already loaded", async () => {
       const { gateway, resolveImports } = addReferenceGateway();
       const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
-      store.loadDocument(store.getDocument(), "/root/main.cde", [], ["/root/extra.cdl"]);
+      store.loadDocument(store.getDocument(), "/root/main.cde", [], ["/root/extra.cdl"], new Map([["/root/extra.cdl", ""]]));
       resolveImports.mockClear();
 
       await chooseRootAndCtrlClick("/root/extra.cdl");
@@ -890,16 +884,17 @@ cell tRegular Regular {};
       await chooseRootAndCtrlClick("/root/extra.cdl");
 
       expect(store.canUndo).toBe(false); // Undo履歴はリセットされる
+      expect(store.isDirty()).toBe(true);
       expect(store.getDocument().getCell(controller)!.x).toBe(before.x + 5); // 未保存の変更内容は失われない
     });
   });
 
   describe(".tecsgen-opts の一括読み込み（第7C章7.7.4節#10）", () => {
-    it("opens the last enumerated CDL file as editable and adds the rest as references", async () => {
-      const openPath = vi.fn().mockResolvedValue({
-        editable: { path: "/root/main.cde", content: mainText },
+    it("opens every CDL in an options file as editable", async () => {
+      const openPath = vi.fn(async (path: string) => ({
+        editable: { path, content: path === "/root/main.cde" ? mainText : "" },
         references: [],
-      });
+      }));
       const resolveImports = vi.fn().mockResolvedValue([
         { request: { kind: "manual", specifier: "/root/celltypes.cdl" }, canonicalPath: "/root/celltypes.cdl", content: "" },
       ]);

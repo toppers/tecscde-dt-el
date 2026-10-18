@@ -14,7 +14,7 @@ const opened = {
 const fileGateway = { resolveImports: async () => [] } as unknown as FileGateway;
 
 describe("Plugin type resolution on open", () => {
-  it("adds generated types to the model without adding generated cells to the document", async () => {
+  it("adds generated cells and types to the read-only model", async () => {
     const generatedTypes = vi.fn().mockResolvedValue({
       result: { stdout: "", stderr: "", exitCode: 0, executableFound: true },
       sources: [{ fileName: "tmp_Plugin_0.cdl", content: `namespace nPlugin {
@@ -27,7 +27,8 @@ describe("Plugin type resolution on open", () => {
 
     expect(generatedTypes).toHaveBeenCalledWith(["-k", "utf8", "/project/main.cdl"], opened.editable.path, opened.optionsFilePath);
     expect(store.getDocument().getCell(asCellId("Main"))?.celltypeUnresolved).toBe(false);
-    expect(store.getDocument().getCell(asCellId("Helper"))).toBeUndefined();
+    expect(store.getDocument().getCell(asCellId("Helper"))?.editable).toBe(false);
+    expect(store.getDocument().getCell(asCellId("Helper"))?.celltypeName).toBe("nPlugin::tGenerated");
     expect(store.getReferenceFilePaths()).toEqual([]);
     expect(store.getOptionsFilePath()).toBe(opened.optionsFilePath);
     expect(store.getGeneratedTypeSources()).toHaveLength(1);

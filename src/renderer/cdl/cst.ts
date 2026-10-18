@@ -92,6 +92,7 @@ export interface CompositeDecl {
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
   readonly structure: CompositeStructure;
+  readonly hasUnsupportedSyntax: boolean;
 }
 
 export interface ParsedCdl {
@@ -357,6 +358,7 @@ export class CdlDocumentBuilder {
     const attributes: string[] = [];
     const internalCells: CompositeStructure["internalCells"][number][] = [];
     const portExports: CompositeStructure["portExports"][number][] = [];
+    let hasUnsupportedSyntax = compositeNode.hasError;
     const body = compositeNode.childForFieldName("body");
     if (body) {
       for (const child of body.namedChildren) {
@@ -364,14 +366,20 @@ export class CdlDocumentBuilder {
         const statement = child.type === "specified_composite_celltype_statement"
           ? child.childForFieldName("statement")
           : child;
-        if (!statement) continue;
+        if (!statement) {
+          hasUnsupportedSyntax = true;
+          continue;
+        }
         for (const member of statement.namedChildren) {
           if (!member) continue;
           if (member.type === "port") {
             const port = CdlDocumentBuilder.collectPort(member, parentPath);
             if (port) ports.push(port);
+            else hasUnsupportedSyntax = true;
           } else if (member.type === "composite_attribute") {
-            attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+            const names = CdlDocumentBuilder.collectAttributeNames(member);
+            if (names.length === 0) hasUnsupportedSyntax = true;
+            attributes.push(...names);
           } else if (member.type === "internal_cell") {
             const type = member.childForFieldName("type");
             const cellName = member.childForFieldName("name");
@@ -399,7 +407,7 @@ export class CdlDocumentBuilder {
               };
               collectBindings(member);
               internalCells.push({ celltypeName: type.text, name: cellName.text, bindings, rawText: member.text });
-            }
+            } else hasUnsupportedSyntax = true;
           } else if (member.type === "export_join") {
             const externalPort = member.childForFieldName("export_name");
             const cell = member.childForFieldName("cell");
@@ -411,7 +419,9 @@ export class CdlDocumentBuilder {
                 portName: port.text,
                 rawText: member.text,
               });
-            }
+            } else hasUnsupportedSyntax = true;
+          } else {
+            hasUnsupportedSyntax = true;
           }
         }
       }
@@ -422,6 +432,7 @@ export class CdlDocumentBuilder {
       ports,
       attributes,
       structure: { internalCells, portExports, rawText: compositeNode.text },
+      hasUnsupportedSyntax,
     };
   }
 

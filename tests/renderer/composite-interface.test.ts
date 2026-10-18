@@ -28,6 +28,7 @@ cell tDirect Direct {};
       { text, fileName: "direct.cdl", editable: true },
     ]);
     expect(document.getCelltype("tDirect")?.eportTemplates[0]?.name).toBe("eTask");
+    expect(document.getCelltype("tDirect")?.hasUnsupportedSyntax).toBe(false);
     expect(document.getCell(asCellId("Direct"))?.celltypeUnresolved).toBe(false);
     expect(diagnostics.filter((item) => item.code === W_CODES.COMPOSITE_UNSUPPORTED)).toEqual([]);
   });
@@ -38,6 +39,7 @@ cell tDirect Direct {};
     ]);
 
     const celltype = document.getCelltype("nDemo::tComposite");
+    expect(celltype?.hasUnsupportedSyntax).toBe(false);
     const cell = document.getCell(asCellId("Composite"));
     expect(celltype?.cportTemplates.map((port) => port.name)).toEqual(["cTask"]);
     expect(celltype?.eportTemplates.map((port) => port.name)).toEqual(["eTask"]);

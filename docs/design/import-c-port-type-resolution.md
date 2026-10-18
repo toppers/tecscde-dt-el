@@ -4,7 +4,7 @@
 
 CDL のポート型は署名（`signature`）で決まる。署名内の関数の戻り値・引数には C 型を使える。`import_C` で読み込んだヘッダの typedef と struct を、その関数型の解決に使い、ポートが参照する署名を一意に特定する。
 
-現状は `resolveAllImports()` がヘッダごとの `CdeclResult` を返すが、`applyOpenResult()` は受け取らず、`CdlDocumentLoader.loadSources()` は署名の名前と本体の有無だけを収集する。`PortTemplate.signature` は宣言時の文字列で、`CreateJoinCommand` は文字列の一致で結合可否を判定する。したがって C 型の抽出結果はポート解決に影響しない。
+実装済み。`resolveAllImports()` が返すヘッダごとの `CdeclResult` は `applyOpenResult()` から `CdlDocumentLoader.loadSources()` へ渡される。ローダーは署名関数の C 型とポートの署名参照を解決し、`PortTypeIndex` に結果を保持する。解決できた `PortTemplate.signature` は完全修飾 ID に正規化され、結合判定に使われる。未解決の型や署名は診断し、ポートは図に残す。
 
 ## 解決結果の定義
 
@@ -32,9 +32,9 @@ CDL の import / import_C
 ## 変更箇所
 
 1. `cdl/cst.ts`: `SignatureDecl` に関数の戻り値・引数の型式、宣言位置、所属 namespace を追加する。`PortDecl` に宣言位置と所属 namespace を追加する。CST の宣言子を型式へ変換する処理は小さな専用モジュールに分け、元テキストの正規表現解析は行わない。
-2. `cdecl/types.ts` と新しい `cdecl/type-registry.ts`: 既存の `CType` を使い、複数ヘッダの typedef・struct を型名ごとに集約する。組み込み型と CDL 内 typedef も同じ照合入口に通す。typedef の再帰展開には訪問中集合を使い、循環を検出する。関数型の引数情報が必要なので、現状 `CType.function` が戻り値のみを持つ制限は関数宣言の表現で補う。
+2. `cdecl/types.ts` と `cdecl/type-registry.ts`: `CType` で C 型の形を保持し、複数ヘッダの typedef・struct を型名ごとに集約する。CDL 組込型は `signature-types.ts` でプリミティブとして識別し、typedef はレジストリで再帰的に解決する。循環と競合は診断し、関数型の引数は `CType.function.parameters` に保持する。
 3. `cdl/document-builder.ts`: 全ソースを先に解析し、署名表・C 型表を構築してからポートを解決する。参照ファイルの順序が型の優先順位にならないよう、同名で異なる定義は競合として診断する。完全に同一の定義は重複として許す。
-4. `app/file-actions.ts`: `applyOpenResult()` が `cdeclResults` を loader に渡す。`addAsReference()` は新たな参照先だけの結果に依存せず、編集対象と全参照 CDL の import closure を再解決して C 型表を再構築する。新規作成、再読込、オプションファイル読込でも前のドキュメントの型表を残さない。
+4. `app/file-actions.ts`: `applyOpenResult()` は `cdeclResults` をローダーへ渡す。`addAsReference()` は未保存の変更を保ちながら import closure を再構築する。読み込んだ CDL は編集可能で、保存時は変更した各ファイルを元のパスへ書き戻す。
 5. `commands/join-commands.ts` とジェスチャ側の候補判定: 両ポートの解決済み署名 ID を使う。保存する CDL の署名表記は原文のまま維持する。
 
 ## エラーとフォールバック
@@ -59,4 +59,24 @@ CDL の import / import_C
 
 ポートモデルの `signature` は、解決できた場合に `::` から始まる完全修飾 ID に正規化する。これにより、既存の結合候補判定と `CreateJoinCommand` の比較をそのまま使用できる。保存時の宣言テキストは `sourceTemplate` に保持した原文を使用する。戻り値・引数の解決結果と由来ヘッダは、保存モデルに含めず `PortTypeIndex` としてストアに保持する。
 
-このチェックアウトには `hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts` がないため、同サンプルに依存する既存テストは実行時に `ENOENT` になる。追加した独立テストでは型解決と参照追加の経路を検証する。
+リポジトリ内のテストデータ `tests/hr-tecs/workspace/sd/tEV3Sample.tecsgen-opts` を使用する統合テストと、このデータに依存しない小規模テストで型解決を検証する。
+
+## 現行実装への追記
+
+### TECS CDL 組込型
+
+署名の戻り値・引数と CDL 内の typedef では、次の17種類をヘッダ定義なしで組込型として解決する。
+
+- `void`、`bool_t`
+- `char_t`、`schar_t`、`uchar_t`
+- `int8_t`、`int16_t`、`int32_t`、`int64_t`、`int128_t`
+- `uint8_t`、`uint16_t`、`uint32_t`、`uint64_t`、`uint128_t`
+- `float32_t`、`double64_t`
+
+`CType.primitive.name` は幅・符号を含む型名を保持する。`int_t`、`uint_t`、`long_t`、`ulong_t`、`short_t`、`ushort_t` は組込型に含めず、CDL の typedef または `import_C` の定義で解決する。
+
+### 読み込み済み CDL と Plugin 生成 CDL
+
+`import` 先を含む読み込み済み CDL のセルは編集可能とし、セルの所属元とファイル別のソーステンプレートを保持する。保存時は変更した各 CDL を元のパスへ書き戻す。未解決結合の元の記述は、別の編集内容を保存しても保持する。
+
+Plugin 生成 CDL の署名・セルタイプ・セルも読み込む。生成セルは図に読み取り専用で表示し、保存する CDL とセッション参照先には含めない。

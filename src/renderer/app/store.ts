@@ -32,6 +32,7 @@ export type StoreListener = () => void;
 
 export class AppStore {
   private historyState: History;
+  private savedDocument: TecscdeDocument;
   private viewState: ViewState = ViewState.initial();
   private selectionState: SelectionState = SelectionState.empty();
   private mode: InputMode = "select";
@@ -75,6 +76,7 @@ export class AppStore {
     loadDiagnostics: readonly Diagnostic[] = [],
   ) {
     this.historyState = History.begin(initial);
+    this.savedDocument = initial;
     this.loadDiagnostics = loadDiagnostics;
   }
 
@@ -151,6 +153,29 @@ export class AppStore {
     return this.historyState.past.length !== this.savedAtPastLength;
   }
 
+  isSourceDirty(sourcePath: string): boolean {
+    const snapshot = (document: TecscdeDocument): string => {
+      const cells = document.cellValues().filter((cell) => cell.locale === sourcePath).map((cell) => ({
+        name: cell.name,
+        celltypeName: cell.celltypeName,
+        x: cell.x, y: cell.y, width: cell.width, height: cell.height,
+        regionId: cell.regionId,
+        attrs: cell.attrs,
+        ports: [...cell.cports, ...cell.eports].map((port) => ({
+          name: port.name, signature: port.signature, edgeSide: port.edgeSide,
+          offset: port.offset, subscript: port.subscript, arraySize: port.arraySize,
+        })),
+      }));
+      const joins = document.joinValues().filter((join) =>
+        document.getCell(join.cellId)?.locale === sourcePath).map((join) => ({
+          join,
+          targetName: document.getCell(join.eportCellId)?.name,
+        }));
+      return JSON.stringify({ cells, joins });
+    };
+    return snapshot(this.getDocument()) !== snapshot(this.savedDocument);
+  }
+
   /**
    * 現在の診断レポート（モジュールH）。ロード時の一過性診断（モジュールB）と、
    * 現在のドキュメント状態から再導出する整合性チェック（`checkIntegrity`）を集約する。
@@ -208,7 +233,11 @@ export class AppStore {
    * `ClipboardGateway.readText()`を先に解決してから渡す。
    */
   pasteClipboard(osClipboardText: string | undefined): void {
-    this.dispatch(new PasteCommand(this.appClipboard, osClipboardText));
+    const selectedIds = [...this.selectionState.cellIds];
+    const selectedCell = selectedIds.length === 1 ? this.getDocument().getCell(selectedIds[0]!) : undefined;
+    const targetSource = selectedCell?.editable && selectedCell.locale && this.getDocument().sourceTemplates.has(selectedCell.locale)
+      ? selectedCell.locale : undefined;
+    this.dispatch(new PasteCommand(this.appClipboard, osClipboardText, targetSource));
   }
 
   private snapshotCells(doc: TecscdeDocument, ids: readonly CellId[]): readonly Cell[] {
@@ -264,11 +293,13 @@ export class AppStore {
     optionsFilePath?: string,
     generatedTypeSources: readonly GeneratedCdlFile[] = [],
     portTypeIndex: PortTypeIndex = emptyPortTypeIndex(),
+    keepDirty = false,
   ): void {
     this.historyState = History.begin(document);
+    if (!keepDirty) this.savedDocument = document;
     this.selectionState = SelectionState.empty();
     this.path = path;
-    this.savedAtPastLength = 0;
+    this.savedAtPastLength = keepDirty ? -1 : 0;
     this.loadDiagnostics = loadDiagnostics;
     this.referenceSources = referenceSources;
     this.referenceFilePaths = referenceFilePaths;
@@ -297,6 +328,7 @@ export class AppStore {
   /** 保存が成功したときに呼ぶ。以後 `isDirty()` は false になる（次の編集まで）。 */
   markSaved(path: string): void {
     this.savedAtPastLength = this.historyState.past.length;
+    this.savedDocument = this.getDocument();
     this.path = path;
     this.notify();
   }

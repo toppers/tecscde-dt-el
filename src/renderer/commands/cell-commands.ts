@@ -51,6 +51,7 @@ export class AddCellCommand extends Command {
     private readonly celltypeName: string,
     private readonly x: number,
     private readonly y: number,
+    private readonly targetSourceKey?: string,
   ) {
     super();
     this.summary = `add ${celltypeName}`;
@@ -76,7 +77,8 @@ export class AddCellCommand extends Command {
       eports: instantiateEPorts(celltype.eportTemplates),
       attrs: {},
       celltypeUnresolved: false,
-      locale: doc.editingFileName,
+      locale: this.targetSourceKey && doc.sourceTemplates.has(this.targetSourceKey)
+        ? this.targetSourceKey : doc.editingFileName,
     });
     return doc.withCell(cell);
   }
@@ -221,8 +223,9 @@ export class ChangeRegionCommand extends Command {
     if (!cell || !cell.editable || cell.regionId === this.regionId) return doc;
     const target = doc.regions.findById(this.regionId);
     if (!target) return doc;
-    if (doc.sourceTemplate && this.regionId !== ROOT_REGION_ID &&
-        !doc.sourceTemplate.scopes.some((scope) => scope.path === target.namespacePath)) return doc;
+    const template = doc.sourceTemplates.get(cell.locale ?? "") ?? doc.sourceTemplate;
+    if (template && this.regionId !== ROOT_REGION_ID &&
+        !template.scopes.some((scope) => scope.path === target.namespacePath)) return doc;
     return doc.withCell(rebuildCell(cell, { regionId: this.regionId }));
   }
 }

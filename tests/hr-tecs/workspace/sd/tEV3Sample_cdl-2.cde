@@ -1,0 +1,53 @@
+__tool_info__("tecsgen") {
+  "tecscde_version": "0.1.0",
+  "cde_format_version": "0.1.0.0",
+  "saved_at": "2026-10-02T07:25:11.558Z",
+  "direct_import": [
+    "VM1.cdl",
+    "EV3_common.cdl",
+    "kernel.cdl",
+    "tMruby.cdl",
+    "tUltrasonicSensor.cdl",
+    "tColorSensor.cdl",
+    "tTouchSensor.cdl",
+    "tGyroSensor.cdl",
+    "tMotor.cdl",
+    "tLCD.cdl",
+    "tLED.cdl",
+    "tButton.cdl",
+    "tBattery.cdl",
+    "tSpeaker.cdl",
+    "tEV3Platform.cdl",
+    "tBalancer.cdl",
+    "tSharedMemory.cdl",
+    "mruby.cdl",
+    "sMruby.cdl",
+    "tTLSFMalloc.cdl",
+    "mrubyInitializer.cdl",
+    "mrubyPointers.cdl",
+    "mrubyVMs.cdl",
+    "sMalloc.cdl",
+    "posix.cdl"
+  ]
+}
+
+/*
+ *  tEV3Sample.cdl
+ *
+ *  VMの個数に応じてCDLファイルを選択する
+ *  (VMを２つ使う場合，VM2.cdlをインポートする）
+ *
+ */
+const int32_t MRUBY_VM_STACK_SIZE = 81920;
+
+import("VM1.cdl");
+//import("VM2.cdl");
+
+__tool_info__("tecscde") {
+  "paper": {
+    "size": "A4",
+    "orientation": "LANDSCAPE"
+  },
+  "cell_list": {},
+  "join_list": {}
+}
