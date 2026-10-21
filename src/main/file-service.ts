@@ -16,7 +16,10 @@ import type {
 import { saveAppSettings } from "./app-settings.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
-const BROWSABLE_EXTENSION = /\.(cde|cdl|tecsgen-opts)$/i;
+// `.tecsgen-opts`は拡張子すべて小文字・大文字小文字を区別する（外部仕様5.3）。`.cde`/`.cdl`は区別しない。
+const CDL_EXTENSION = /\.(cde|cdl)$/i;
+const OPTIONS_EXTENSION = /\.tecsgen-opts$/;
+const isBrowsable = (name: string): boolean => CDL_EXTENSION.test(name) || OPTIONS_EXTENSION.test(name);
 
 /** UTF-8を第一候補とし、レガシーCDL用にShift_JIS/EUC-JPへのフォールバックを試行する。 */
 function decodeBuffer(buf: Buffer): string {
@@ -109,7 +112,7 @@ export class FileService {
   async listDirectory(dirPath: string): Promise<DirEntry[]> {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     return entries
-      .filter((e) => e.isDirectory() || BROWSABLE_EXTENSION.test(e.name))
+      .filter((e) => e.isDirectory() || isBrowsable(e.name))
       .map(
         (e): DirEntry => ({
           name: e.name,

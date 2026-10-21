@@ -37,7 +37,7 @@ export class FileBrowserView {
       const event = e as MouseEvent;
       if (event.ctrlKey || event.metaKey) {
         this.onAddReference(path);
-      } else if (/\.tecsgen-opts$/i.test(path)) {
+      } else if (/\.tecsgen-opts$/.test(path)) {
         this.onLoadOptionsFile(path);
       } else {
         this.onOpen(path);
