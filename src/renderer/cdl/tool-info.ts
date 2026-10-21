@@ -196,7 +196,43 @@ export class ToolInfoValidator {
       searchFrom = end;
     }
 
-    return { blocks, sourceWithBlanks: working };
+    return { blocks, sourceWithBlanks: ToolInfoValidator.blankLocationInformation(working) };
+  }
+
+  /**
+   * 旧世代のtecscdeが書いた`__location_information__ { … }`ブロックを空白で潰す（読み込んで無視する）。
+   * 現行のtecsgen文法はこの構文を持たないため、潰さないと構文エラーになる。行番号・位置は変えない。
+   * ブロックの中身は文字列を含まないので、波括弧の対応だけで終端を決める。閉じない場合は触らない。
+   */
+  private static blankLocationInformation(source: string): string {
+    const KEYWORD = "__location_information__";
+    let working = source;
+    let searchFrom = 0;
+    for (;;) {
+      const kwIndex = working.indexOf(KEYWORD, searchFrom);
+      if (kwIndex === -1) return working;
+      let cursor = kwIndex + KEYWORD.length;
+      while (/\s/.test(working[cursor] ?? "")) cursor += 1;
+      if (working[cursor] !== "{") {
+        searchFrom = kwIndex + KEYWORD.length;
+        continue;
+      }
+      let depth = 0;
+      let end = -1;
+      for (let i = cursor; i < working.length; i += 1) {
+        if (working[i] === "{") depth += 1;
+        if (working[i] === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      if (end === -1) return working;
+      working = blank(working, kwIndex, end);
+      searchFrom = end;
+    }
   }
 
   /** 5.1.2: JS版は解釈せず往復保持するだけ。 */
