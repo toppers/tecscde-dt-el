@@ -95,7 +95,46 @@ describe("TecsgenRunner", () => {
 
     const result = await runner.run(["--version"]);
 
-    expect(result).toEqual({ stdout: "", stderr: "", exitCode: null, executableFound: false });
+    expect(result).toEqual({
+      stdout: "", stderr: "", exitCode: null, executableFound: false,
+      launchFailure: { kind: "not-found", command: "tecsgen", detail: "ENOENT" },
+    });
+  });
+
+  it("run() names TECSGEN_COMMAND's executable when that command is not found", async () => {
+    process.env.TECSGEN_COMMAND = "ruby /opt/tecsgen.rb";
+    execFileMock.mockRejectedValue(Object.assign(new Error("not found"), { code: "ENOENT" }));
+
+    const result = await new TecsgenRunner().run(["--version"]);
+
+    expect(result.executableFound).toBe(false);
+    expect(result.launchFailure).toMatchObject({ kind: "not-found", command: "ruby" });
+  });
+
+  it.each([
+    ["EACCES", { code: "EACCES" }, "permission"],
+    ["EPERM", { code: "EPERM" }, "permission"],
+    ["timeout (killed)", { code: null, killed: true, signal: "SIGTERM" }, "timeout"],
+    ["maxBuffer", { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }, "output-overflow"],
+    ["other launch error", { code: "E2BIG" }, "launch-error"],
+  ])("run() classifies %s as a launch failure, not an exit code", async (_name, props, kind) => {
+    execFileMock.mockRejectedValue(Object.assign(new Error("boom"), props, { stdout: "partial", stderr: "" }));
+
+    const result = await new TecsgenRunner().run(["main.cdl"]);
+
+    expect(result.executableFound).toBe(true);
+    expect(result.exitCode).toBeNull();
+    expect(result.stdout).toBe("partial");
+    expect(result.launchFailure).toMatchObject({ kind, command: "tecsgen" });
+  });
+
+  it("run() reports an empty TECSGEN_COMMAND as a launch error", async () => {
+    process.env.TECSGEN_COMMAND = '""';
+
+    const result = await new TecsgenRunner().run(["main.cdl"]);
+
+    expect(result.launchFailure).toMatchObject({ kind: "launch-error" });
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it("run() preserves stdout/stderr even when tecsgen exits non-zero (syntax/semantic error)", async () => {

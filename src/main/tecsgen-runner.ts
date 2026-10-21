@@ -8,7 +8,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { TecsgenResult, CppResult, GeneratedCdlResult } from "../shared/ipc-types.js";
+import type { TecsgenResult, TecsgenLaunchFailure, CppResult, GeneratedCdlResult } from "../shared/ipc-types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -84,13 +84,30 @@ function splitCommand(command: string): string[] {
   return args;
 }
 
+/**
+ * 第9章9.7節: `execFile`の失敗を、終了コードでは表せない起動失敗に分類する。
+ * 数値の終了コードで終わったもの（tecsgenが走って失敗した）は起動失敗ではないので`undefined`。
+ */
+export function classifyLaunchFailure(err: unknown, command: string): TecsgenLaunchFailure | undefined {
+  const e = err as ExecFileException & { code?: number | string | null };
+  if (typeof e.code === "number") return undefined;
+  const detail = typeof e.code === "string" ? e.code : (e.message ?? String(err));
+  if (e.code === "ENOENT") return { kind: "not-found", command, detail };
+  if (e.code === "EACCES" || e.code === "EPERM") return { kind: "permission", command, detail };
+  if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return { kind: "output-overflow", command, detail };
+  if (e.killed) return { kind: "timeout", command, detail: e.signal ?? detail };
+  return { kind: "launch-error", command, detail };
+}
+
 export class TecsgenRunner {
   async run(args: readonly string[], cwd?: string): Promise<TecsgenResult> {
+    let command = process.env.TECSGEN_COMMAND || "tecsgen";
     try {
       const [executable, ...prefixArgs] = process.env.TECSGEN_COMMAND
         ? splitCommand(process.env.TECSGEN_COMMAND)
         : ["tecsgen"];
       if (!executable) throw new Error("TECSGEN_COMMAND is empty");
+      command = executable;
       const options = cwd
         ? { timeout: 120_000, maxBuffer: 16 * 1024 * 1024, cwd }
         : { timeout: 30_000 };
@@ -98,12 +115,16 @@ export class TecsgenRunner {
       return { stdout, stderr, exitCode: 0, executableFound: true };
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
-      if (e.code === "ENOENT") {
+      const launchFailure = classifyLaunchFailure(err, command);
+      if (launchFailure?.kind === "not-found") {
         // 実行ファイルが見つからない（第2章2.4節の新規制約、11.2節#3の未決事項）
-        return { stdout: "", stderr: "", exitCode: null, executableFound: false };
+        return { stdout: "", stderr: "", exitCode: null, executableFound: false, launchFailure };
       }
-      const exitCode = typeof e.code === "number" ? e.code : 1;
-      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode, executableFound: true };
+      if (launchFailure) {
+        // 権限なし・タイムアウト・出力過多など（第9章9.7節）。終了コードは無い。
+        return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: null, executableFound: true, launchFailure };
+      }
+      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.code as number, executableFound: true };
     }
   }
 

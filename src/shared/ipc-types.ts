@@ -22,12 +22,27 @@ export interface DirEntry {
   readonly kind: "directory" | "file";
 }
 
+/** 第9章9.7節: tecsgenを起動できなかった（または異常終了させられた）理由の種類。 */
+export type TecsgenLaunchFailureKind = "not-found" | "permission" | "timeout" | "output-overflow" | "launch-error";
+
+/** 第9章9.7節: プロセスの終了コードでは表せない起動失敗。`TecsgenRunner.run()`が設定する。 */
+export interface TecsgenLaunchFailure {
+  readonly kind: TecsgenLaunchFailureKind;
+  /** 起動しようとした実行ファイル（`TECSGEN_COMMAND`の先頭、無ければ`tecsgen`）。 */
+  readonly command: string;
+  /** Node.jsのエラーコードやメッセージ。利用者への文言の補足に使う。 */
+  readonly detail: string;
+}
+
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
+  /** 実行ファイルが見つからなかった（`ENOENT`）場合のみ`false`。 */
   readonly executableFound: boolean;
+  /** 起動失敗（見つからない場合を含む）のとき設定される。無ければ起動はできた。 */
+  readonly launchFailure?: TecsgenLaunchFailure;
 }
 
 export interface GeneratedCdlFile {

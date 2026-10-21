@@ -12,13 +12,32 @@
 // （モジュールB）・整合性チェック（モジュールH自身）と同じ一覧・同じジャンプ機構で提示される
 // （呼び出し側=モジュールG、9.5節）。
 
-import type { TecsgenResult } from "../../shared/ipc-types.js";
+import type { TecsgenLaunchFailure, TecsgenLaunchFailureKind, TecsgenResult } from "../../shared/ipc-types.js";
+import { describeLaunchFailure, describeTecsgenFailure } from "../tecsgen/failure-summary";
 import type { Diagnostic, Severity } from "./types";
 
 export const TECSGEN_CODES = {
   /** 2章2.4節・9.1節の新規制約: 実行ファイル自体が見つからない場合。 */
   NOT_FOUND: "E-TECSGEN-NOT-FOUND",
+  /** 第9章9.7節: 実行権限がない。 */
+  NO_PERMISSION: "E-TECSGEN-NO-PERMISSION",
+  /** 第9章9.7節: 制限時間内に終了せず強制終了された。 */
+  TIMEOUT: "E-TECSGEN-TIMEOUT",
+  /** 第9章9.7節: 出力量が上限を超えて強制終了された。 */
+  OUTPUT_OVERFLOW: "E-TECSGEN-OUTPUT-OVERFLOW",
+  /** 第9章9.7節: 上記以外の起動失敗。 */
+  LAUNCH_FAILED: "E-TECSGEN-LAUNCH-FAILED",
+  /** 第9章9.7節: 非0で終了したが、書式に一致するエラー行が1つも無かった。 */
+  FAILED: "E-TECSGEN-FAILED",
 } as const;
+
+const LAUNCH_FAILURE_CODES: Record<TecsgenLaunchFailureKind, string> = {
+  "not-found": TECSGEN_CODES.NOT_FOUND,
+  permission: TECSGEN_CODES.NO_PERMISSION,
+  timeout: TECSGEN_CODES.TIMEOUT,
+  "output-overflow": TECSGEN_CODES.OUTPUT_OVERFLOW,
+  "launch-error": TECSGEN_CODES.LAUNCH_FAILED,
+};
 
 const LOCATED_LINE = /^(.+):(\d+):(\d+):\s*(error|warning):\s*(.*)$/;
 const UNLOCATED_LINE = /^(error|warning):\s*(.*)$/;
@@ -33,20 +52,24 @@ function splitLeadingCode(message: string): { code: string | undefined; message:
 export class TecsgenResultParser {
   /** `TecsgenRunner.run()`の結果を`Diagnostic[]`へ変換する。 */
   static parse(result: TecsgenResult): readonly Diagnostic[] {
-    if (!result.executableFound) {
-      return [
-        {
-          severity: "error",
-          code: TECSGEN_CODES.NOT_FOUND,
-          message: "実行ファイル 'tecsgen' が見つかりません（環境変数PATH上に存在しません）。",
-        },
-      ];
+    // 第9章9.7節: 起動失敗は種類ごとに1件のエラーにする。`launchFailure`を持たない古い形の
+    // `executableFound: false`も「見つからない」として扱う。
+    const failure: TecsgenLaunchFailure | undefined =
+      result.launchFailure ??
+      (result.executableFound ? undefined : { kind: "not-found", command: "tecsgen", detail: "ENOENT" });
+    const diagnostics: Diagnostic[] = [];
+    if (failure) {
+      diagnostics.push({ severity: "error", code: LAUNCH_FAILURE_CODES[failure.kind], message: describeLaunchFailure(failure) });
+      if (failure.kind === "not-found") return diagnostics;
     }
     const lines = `${result.stdout}\n${result.stderr}`.split(/\r?\n/);
-    const diagnostics: Diagnostic[] = [];
     for (const line of lines) {
       const d = TecsgenResultParser.parseLine(line);
       if (d) diagnostics.push(d);
+    }
+    // 非0終了なのに書式に一致するエラーが無ければ、何も起きなかったように見えないよう1件足す。
+    if (!failure && result.exitCode !== 0 && !diagnostics.some((d) => d.severity === "error")) {
+      diagnostics.push({ severity: "error", code: TECSGEN_CODES.FAILED, message: describeTecsgenFailure(result) });
     }
     return diagnostics;
   }

@@ -17,6 +17,44 @@ describe("TecsgenResultParser.parse", () => {
     expect(diagnostics[0]).toMatchObject({ severity: "error", code: TECSGEN_CODES.NOT_FOUND });
   });
 
+  it("reports each launch failure kind as one error with its own code", () => {
+    const cases = [
+      ["permission", TECSGEN_CODES.NO_PERMISSION],
+      ["timeout", TECSGEN_CODES.TIMEOUT],
+      ["output-overflow", TECSGEN_CODES.OUTPUT_OVERFLOW],
+      ["launch-error", TECSGEN_CODES.LAUNCH_FAILED],
+    ] as const;
+    for (const [kind, code] of cases) {
+      const diagnostics = TecsgenResultParser.parse(
+        result({ exitCode: null, launchFailure: { kind, command: "tecsgen", detail: "x" } }),
+      );
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({ severity: "error", code });
+    }
+  });
+
+  it("names the configured executable when it is not found", () => {
+    const diagnostics = TecsgenResultParser.parse(
+      result({ executableFound: false, exitCode: null, launchFailure: { kind: "not-found", command: "ruby", detail: "ENOENT" } }),
+    );
+    expect(diagnostics[0]!.message).toContain("'ruby'");
+    expect(diagnostics[0]!.message).toContain("TECSGEN_COMMAND");
+  });
+
+  it("adds a FAILED error when tecsgen exits non-zero without any recognizable error line", () => {
+    const diagnostics = TecsgenResultParser.parse(result({ exitCode: 2, stdout: "progress...\n", stderr: "" }));
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: "error", code: TECSGEN_CODES.FAILED });
+    expect(diagnostics[0]!.message).toContain("終了コード 2");
+  });
+
+  it("does not add FAILED when the output already carries an error line", () => {
+    const diagnostics = TecsgenResultParser.parse(
+      result({ exitCode: 1, stdout: "main.cdl:1:1: error: G1015 bad\n" }),
+    );
+    expect(diagnostics.map((d) => d.code)).toEqual(["G1015"]);
+  });
+
   it("parses a located error line, splitting the leading G-code from the message", () => {
     const diagnostics = TecsgenResultParser.parse(
       result({ stdout: "main.cdl:12:5: error: G1015 Unexpected EOF\n" }),
@@ -88,8 +126,9 @@ describe("TecsgenResultParser.parse", () => {
     });
   });
 
-  it("a non-zero exit with no parseable lines produces no diagnostics on its own", () => {
+  it("a non-zero exit with no output still yields a FAILED error (9.7)", () => {
     const diagnostics = TecsgenResultParser.parse(result({ exitCode: 1, stdout: "", stderr: "" }));
-    expect(diagnostics).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: "error", code: TECSGEN_CODES.FAILED });
   });
 });

@@ -7,7 +7,7 @@ import { CdlDocumentLoader } from "../cdl/document-builder";
 import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
 import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
-import { describeTecsgenFailure } from "../tecsgen/failure-summary";
+import { describeLaunchFailure, describeTecsgenFailure } from "../tecsgen/failure-summary";
 import type { GeneratedCdlFile, OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
@@ -73,12 +73,9 @@ export async function applyOpenResult(
     });
     try {
       const generated = await tecsgenGateway.generatedTypes(args, result.editable.path, result.optionsFilePath);
-      if (!generated.result.executableFound) {
-        throw new Error(
-          "tecsgen が見つかりません（PATH に tecsgen が無い）。tecsgen をインストールして PATH に追加するか、" +
-            "環境変数 TECSGEN_COMMAND に起動コマンドを設定してアプリを再起動してください。",
-        );
-      }
+      const failure = generated.result.launchFailure ??
+        (generated.result.executableFound ? undefined : { kind: "not-found" as const, command: "tecsgen", detail: "ENOENT" });
+      if (failure) throw new Error(describeLaunchFailure(failure));
       if (generated.result.exitCode !== 0) {
         throw new Error(describeTecsgenFailure(generated.result));
       }

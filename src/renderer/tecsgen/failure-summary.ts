@@ -2,7 +2,7 @@
 // tecsgen は成功時にも Plugin の進捗を標準出力へ大量に出すため、出力の先頭を切り出しても
 // 肝心のエラー行が含まれない。エラーらしい行を優先して拾い、無ければ出力の末尾を示す。
 
-import type { TecsgenResult } from "../../shared/ipc-types.js";
+import type { TecsgenLaunchFailure, TecsgenResult } from "../../shared/ipc-types.js";
 
 const MAX_LINES = 10;
 const MAX_LINE_LENGTH = 300;
@@ -14,6 +14,25 @@ function toLines(output: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => (line.length > MAX_LINE_LENGTH ? `${line.slice(0, MAX_LINE_LENGTH)}…` : line));
+}
+
+/** 第9章9.7節: 起動失敗（見つからない・権限なし・タイムアウト・出力過多・その他）の利用者向け文言。 */
+export function describeLaunchFailure(failure: TecsgenLaunchFailure): string {
+  switch (failure.kind) {
+    case "not-found":
+      return (
+        `tecsgen が見つかりません（実行ファイル '${failure.command}' が PATH 上、または TECSGEN_COMMAND の指定先に無い）。` +
+        "tecsgen をインストールして PATH に追加するか、環境変数 TECSGEN_COMMAND に起動コマンドを設定してアプリを再起動してください。"
+      );
+    case "permission":
+      return `tecsgen を実行する権限がありません（実行ファイル '${failure.command}'、${failure.detail}）。実行権限と、ファイルが実行可能な形式かを確認してください。`;
+    case "timeout":
+      return `tecsgen が制限時間内に終了せず、強制終了されました（実行ファイル '${failure.command}'）。`;
+    case "output-overflow":
+      return `tecsgen の出力が上限を超えたため、強制終了されました（実行ファイル '${failure.command}'）。`;
+    case "launch-error":
+      return `tecsgen を起動できませんでした（実行ファイル '${failure.command}'、${failure.detail}）。`;
+  }
 }
 
 export function describeTecsgenFailure(result: Pick<TecsgenResult, "stdout" | "stderr" | "exitCode">): string {
