@@ -112,6 +112,8 @@ export interface TecsgenOptionsFile {
   readonly cdlFiles: readonly string[]; // 列挙順。最後の要素が編集対象候補
   readonly importPaths: readonly string[]; // -I/--import-path の値
   readonly cpp?: string;
+  /** `-D`/`--define`の値（記述順）。tecsgenの実行に引き継ぐ（外部仕様8.4.2）。 */
+  readonly defineMacros: readonly string[];
 }
 
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */

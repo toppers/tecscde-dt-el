@@ -279,8 +279,11 @@ export class AppShell {
 
   /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */
   private copyTecsgenCommand(): void {
-    const commandLine = tecsgenCommandLine(this.store);
-    if (commandLine) void this.clipboard.writeText(commandLine);
+    void tecsgenCommandLine(this.store, this.gateway)
+      .then((commandLine) => {
+        if (commandLine) return this.clipboard.writeText(commandLine);
+      })
+      .catch((err: unknown) => this.reportActionError("copyTecsgenCommand", err));
   }
 
   private zoomBy(factor: number, anchor?: Point): void {

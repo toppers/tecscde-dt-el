@@ -144,6 +144,9 @@ const BODY_HTML = `
   </div>
 `;
 
+/** タイマー1回分だけ待って、保留中のマイクロタスク（非同期の入力解決など）を流し切る。 */
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
 let mounted: AppShell | undefined;
 
 function mountShell(
@@ -605,9 +608,7 @@ cell tRegular Regular {};
       expect(store.isDirty()).toBe(true);
 
       document.querySelector<HTMLButtonElement>("[data-action='generate']")!.click();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
 
       expect(saveCalls).toHaveLength(1);
       expect(store.isDirty()).toBe(false);
@@ -620,8 +621,7 @@ cell tRegular Regular {};
       store.loadDocument(loadDoc(), "C:/proj/main.cde", [], []);
 
       document.querySelector<HTMLButtonElement>("[data-action='generate']")!.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
 
       expect(store.getReport().errorCount).toBe(1);
       expect(document.querySelector("#status-diag")!.textContent).toContain("1 エラー");
@@ -630,18 +630,18 @@ cell tRegular Regular {};
       expect(document.querySelector<HTMLElement>("#diagnostics-panel")!.hidden).toBe(false);
     });
 
-    it("copyTecsgenCommand writes the built command line to the OS clipboard", () => {
+    it("copyTecsgenCommand writes the built command line to the OS clipboard", async () => {
       const clipboard = fakeClipboard();
       const { store } = mountShell(clipboard, loadDoc());
       store.loadDocument(loadDoc(), "C:/proj/main.cde", [], ["C:/proj/celltypes.cdl"]);
 
       document.querySelector<HTMLButtonElement>("[data-action='copyTecsgenCommand']")!.click();
+      await flush();
 
-      return clipboard.readText().then((text) => {
-        expect(text.startsWith("tecsgen ")).toBe(true);
-        expect(text).toContain("C:/proj/celltypes.cdl");
-        expect(text.endsWith("C:/proj/main.cde")).toBe(true);
-      });
+      const text = await clipboard.readText();
+      expect(text.startsWith("tecsgen ")).toBe(true);
+      expect(text).toContain("C:/proj/celltypes.cdl");
+      expect(text.endsWith("C:/proj/main.cde")).toBe(true);
     });
   });
 

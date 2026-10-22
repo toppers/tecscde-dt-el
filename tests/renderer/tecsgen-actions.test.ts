@@ -1,7 +1,7 @@
 // [[TECSCDE-DT-EL内部仕様]] 第9章9.5節 — `generate()`/`tecsgenCommandLine()`のヘッドレステスト。
 // DOM経由の配線（ツールバーのdisabled状態等）はtests/renderer/shell.dom.test.tsで検証する。
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
@@ -120,19 +120,64 @@ describe("generate", () => {
 });
 
 describe("tecsgenCommandLine", () => {
-  it("returns undefined when no file has been loaded", () => {
+  it("returns undefined when no file has been loaded", async () => {
     const store = new AppStore(loadDoc());
-    expect(tecsgenCommandLine(store)).toBeUndefined();
+    expect(await tecsgenCommandLine(store, noopFileGateway)).toBeUndefined();
   });
 
-  it("builds the display command line from the same inputs as generate()", () => {
+  it("builds the display command line from the same inputs as generate()", async () => {
     const store = new AppStore(loadDoc());
     store.loadDocument(loadDoc(), "/proj/main.cde", [], ["/proj/celltypes.cdl"]);
 
-    const line = tecsgenCommandLine(store);
+    const line = await tecsgenCommandLine(store, noopFileGateway);
 
     expect(line).toMatch(/^tecsgen /);
     expect(line).toContain("/proj/celltypes.cdl");
     expect(line?.endsWith("/proj/main.cde")).toBe(true);
+  });
+});
+
+describe("tecsgen-opts options are passed to tecsgen (外部仕様8.4.2)", () => {
+  function storeWithOptionsFile(): AppStore {
+    const store = new AppStore(loadDoc());
+    store.loadDocument(loadDoc(), "/proj/main.cde", [], [], new Map(), ["/extra"], "/proj/build.tecsgen-opts");
+    return store;
+  }
+  const optionsGateway = (options: unknown) =>
+    ({ parseTecsgenOptionsFile: async () => options }) as unknown as FileGateway;
+
+  it("appends -I and -D from the options file, and prefers its -c", async () => {
+    const store = storeWithOptionsFile();
+    const tecsgen = fakeTecsgenGateway();
+    await generate(store, optionsGateway({ cdlFiles: [], importPaths: ["/inc1", "/inc2"], cpp: "clang -E", defineMacros: ["A=1", "B"] }), tecsgen.gateway);
+    const args = tecsgen.calls[0]!;
+    expect(args).toEqual(expect.arrayContaining(["-I", "/inc1", "-I", "/inc2", "-D", "A=1", "-D", "B", "-c", "clang -E"]));
+    expect(args.indexOf("/inc1")).toBeLessThan(args.indexOf("/inc2"));
+    expect(args.at(-1)).toBe("/proj/main.cde");
+  });
+
+  it("uses the same inputs for the copied command line", async () => {
+    const store = storeWithOptionsFile();
+    const line = await tecsgenCommandLine(store, optionsGateway({ cdlFiles: [], importPaths: [], cpp: "gcc", defineMacros: ["X=1"] }));
+    expect(line).toContain("-D X=1");
+    expect(line).toContain("-c gcc");
+  });
+
+  it("falls back to the __tool_info__ values when the options file cannot be parsed", async () => {
+    const store = storeWithOptionsFile();
+    const tecsgen = fakeTecsgenGateway();
+    const failing = { parseTecsgenOptionsFile: async () => { throw new Error("gone"); } } as unknown as FileGateway;
+    await generate(store, failing, tecsgen.gateway);
+    expect(tecsgen.calls).toHaveLength(1);
+    expect(tecsgen.calls[0]).not.toContain("-D");
+  });
+
+  it("does not touch the options file when none was opened", async () => {
+    const store = new AppStore(loadDoc());
+    store.loadDocument(loadDoc(), "/proj/main.cde");
+    const parse = vi.fn();
+    const tecsgen = fakeTecsgenGateway();
+    await generate(store, { parseTecsgenOptionsFile: parse } as unknown as FileGateway, tecsgen.gateway);
+    expect(parse).not.toHaveBeenCalled();
   });
 });

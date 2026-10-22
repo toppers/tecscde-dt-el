@@ -13,11 +13,36 @@
 // 第4章4.5節のコマンド群と同じ）。
 
 import { save } from "./file-actions";
-import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
+import { TecsgenCommandBuilder, type TecsgenCommandInput } from "../tecsgen/command-builder";
 import { TecsgenResultParser } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
+
+/**
+ * 第7C章7.7.4節（7.）・外部仕様8.4.2: tecsgenに渡す入力を、`__tool_info__`と`.tecsgen-opts`から合成する。
+ * `.tecsgen-opts`は呼ぶたびに再解析する（前回セッションの復元では`optionsFilePath`しか覚えていないため）。
+ * 解析に失敗したとき、またはオプションファイルが無いときは、`__tool_info__`の値だけを使う。
+ */
+async function resolveCommandInput(
+  store: AppStore,
+  fileGateway: Pick<FileGateway, "parseTecsgenOptionsFile">,
+  editingFilePath: string,
+): Promise<TecsgenCommandInput> {
+  const info = store.getDocument().toolInfoTecsgen;
+  const optionsFilePath = store.getOptionsFilePath();
+  const options = optionsFilePath
+    ? await fileGateway.parseTecsgenOptionsFile(optionsFilePath).catch(() => undefined)
+    : undefined;
+  return {
+    baseDir: info.baseDir,
+    importPath: [...(info.importPath ?? []), ...(options?.importPaths ?? [])],
+    defineMacro: [...(info.defineMacro ?? []), ...(options?.defineMacros ?? [])],
+    cpp: options?.cpp ?? info.cpp,
+    referenceFilePaths: store.getReferenceFilePaths(),
+    editingFilePath,
+  };
+}
 
 export async function generate(store: AppStore, fileGateway: FileGateway, tecsgenGateway: TecsgenGateway): Promise<void> {
   if (!store.filePath) return;
@@ -29,14 +54,7 @@ export async function generate(store: AppStore, fileGateway: FileGateway, tecsge
 
   store.setGenerating(true);
   try {
-    const doc = store.getDocument();
-    const args = TecsgenCommandBuilder.buildArgs({
-      baseDir: doc.toolInfoTecsgen.baseDir,
-      importPath: doc.toolInfoTecsgen.importPath,
-      defineMacro: doc.toolInfoTecsgen.defineMacro,
-      referenceFilePaths: store.getReferenceFilePaths(),
-      editingFilePath: store.filePath,
-    });
+    const args = TecsgenCommandBuilder.buildArgs(await resolveCommandInput(store, fileGateway, store.filePath));
     const result = await tecsgenGateway.generate(args);
     store.setTecsgenDiagnostics(TecsgenResultParser.parse(result));
   } finally {
@@ -44,15 +62,11 @@ export async function generate(store: AppStore, fileGateway: FileGateway, tecsge
   }
 }
 
-/** 外部仕様8.4.2: 実行に加えて、提示・コピー経路も残す。 */
-export function tecsgenCommandLine(store: AppStore): string | undefined {
+/** 外部仕様8.4.2: 実行に加えて、提示・コピー経路も残す。`generate()`と同じ入力から組み立てる。 */
+export async function tecsgenCommandLine(
+  store: AppStore,
+  fileGateway: Pick<FileGateway, "parseTecsgenOptionsFile">,
+): Promise<string | undefined> {
   if (!store.filePath) return undefined;
-  const doc = store.getDocument();
-  return TecsgenCommandBuilder.buildCommandLine({
-    baseDir: doc.toolInfoTecsgen.baseDir,
-    importPath: doc.toolInfoTecsgen.importPath,
-    defineMacro: doc.toolInfoTecsgen.defineMacro,
-    referenceFilePaths: store.getReferenceFilePaths(),
-    editingFilePath: store.filePath,
-  });
+  return TecsgenCommandBuilder.buildCommandLine(await resolveCommandInput(store, fileGateway, store.filePath));
 }

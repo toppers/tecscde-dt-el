@@ -25,7 +25,7 @@ function stubApi(): TecscdeApi {
       confirmDiscardChanges: vi.fn().mockResolvedValue(true),
       saveSession: vi.fn().mockResolvedValue(undefined),
       resolveImports: vi.fn().mockResolvedValue([]),
-      parseTecsgenOptionsFile: vi.fn().mockResolvedValue({ cdlFiles: [], importPaths: [] }),
+      parseTecsgenOptionsFile: vi.fn().mockResolvedValue({ cdlFiles: [], importPaths: [], defineMacros: [] }),
     },
     tecsgen: {
       generate: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),

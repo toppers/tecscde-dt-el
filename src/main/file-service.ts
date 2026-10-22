@@ -230,6 +230,7 @@ export class FileService {
     const cdlFiles: string[] = [];
     const importPaths: string[] = [];
     let cpp: string | undefined;
+    const defineMacros: string[] = [];
 
     for (let i = 0; i < tokens.length; i += 1) {
       const token = tokens[i]!;
@@ -254,14 +255,22 @@ export class FileService {
       } else if (token.startsWith("-c") && token.length > 2) {
         cpp = token.slice(2);
       } else if (token === "-D" || token === "--define") {
-        // -D/--define等その他のオプションは本節の範囲外として無視するが、値を消費しない
-        // とその値がCDLファイル名としてcdlFilesへ誤って混入するため、値も一緒に読み飛ばす。
-        if (tokens[i + 1]) i += 1;
+        // マクロ定義。値を消費しないとその値がCDLファイル名としてcdlFilesへ混入するため、
+        // 値ごと読み取る（tecsgenの実行へ引き継ぐ。外部仕様8.4.2）。
+        const value = tokens[i + 1];
+        if (value) {
+          defineMacros.push(value);
+          i += 1;
+        }
+      } else if (token.startsWith("--define=")) {
+        defineMacros.push(token.slice("--define=".length));
+      } else if (token.startsWith("-D") && token.length > 2) {
+        defineMacros.push(token.slice(2));
       } else if (/\.(?:cdl|cde)$/i.test(token)) {
         cdlFiles.push(token);
       }
-      // token.startsWith("-")かつ上記いずれにも一致しない（例: "--define=FOO=1"）その他の
-      // オプションは、値を伴わない形として素通しし無視する。
+      // token.startsWith("-")かつ上記いずれにも一致しないその他のオプションは、
+      // 値を伴わない形として素通しし無視する。
     }
     // tecsgenの実際のコマンドライン呼び出しは.tecsgen-optsファイルのあるディレクトリから
     // 行われる想定のため、CDLファイルパスは相対ならそのディレクトリを基点に解決する
@@ -269,7 +278,7 @@ export class FileService {
     // （fs.readFile）がmainプロセスの起動ディレクトリを基点に相対解決してしまい、実際には
     // 存在しないパスになる。
     const optsDir = dirname(path);
-    return { cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)), importPaths, cpp };
+    return { cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)), importPaths, cpp, defineMacros };
   }
 
   /**

@@ -203,6 +203,7 @@ describe("FileService", () => {
         cdlFiles: [join(dir, "celltypes.cdl"), join(dir, "main.cdl")], // .tecsgen-optsのあるディレクトリ基点で解決される
         importPaths: ["./include", "../shared"],
         cpp: "gcc",
+        defineMacros: ["FOO=1"],
       });
     });
 
@@ -213,7 +214,7 @@ describe("FileService", () => {
 
       const result = await service.parseTecsgenOptionsFile(path);
 
-      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang" });
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang", defineMacros: [] });
     });
 
     it("returns no cpp when the file has none", async () => {
@@ -223,7 +224,15 @@ describe("FileService", () => {
 
       const result = await service.parseTecsgenOptionsFile(path);
 
-      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./include"], cpp: undefined });
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./include"], cpp: undefined, defineMacros: [] });
+    });
+
+    it("collects every -D/--define form as a macro, in order, without leaking values into cdlFiles", async () => {
+      const path = join(dir, "defines.tecsgen-opts");
+      writeFileSync(path, "-D A=1 --define B --define=C=3 -DD=4 main.cdl");
+      const result = await new FileService({} as never).parseTecsgenOptionsFile(path);
+      expect(result.defineMacros).toEqual(["A=1", "B", "C=3", "D=4"]);
+      expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
     });
 
     it("resolves an already-absolute CDL file path unchanged", async () => {
@@ -248,6 +257,7 @@ describe("FileService", () => {
         cdlFiles: [join(dir, "main.cdl")],
         importPaths: ["./first", "../second"],
         cpp: undefined,
+        defineMacros: [],
       });
     });
 
