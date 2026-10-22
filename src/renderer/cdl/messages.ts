@@ -15,6 +15,7 @@ export const W_CODES = {
   DUP_CELL: "W-DUP-CELL",
   UNRESOLVED_CELLTYPE: "W-UNRESOLVED-CELLTYPE",
   MISSING_JOIN_TARGET: "W-MISSING-JOIN-TARGET",
+  /** DT-ELでは出さない（複合セルタイプの存在は警告にしない）。「出ない」ことを確かめるテストが参照する。 */
   COMPOSITE_UNSUPPORTED: "W-COMPOSITE-UNSUPPORTED",
   LAYOUT_DISCARDED: "W-LAYOUT-DISCARDED",
   REQUIRE_PORT_HIDDEN: "W-REQUIRE-PORT-HIDDEN",
@@ -61,14 +62,6 @@ export function missingJoinTarget(cellName: string, portName: string, cellId: Ce
     message: `結合 \`${cellName}.${portName}\` は結合先のセルが見つかりません`,
     relatedCellId: cellId,
     relatedPortName: portName,
-  };
-}
-
-export function compositeUnsupported(name: string): Diagnostic {
-  return {
-    severity: "warning",
-    code: W_CODES.COMPOSITE_UNSUPPORTED,
-    message: `複合セルタイプ \`${name}\` は本ツールでは対応していません`,
   };
 }
 
