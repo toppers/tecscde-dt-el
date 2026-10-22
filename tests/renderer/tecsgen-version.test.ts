@@ -102,4 +102,16 @@ describe("checkTecsgenVersion", () => {
     await checkTecsgenVersion(store, { version: async () => { throw new Error("ipc failed"); } }, log);
     expect(store.getReport().items.map((d) => d.code)).toContain(TECSGEN_VERSION_CODES.UNKNOWN);
   });
+
+  it("calls onWarning (to open the diagnostics panel) only when a warning was stored", async () => {
+    const log = { append: vi.fn().mockResolvedValue(undefined) };
+    const warn = vi.fn();
+    await checkTecsgenVersion(new AppStore(), { version: async () => ({ kind: "ok", text: "version 1.2.0" }) }, log, warn);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    const quiet = vi.fn();
+    await checkTecsgenVersion(new AppStore(), { version: async () => ({ kind: "ok", text: "version 1.9.1" }) }, log, quiet);
+    await checkTecsgenVersion(new AppStore(), { version: async () => ({ kind: "not-found" }) }, log, quiet);
+    expect(quiet).not.toHaveBeenCalled();
+  });
 });

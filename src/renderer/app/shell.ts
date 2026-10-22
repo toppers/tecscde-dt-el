@@ -160,6 +160,11 @@ export class AppShell {
     this.render();
   }
 
+  /** 診断パネルを開く（起動時のtecsgenの版の警告など、利用者の操作によらない診断を見せるため）。 */
+  openDiagnostics(): void {
+    this.diagnosticsPanel.open();
+  }
+
   dispose(): void {
     for (const d of this.disposers.splice(0)) d();
   }

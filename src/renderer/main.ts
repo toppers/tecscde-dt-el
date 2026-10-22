@@ -44,7 +44,7 @@ function main(): void {
   store.subscribe(() => logger.sync());
 
   // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
-  void checkTecsgenVersion(store, tecsgen, new LogGateway());
+  void checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics());
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {

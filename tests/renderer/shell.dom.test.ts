@@ -956,4 +956,15 @@ describe("AppShell — unsaved-changes report to main (7.9)", () => {
     expect(add.mock.calls.some(([type]) => type === "beforeunload")).toBe(false);
     add.mockRestore();
   });
+
+  it("openDiagnostics() reveals the panel when an environment warning exists", () => {
+    const { shell, store } = mountShell();
+    const panel = document.querySelector<HTMLElement>("#diagnostics-panel")!;
+    expect(panel.hidden).toBe(true);
+    store.setEnvironmentDiagnostics([{ severity: "warning", code: "W-TECSGEN-VERSION-OLD", message: "tecsgen の版 1.2.0 は古い" }]);
+    expect(panel.hidden).toBe(true); // 通知だけでは開かない
+    shell.openDiagnostics();
+    expect(panel.hidden).toBe(false);
+    expect(panel.textContent).toContain("W-TECSGEN-VERSION-OLD");
+  });
 });

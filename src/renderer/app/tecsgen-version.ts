@@ -72,11 +72,15 @@ function unknown(reason: string): Diagnostic {
   };
 }
 
-/** 起動時に1回呼ぶ。UIをブロックしないよう、呼び出し側は`void`で待たずに起動する。 */
+/**
+ * 起動時に1回呼ぶ。UIをブロックしないよう、呼び出し側は`void`で待たずに起動する。
+ * 警告を出したときは`onWarning`を呼ぶ（診断一覧を自動で開くため。外部仕様8.4.2）。
+ */
 export async function checkTecsgenVersion(
   store: Pick<AppStore, "setEnvironmentDiagnostics">,
   tecsgen: Pick<TecsgenGateway, "version">,
   log: Pick<LogGateway, "append">,
+  onWarning?: () => void,
 ): Promise<void> {
   let result: TecsgenVersionResult;
   try {
@@ -85,6 +89,9 @@ export async function checkTecsgenVersion(
     result = { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
   }
   const { diagnostics, logLine } = evaluateTecsgenVersion(result);
-  if (diagnostics.length > 0) store.setEnvironmentDiagnostics(diagnostics);
+  if (diagnostics.length > 0) {
+    store.setEnvironmentDiagnostics(diagnostics);
+    onWarning?.();
+  }
   if (logLine) await log.append([logLine]).catch(() => undefined);
 }
