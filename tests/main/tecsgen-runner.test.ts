@@ -221,6 +221,20 @@ describe("TecsgenRunner", () => {
     expect(result).toEqual({ stdout: "", stderr: "", exitCode: null, executableFound: false });
   });
 
+  describe("generate() (外部仕様5.3節: 作業ディレクトリ)", () => {
+    it("keeps the Generate limits (30s, default maxBuffer) without a cwd", async () => {
+      execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
+      await new TecsgenRunner().generate(["-I", "inc", "main.cdl"]);
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["-I", "inc", "main.cdl"], { timeout: 30_000 });
+    });
+
+    it("runs in the given directory with the same Generate limits (not the looser plugin-load limits)", async () => {
+      execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
+      await new TecsgenRunner().generate(["main.cdl"], "/proj/opts");
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["main.cdl"], { timeout: 30_000, cwd: "/proj/opts" });
+    });
+  });
+
   describe("version() (9C.2節)", () => {
     it("reads the version from stderr when stdout is empty (tecsgen prints its banner to stderr)", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "tecsgen  version 1.9.1  \n" });

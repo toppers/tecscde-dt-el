@@ -60,7 +60,7 @@ export function registerIpcHandlers(
   // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルの解析（2026-09-22追加）。
   ipcMain.handle("file:parseTecsgenOptionsFile", (_e, path: string) => fileService.parseTecsgenOptionsFile(path));
 
-  ipcMain.handle("tecsgen:generate", (_e, args: readonly string[]) => tecsgenRunner.run(args));
+  ipcMain.handle("tecsgen:generate", (_e, args: readonly string[], cwd?: string) => tecsgenRunner.generate(args, cwd));
   ipcMain.handle("tecsgen:generatedTypes", (_e, args: readonly string[], editingFilePath: string, optionsFilePath?: string) =>
     tecsgenRunner.generatedTypes(args, editingFilePath, optionsFilePath),
   );

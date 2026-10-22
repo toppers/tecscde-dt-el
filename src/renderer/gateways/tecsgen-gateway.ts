@@ -4,8 +4,8 @@
 import type { TecsgenResult, TecsgenVersionResult, CppResult, GeneratedCdlResult } from "../../shared/ipc-types.js";
 
 export class TecsgenGateway {
-  generate(args: readonly string[]): Promise<TecsgenResult> {
-    return window.tecscde.tecsgen.generate(args);
+  generate(args: readonly string[], cwd?: string): Promise<TecsgenResult> {
+    return cwd !== undefined ? window.tecscde.tecsgen.generate(args, cwd) : window.tecscde.tecsgen.generate(args);
   }
 
   generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult> {

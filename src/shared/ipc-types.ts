@@ -163,7 +163,8 @@ export interface TecscdeApi {
     parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile>;
   };
   readonly tecsgen: {
-    generate(args: readonly string[]): Promise<TecsgenResult>;
+    /** `cwd`は`.tecsgen-opts`のあるディレクトリ（外部仕様5.3節）。無ければ起動ディレクトリのまま。 */
+    generate(args: readonly string[], cwd?: string): Promise<TecsgenResult>;
     generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult>;
     preprocess(headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult>;
     version(): Promise<TecsgenVersionResult>;

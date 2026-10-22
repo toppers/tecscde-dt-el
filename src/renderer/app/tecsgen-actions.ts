@@ -14,6 +14,7 @@
 
 import { save } from "./file-actions";
 import { TecsgenCommandBuilder, type TecsgenCommandInput } from "../tecsgen/command-builder";
+import { dirnameOf } from "../../shared/path-under";
 import { TecsgenResultParser } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { FileGateway } from "../gateways/file-gateway";
@@ -28,19 +29,24 @@ async function resolveCommandInput(
   store: AppStore,
   fileGateway: Pick<FileGateway, "parseTecsgenOptionsFile">,
   editingFilePath: string,
-): Promise<TecsgenCommandInput> {
+): Promise<{ readonly input: TecsgenCommandInput; readonly cwd: string | undefined }> {
   const info = store.getDocument().toolInfoTecsgen;
   const optionsFilePath = store.getOptionsFilePath();
   const options = optionsFilePath
     ? await fileGateway.parseTecsgenOptionsFile(optionsFilePath).catch(() => undefined)
     : undefined;
   return {
-    baseDir: info.baseDir,
-    importPath: [...(info.importPath ?? []), ...(options?.importPaths ?? [])],
-    defineMacro: [...(info.defineMacro ?? []), ...(options?.defineMacros ?? [])],
-    cpp: options?.cpp ?? info.cpp,
-    referenceFilePaths: store.getReferenceFilePaths(),
-    editingFilePath,
+    // `.tecsgen-opts`を開いているときは、そのあるディレクトリでtecsgenを起動する（外部仕様5.3節。
+    // 相対パスの`-I`・`-S`の基点を変えないため）。
+    cwd: optionsFilePath ? dirnameOf(optionsFilePath) : undefined,
+    input: {
+      baseDir: info.baseDir,
+      importPath: [...(info.importPath ?? []), ...(options?.importPaths ?? [])],
+      defineMacro: [...(info.defineMacro ?? []), ...(options?.defineMacros ?? [])],
+      cpp: options?.cpp ?? info.cpp,
+      referenceFilePaths: store.getReferenceFilePaths(),
+      editingFilePath,
+    },
   };
 }
 
@@ -54,8 +60,8 @@ export async function generate(store: AppStore, fileGateway: FileGateway, tecsge
 
   store.setGenerating(true);
   try {
-    const args = TecsgenCommandBuilder.buildArgs(await resolveCommandInput(store, fileGateway, store.filePath));
-    const result = await tecsgenGateway.generate(args);
+    const { input, cwd } = await resolveCommandInput(store, fileGateway, store.filePath);
+    const result = await tecsgenGateway.generate(TecsgenCommandBuilder.buildArgs(input), cwd);
     store.setTecsgenDiagnostics(TecsgenResultParser.parse(result));
   } finally {
     store.setGenerating(false);
@@ -68,5 +74,5 @@ export async function tecsgenCommandLine(
   fileGateway: Pick<FileGateway, "parseTecsgenOptionsFile">,
 ): Promise<string | undefined> {
   if (!store.filePath) return undefined;
-  return TecsgenCommandBuilder.buildCommandLine(await resolveCommandInput(store, fileGateway, store.filePath));
+  return TecsgenCommandBuilder.buildCommandLine((await resolveCommandInput(store, fileGateway, store.filePath)).input);
 }

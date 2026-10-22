@@ -26,16 +26,18 @@ function loadDoc(): TecscdeDocument {
 
 const noopFileGateway = { open: async () => null, save: async () => undefined, saveAs: async () => null, export: async () => undefined } as unknown as FileGateway;
 
-function fakeTecsgenGateway(result: Partial<TecsgenResult> = {}): { gateway: TecsgenGateway; calls: string[][] } {
+function fakeTecsgenGateway(result: Partial<TecsgenResult> = {}): { gateway: TecsgenGateway; calls: string[][]; cwds: Array<string | undefined> } {
   const calls: string[][] = [];
+  const cwds: Array<string | undefined> = [];
   const gateway = {
-    generate: (args: readonly string[]) => {
+    generate: (args: readonly string[], cwd?: string) => {
       calls.push([...args]);
+      cwds.push(cwd);
       return Promise.resolve<TecsgenResult>({ stdout: "", stderr: "", exitCode: 0, executableFound: true, ...result });
     },
     version: () => Promise.resolve(null),
   } as unknown as TecsgenGateway;
-  return { gateway, calls };
+  return { gateway, calls, cwds };
 }
 
 describe("generate", () => {
@@ -161,6 +163,30 @@ describe("tecsgen-opts options are passed to tecsgen (外部仕様8.4.2)", () =>
     const line = await tecsgenCommandLine(store, optionsGateway({ cdlFiles: [], importPaths: [], cpp: "gcc", defineMacros: ["X=1"] }));
     expect(line).toContain("-D X=1");
     expect(line).toContain("-c gcc");
+  });
+
+  it("starts tecsgen in the directory of the options file so relative -I/-S keep their base (外部仕様5.3節)", async () => {
+    const store = storeWithOptionsFile();
+    const tecsgen = fakeTecsgenGateway();
+    await generate(store, optionsGateway({ cdlFiles: [], importPaths: ["./inc"], defineMacros: [], systemDirs: [] }), tecsgen.gateway);
+    expect(tecsgen.cwds).toEqual(["/proj"]);
+    expect(tecsgen.calls[0]).toEqual(expect.arrayContaining(["-I", "./inc"]));
+  });
+
+  it("still starts in the options file directory when parsing fails", async () => {
+    const store = storeWithOptionsFile();
+    const tecsgen = fakeTecsgenGateway();
+    const failing = { parseTecsgenOptionsFile: async () => { throw new Error("gone"); } } as unknown as FileGateway;
+    await generate(store, failing, tecsgen.gateway);
+    expect(tecsgen.cwds).toEqual(["/proj"]);
+  });
+
+  it("does not set a working directory when no options file was opened", async () => {
+    const store = new AppStore(loadDoc());
+    store.loadDocument(loadDoc(), "/proj/main.cde");
+    const tecsgen = fakeTecsgenGateway();
+    await generate(store, noopFileGateway, tecsgen.gateway);
+    expect(tecsgen.cwds).toEqual([undefined]);
   });
 
   it("falls back to the __tool_info__ values when the options file cannot be parsed", async () => {

@@ -40,3 +40,14 @@ export function isUnderAny(path: string, dirs: readonly string[]): boolean {
     return target.startsWith(prefix) && target.length > prefix.length;
   });
 }
+
+/**
+ * ファイルパスのディレクトリ部分（元の区切り文字のまま）。区切りが無ければ`undefined`。
+ * rendererはNodeの`path`を使えないため、tecsgenの作業ディレクトリ（`.tecsgen-opts`のあるディレクトリ）を
+ * 求めるのに使う。
+ */
+export function dirnameOf(path: string): string | undefined {
+  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf(String.fromCharCode(92)));
+  if (index < 0) return undefined;
+  return index === 0 ? path.slice(0, 1) : path.slice(0, index);
+}

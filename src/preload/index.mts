@@ -50,7 +50,8 @@ const api: TecscdeApi = {
       ipcRenderer.invoke("file:parseTecsgenOptionsFile", path),
   },
   tecsgen: {
-    generate: (args: readonly string[]): Promise<TecsgenResult> => ipcRenderer.invoke("tecsgen:generate", args),
+    generate: (args: readonly string[], cwd?: string): Promise<TecsgenResult> =>
+      cwd !== undefined ? ipcRenderer.invoke("tecsgen:generate", args, cwd) : ipcRenderer.invoke("tecsgen:generate", args),
     generatedTypes: (args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult> =>
       ipcRenderer.invoke("tecsgen:generatedTypes", args, editingFilePath, optionsFilePath),
     preprocess: (headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult> =>

@@ -100,7 +100,20 @@ export function classifyLaunchFailure(err: unknown, command: string): TecsgenLau
 }
 
 export class TecsgenRunner {
-  async run(args: readonly string[], cwd?: string): Promise<TecsgenResult> {
+  /**
+   * 「実行(Generate)」用。上限は`run()`の既定（30秒・既定の`maxBuffer`）のまま、`cwd`だけを指定できる
+   * （外部仕様5.3節: `.tecsgen-opts`のあるディレクトリで起動し、相対パスの基点を変えない）。
+   * `run(args, cwd)`は上限が緩い（120秒・16MiB）Plugin型の取り込み用なので、使い分ける。
+   */
+  async generate(args: readonly string[], cwd?: string): Promise<TecsgenResult> {
+    return this.run(args, cwd, cwd ? { timeout: 30_000, cwd } : { timeout: 30_000 });
+  }
+
+  async run(
+    args: readonly string[],
+    cwd?: string,
+    execOptions?: { readonly timeout: number; readonly cwd?: string },
+  ): Promise<TecsgenResult> {
     let command = process.env.TECSGEN_COMMAND || "tecsgen";
     try {
       const [executable, ...prefixArgs] = process.env.TECSGEN_COMMAND
@@ -108,9 +121,9 @@ export class TecsgenRunner {
         : ["tecsgen"];
       if (!executable) throw new Error("TECSGEN_COMMAND is empty");
       command = executable;
-      const options = cwd
+      const options = execOptions ?? (cwd
         ? { timeout: 120_000, maxBuffer: 16 * 1024 * 1024, cwd }
-        : { timeout: 30_000 };
+        : { timeout: 30_000 });
       const { stdout, stderr } = await execFileAsync(executable, [...prefixArgs, ...args], options);
       return { stdout, stderr, exitCode: 0, executableFound: true };
     } catch (err) {

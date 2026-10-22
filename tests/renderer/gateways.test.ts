@@ -111,6 +111,8 @@ describe("TecsgenGateway", () => {
 
     gateway.generate(["-c", "main.cde"]);
     expect(api.tecsgen.generate).toHaveBeenCalledWith(["-c", "main.cde"]);
+    gateway.generate(["-c", "main.cde"], "/root");
+    expect(api.tecsgen.generate).toHaveBeenCalledWith(["-c", "main.cde"], "/root");
 
     gateway.preprocess("header.h", "gcc -E", ["/inc"]);
     expect(api.tecsgen.preprocess).toHaveBeenCalledWith("header.h", "gcc -E", ["/inc"]);

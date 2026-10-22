@@ -98,6 +98,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:parseTecsgenOptionsFile", "/root/build.tecsgen-opts");
   });
 
+  it("tecsgen.generate forwards the working directory when given", () => {
+    exposedApi().tecsgen.generate(["-c", "main.cde"], "/root");
+    expect(invoke).toHaveBeenCalledWith("tecsgen:generate", ["-c", "main.cde"], "/root");
+  });
+
   it("tecsgen.generate invokes tecsgen:generate with args", () => {
     exposedApi().tecsgen.generate(["-c", "main.cde"]);
     expect(invoke).toHaveBeenCalledWith("tecsgen:generate", ["-c", "main.cde"]);
