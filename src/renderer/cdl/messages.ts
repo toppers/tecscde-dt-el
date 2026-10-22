@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 4.4, 9.1.2, 9.2.2 — エラー・警告のメッセージカタログ。
+// TECSCDE-TS内部仕様 4.4, 9.1.2, 9.2.2 / [[TECSCDE-DT-EL内部仕様]] 04B・08 — エラー・警告のメッセージカタログ（警告コードは`W_CODES`に集約する）。
 //
 // 注記（実装上の簡略化）: 本実装は tecsgen 本体のソースを持たないため、コード体系（G1xxx/S1xxx）と
 // 代表的なメッセージ文言のみを外部仕様が引用する範囲で再現し、網羅はしていない。
@@ -23,6 +23,9 @@ export const W_CODES = {
   UNRESOLVED_REF_FILE: "W-UNRESOLVED-REF-FILE",
   CPP_FALLBACK: "W-CPP-FALLBACK",
   CDECL_PARSE_ERROR: "W-CDECL-PARSE",
+  C_TYPE_UNRESOLVED: "W-C-TYPE-UNRESOLVED",
+  PORT_SIGNATURE_UNRESOLVED: "W-PORT-SIGNATURE-UNRESOLVED",
+  REGION_MISMATCH: "W-REGION-MISMATCH",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {

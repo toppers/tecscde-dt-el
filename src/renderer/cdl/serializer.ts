@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 2.2 — TecscdeDocument を .cde（CDL本体）テキストへ書き戻す（CdlSerializer）。
+// TECSCDE-TS内部仕様 2.2 / [[TECSCDE-DT-EL内部仕様]] 04B — TecscdeDocument を .cde（CDL本体）テキストへ書き戻す（CdlSerializer）。
 // 既存ファイルではCDLのスコープ・未対応構文を保持してセル定義とtool_infoを更新する。
 // 新規ドキュメントは既定の3ブロック形式で出力する。
 

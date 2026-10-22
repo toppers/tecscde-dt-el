@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 2.2/2.4 — tree-sitter文法のロードと初期化（CdlGrammar）。
+// TECSCDE-TS内部仕様 2.2/2.4 / [[TECSCDE-DT-EL内部仕様]] 04B — tree-sitter文法のロードと初期化（CdlGrammar）。
 //
 // 構文解析は tecsgen 自身の構文定義からの移植文法に委ねる（外部仕様2.2が唯一の
 // 外部依存として認めるCDL解析系）。本クラスはその文法をロードし、初期化済みの

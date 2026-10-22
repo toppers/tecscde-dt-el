@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 2.2 — tree-sitterのCSTを走査して中間表現を組み立てる（CdlDocumentBuilder）。
+// TECSCDE-TS内部仕様 2.2 / [[TECSCDE-DT-EL内部仕様]] 04B — tree-sitterのCSTを走査して中間表現を組み立てる（CdlDocumentBuilder）。
 //
 // パーサはCDLの全構文を解析する（tecsgen自身の構文定義からの移植文法を用いるため
 // 解析範囲を絞る理由がない）。図のモデルには cell・celltype・signature と
@@ -19,7 +19,10 @@ export interface PortDecl {
   readonly signature: string;
   readonly name: string;
   readonly arraySize?: number;
+  /** 名前なしの`require`（図に出ない呼び口）。名前つきの`require`は通常の呼び口として`false`にする。 */
   readonly isRequire: boolean;
+  /** 名前つき`require`（`require 名前 = 要求先.受け口;`）の要求先。ローダーがシグニチャを解決する。 */
+  readonly requireTarget?: { readonly owner: string; readonly entry: string };
   readonly scopePath: string;
   readonly line: number;
   readonly column: number;
@@ -233,67 +236,11 @@ export class CdlDocumentBuilder {
       }
     };
 
+    // トップレベルも入れ子と同じ処理（`visitNested`、親のパスは`::`）で走査する。以前は同じ分岐を
+    // 別の`switch`で持っていた（第4B章4B.10節）。
     for (let i = 0; i < root.namedChildCount; i += 1) {
       const top = root.namedChild(i);
-      if (!top) continue;
-      // 入れ子の namespace/region は visitNested で再帰走査する。
-      const statement =
-        top.type === "specified_statement" ? top.childForFieldName("statement") : top;
-      if (!statement) continue;
-
-      switch (statement.type) {
-        case "signature": {
-          const name = statement.childForFieldName("name");
-          if (name) signatures.push({
-            name: name.text,
-            hasFunctions: Boolean(statement.childForFieldName("body")),
-            functions: signatureFunctions(statement),
-            line: statement.startPosition.row + 1,
-            column: statement.startPosition.column + 1,
-          });
-          break;
-        }
-        case "typedef":
-          typedefs.push(...localTypedefs(statement));
-          break;
-        case "generate_statement": {
-          const generate = CdlDocumentBuilder.collectGenerate(statement, "::");
-          if (generate) generates.push(generate);
-          break;
-        }
-        case "celltype": {
-          const celltype = CdlDocumentBuilder.collectCelltype(statement, "::");
-          if (celltype) celltypes.push(celltype);
-          break;
-        }
-        case "cell": {
-          const cell = CdlDocumentBuilder.collectCell(statement);
-          if (cell) cells.push(cell);
-          break;
-        }
-        case "import": {
-          const path = statement.childForFieldName("path");
-          if (path) {
-            imports.push({ kind: "import", path: unquote(path.text), rawText: statement.text });
-          }
-          break;
-        }
-        case "import_c": {
-          const header = statement.childForFieldName("header");
-          if (header) {
-            imports.push({ kind: "import_C", path: unquote(header.text), rawText: statement.text });
-          }
-          break;
-        }
-        case "composite_celltype": {
-          const composite = CdlDocumentBuilder.collectComposite(statement, "::");
-          if (composite) composites.push(composite);
-          break;
-        }
-        default:
-          if (statement.type === "namespace" || statement.type === "region") visitNested(statement, "::");
-          break;
-      }
+      if (top) visitNested(top, "::");
     }
 
     if (root.hasError) CdlDocumentBuilder.collectSyntaxDiagnostics(root, diagnostics);
@@ -316,6 +263,28 @@ export class CdlDocumentBuilder {
     };
   }
 
+  /**
+   * `require`文（第4B章4B.5節）。名前つき（`require 名前 = 要求先.受け口;`）は、利用者が結合できる
+   * 通常の呼び口になる（シグニチャは要求先の受け口から、ローダーが解決する）。名前なし
+   * （`require 要求先.受け口;`）は図に出ない呼び口で、`isRequire`として数え、警告の対象にする。
+   */
+  private static collectRequire(requireNode: Node, scopePath: string): PortDecl | undefined {
+    const parts = requireNode.namedChildren.filter((child): child is Node => child !== null);
+    const ownerIndex = parts.findIndex((child) => child.type === "namespace_identifier");
+    const owner = parts[ownerIndex];
+    const entry = parts[ownerIndex + 1];
+    if (!owner || !entry) return undefined;
+    const nameNode = ownerIndex === 1 ? parts[0] : undefined;
+    const location = { line: requireNode.startPosition.row + 1, column: requireNode.startPosition.column + 1 };
+    if (nameNode) {
+      return {
+        kind: "call", signature: "", name: nameNode.text, isRequire: false,
+        requireTarget: { owner: owner.text, entry: entry.text }, scopePath, ...location,
+      };
+    }
+    return { kind: "call", signature: "", name: "", isRequire: true, scopePath, ...location };
+  }
+
   private static collectPort(portNode: Node, scopePath: string): PortDecl | undefined {
     const kindNode = portNode.childForFieldName("kind");
     const signature = portNode.childForFieldName("signature");
@@ -329,8 +298,8 @@ export class CdlDocumentBuilder {
       signature: signature.text,
       name: name.text,
       arraySize: Number.isFinite(parsedSize) ? parsedSize : undefined,
-      // 実際のCDLでは require は独立した celltype_statement であり、
-      // ポート宣言の修飾子ではない。ポート側からは立てない。
+      // 実際のCDLでは require は独立した celltype_statement であり、ポート宣言の修飾子ではない。
+      // `port`文から立てることはない（`require`は`collectRequire`が拾う）。
       isRequire: false,
       scopePath,
       line: portNode.startPosition.row + 1,
@@ -456,8 +425,11 @@ export class CdlDocumentBuilder {
             if (port) ports.push(port);
           } else if (member.type === "attribute") {
             attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+          } else if (member.type === "require") {
+            const required = CdlDocumentBuilder.collectRequire(member, parentPath);
+            if (required) ports.push(required);
           }
-          // var / require / factory はモデルに反映しない
+          // var / factory はモデルに反映しない
         }
       }
     }

@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 2.2 — __tool_info__ ブロックの抽出とスキーマ検証（ToolInfoValidator）。
+// TECSCDE-TS内部仕様 2.2 / [[TECSCDE-DT-EL内部仕様]] 04B — __tool_info__ ブロックの抽出とスキーマ検証（ToolInfoValidator）。
 //
 // 外部仕様5.1.1: __tool_info__ の中身は「JSON形式」で記述される。
 // `__tool_info__("name")` の直後にある波括弧のバランスを文字列リテラルを考慮して数え、
@@ -6,6 +6,7 @@
 // （コロン等）を覚えさせないための前処理として、抽出した範囲は空白に置換してから
 // 本体のトークナイズに渡す（行番号・桁番号を保つため改行は残す）。
 
+import { W_CODES } from "./messages";
 import type { PaperOrientation, PaperSize } from "../model/paper";
 import { CDE_FORMAT_VERSION, type ToolInfoTecsgen } from "../model/tool-info-types";
 import type { Diagnostic } from "../diagnostics/types";
@@ -291,7 +292,7 @@ export class ToolInfoValidator {
     if (info.cdeFormatVersion > CDE_FORMAT_VERSION) {
       return {
         severity: "warning",
-        code: "W-NEWER-FORMAT",
+        code: W_CODES.NEWER_FORMAT,
         message: `保存された形式版数 (${info.cdeFormatVersion}) は本ツールの対応版数 (${CDE_FORMAT_VERSION}) より新しいため、一部の情報が正しく解釈されない場合があります`,
       };
     }
@@ -307,7 +308,7 @@ export class ToolInfoValidator {
     } catch {
       diagnostics.push({
         severity: "warning",
-        code: "W-LAYOUT-PARSE-ERROR",
+        code: W_CODES.LAYOUT_PARSE_ERROR,
         message: '__tool_info__("tecscde") のJSONを解析できませんでした。レイアウトなしで続行します',
       });
       return { parsed: { cellList: {}, joinList: {}, unknownFields: {} }, diagnostics };
@@ -339,7 +340,7 @@ export class ToolInfoValidator {
         } else {
           diagnostics.push({
             severity: "warning",
-            code: "W-LAYOUT-DISCARDED",
+            code: W_CODES.LAYOUT_DISCARDED,
             message: `セル \`${name}\` の保存済みレイアウトは形式が不正なため破棄し、自動配置しました`,
           });
         }
@@ -362,7 +363,7 @@ export class ToolInfoValidator {
         } else {
           diagnostics.push({
             severity: "warning",
-            code: "W-LAYOUT-DISCARDED",
+            code: W_CODES.LAYOUT_DISCARDED,
             message: `結合 \`${key}\` の保存済み経路は形式が不正なため破棄し、自動生成しました`,
           });
         }

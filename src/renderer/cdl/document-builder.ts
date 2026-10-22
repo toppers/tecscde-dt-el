@@ -1,4 +1,4 @@
-// TECSCDE-TS内部仕様 11.3 — CdlDocumentBuilder + ToolInfoValidator の結果を TecscdeDocument へ組み立てる
+// TECSCDE-TS内部仕様 11.3 / [[TECSCDE-DT-EL内部仕様]] 04B — CdlDocumentBuilder + ToolInfoValidator の結果を TecscdeDocument へ組み立てる（CdlDocumentLoader）
 // （CdlDocumentLoader）。外部仕様5.3.2（読み込み時の未解決要素の扱い）・5.5.2（要素単位のレイアウト適用）・
 // 8.1.2（複数ファイル読み込み時、最後の1つが編集対象・他は参照専用）を実装する。
 
@@ -19,7 +19,7 @@ import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDec
 import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
 import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
-import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
+import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import { isUnderAny } from "../../shared/path-under";
 
@@ -237,7 +237,9 @@ function attachedCommentStart(source: string, cellStart: number): number {
 
 export class CdlDocumentLoader {
   /**
-   * 複数ファイルをまとめて読み込む（8.1.2）。編集対象ファイルのcellのみeditable=trueとなり、
+   * 複数ファイルをまとめて読み込む（8.1.2）。各セルの`editable`は、呼び出し側が渡す`CdlSource.editable`で決まる
+   * （通常のCDLは全て編集可能、Plugin生成CDLは不可）。ただし`options.systemDirs`配下のCDLは、
+   * `allowEditSystemDefined`が真でない限り、ソースごと編集不可になる（第3章3.2節）。
    * セルタイプはどのファイルで定義されていても全ファイル分を解決対象として扱う。
    */
   static loadSources(inputSources: readonly CdlSource[], options: LoadOptions = {}): LoadResult {
@@ -344,7 +346,7 @@ export class CdlDocumentLoader {
     const resolveUse = (type: TypeUse, fileName: string): TypeResolution => {
       const resolved = type.type ? typeRegistry.resolve(type.type) : { origins: [], fallback: false, reason: "解釈できない C 型" };
       if (resolved.reason) diagnostics.push({
-        severity: "warning", code: "W-C-TYPE-UNRESOLVED", message: resolved.reason,
+        severity: "warning", code: W_CODES.C_TYPE_UNRESOLVED, message: resolved.reason,
         location: { file: fileName, line: type.line, column: type.column },
       });
       return resolved;
@@ -368,18 +370,40 @@ export class CdlDocumentLoader {
       const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
       portTypes.set(portTypeKey(celltypeName, port.kind, port.name), { signatureId: id, valid });
       if (!id) diagnostics.push({
-        severity: "warning", code: "W-PORT-SIGNATURE-UNRESOLVED",
+        severity: "warning", code: W_CODES.PORT_SIGNATURE_UNRESOLVED,
         message: `ポート ${port.name} のシグニチャ ${port.signature} を解決できません。`,
         location: { file: fileName, line: port.line, column: port.column },
         relatedPortName: port.name,
       });
       return { name: port.name, signature: id ? `::${id}` : port.signature, arraySize: port.arraySize };
     };
+    // 名前つき`require`（`require 名前 = 要求先.受け口;`）の呼び口は、要求先の受け口のシグニチャを持つ
+    // （第4B章4B.5節）。要求先は、セルタイプ名、またはセル名（そのセルのセルタイプ）で指定される。
+    const celltypeDeclarations = new Map<string, CelltypeDecl>();
+    for (const { declaration } of pendingCelltypes) {
+      if (!isOrdinaryCelltype(declaration)) continue;
+      celltypeDeclarations.set(declaration.name, declaration);
+      celltypeDeclarations.set(declaration.qualifiedName, declaration);
+    }
+    const celltypeNameOfCell = new Map<string, string>();
+    for (const parsedSource of parsedSources) {
+      for (const cellDecl of parsedSource.cells) {
+        if (!celltypeNameOfCell.has(cellDecl.cellName)) celltypeNameOfCell.set(cellDecl.cellName, cellDecl.celltypeName);
+      }
+    }
+    const withRequireSignature = (port: PortDecl): PortDecl => {
+      if (!port.requireTarget) return port;
+      const { owner, entry } = port.requireTarget;
+      const declaration = celltypeDeclarations.get(owner) ?? celltypeDeclarations.get(celltypeNameOfCell.get(owner) ?? "");
+      const target = declaration?.ports.find((candidate) => candidate.kind === "entry" && candidate.name === entry);
+      // 見つからないときは要求先の表記をそのままシグニチャにし、解決できない警告で知らせる。
+      return target ? { ...port, signature: target.signature, scopePath: target.scopePath } : { ...port, signature: `${owner}.${entry}` };
+    };
     for (const { declaration: ct, source } of pendingCelltypes) {
       const composite = isOrdinaryCelltype(ct) ? undefined : ct.structure;
       const typeName = source.generated && isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name;
       const cportDecls = ct.ports.filter((p) => p.kind === "call" && !p.isRequire)
-        .map((p) => portDeclaration(typeName, p, source.fileName));
+        .map((p) => portDeclaration(typeName, withRequireSignature(p), source.fileName));
       const eportDecls = ct.ports.filter((p) => p.kind === "entry")
         .map((p) => portDeclaration(typeName, p, source.fileName));
       const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
@@ -437,7 +461,7 @@ export class CdlDocumentLoader {
         const regionPath = decl.regionPath !== "::" ? decl.regionPath :
           savedRegion && (src.editable ? editableRegionPaths : regionPaths).has(savedRegion) ? savedRegion : "::";
         if (savedRegion && savedRegion !== regionPath) diagnostics.push({
-          severity: "warning", code: "W-REGION-MISMATCH",
+          severity: "warning", code: W_CODES.REGION_MISMATCH,
           message: `セル ${decl.cellName} のリージョン情報 ${savedRegion} とCDLの所属 ${regionPath} が一致しません。`,
           location: { file: src.fileName, line: decl.line, column: decl.column },
         });
