@@ -11,6 +11,7 @@ import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
 import { AppStore } from "./app/store";
+import { WindowGateway } from "./gateways/window-gateway";
 import { AppShell } from "./app/shell";
 import { applyOpenResult } from "./app/file-actions";
 import { CdlGrammar } from "./cdl/grammar";
@@ -34,7 +35,7 @@ function main(): void {
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
   const tecsgen = new TecsgenGateway();
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway: new WindowGateway(), win: window });
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。

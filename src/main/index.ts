@@ -5,7 +5,8 @@
 // （4プロセス構成で起動、preload も ESM でロード成功）。
 // 詳細・残課題は [[work/active/TECSCDE-DT-EL実装]] の Notes を参照。
 
-import { app, BrowserWindow, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import type { IpcMainEvent } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -14,6 +15,7 @@ import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { LogService } from "./log-service.js";
 import { registerIpcHandlers } from "./ipc.js";
+import { CloseGuard } from "./close-guard.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 
@@ -84,6 +86,25 @@ function createWindow(): BrowserWindow {
   // 起きないようにする（2026-09-21、対話的確認の過程で存在に気づいた。実際に競合していたと
   // 確認したわけではないが、有効なままにする理由もない）。
   win.webContents.setVisualZoomLevelLimits(1, 1);
+
+  // 第7章7.9節: 未保存の変更があるままウィンドウを閉じようとしたら確認する。
+  // rendererの`beforeunload`は実機で確認なしに終了したため使わず、mainの`close`で止める。
+  const closeGuard = new CloseGuard(win, async () => {
+    const result = await dialog.showMessageBox(win, {
+      type: "warning",
+      buttons: ["保存せずに終了", "キャンセル"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "未保存の変更があります",
+      detail: "保存せずに終了すると、現在の変更内容は失われます。",
+    });
+    return result.response === 0;
+  });
+  const onSetDirty = (event: IpcMainEvent, dirty: unknown): void => {
+    if (event.sender === win.webContents) closeGuard.setDirty(dirty === true);
+  };
+  ipcMain.on("window:setDirty", onSetDirty);
+  win.on("closed", () => ipcMain.removeListener("window:setDirty", onSetDirty));
 
   const fileService = new FileService(win);
   const tecsgenRunner = new TecsgenRunner();

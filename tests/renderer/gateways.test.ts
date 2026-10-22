@@ -7,6 +7,7 @@ import { FileGateway } from "../../src/renderer/gateways/file-gateway.js";
 import { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway.js";
 import { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway.js";
 import { LogGateway } from "../../src/renderer/gateways/log-gateway.js";
+import { WindowGateway } from "../../src/renderer/gateways/window-gateway.js";
 import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
@@ -37,6 +38,9 @@ function stubApi(): TecscdeApi {
     clipboard: {
       writeText: vi.fn(),
       readText: vi.fn().mockReturnValue(""),
+    },
+    window: {
+      setDirty: vi.fn(),
     },
     log: {
       append: vi.fn().mockResolvedValue(undefined),
@@ -132,5 +136,13 @@ describe("ClipboardGateway", () => {
 
     gateway.readText();
     expect(api.clipboard.readText).toHaveBeenCalled();
+  });
+});
+
+describe("WindowGateway", () => {
+  it("delegates setDirty to window.tecscde.window", () => {
+    const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
+    new WindowGateway().setDirty(true);
+    expect(api.window.setDirty).toHaveBeenCalledWith(true);
   });
 });

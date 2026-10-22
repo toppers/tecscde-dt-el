@@ -61,6 +61,9 @@ const api: TecscdeApi = {
     writeText: (text: string): Promise<void> => ipcRenderer.invoke("clipboard:writeText", text),
     readText: (): Promise<string> => ipcRenderer.invoke("clipboard:readText"),
   },
+  window: {
+    setDirty: (dirty: boolean): void => ipcRenderer.send("window:setDirty", dirty),
+  },
   log: {
     append: (lines: readonly string[]): Promise<void> => ipcRenderer.invoke("log:append", lines),
   },

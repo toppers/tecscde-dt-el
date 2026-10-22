@@ -18,6 +18,7 @@ import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
+import type { WindowGateway } from "../gateways/window-gateway";
 import { AppGestureHost } from "./gesture-host";
 import { addAsReference, baseName, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
 import { FileBrowserView } from "./file-browser-panel";
@@ -42,7 +43,9 @@ export interface AppShellOptions {
   readonly clipboard: ClipboardGateway;
   /** 第9章9.5節: tecsgenの「実行(Generate)」操作。 */
   readonly tecsgen: TecsgenGateway;
-  /** window 相当（キーボード・スクロール・beforeunload の結線先）。既定は globalThis の window。 */
+  /** 第7章7.9節: 未保存かどうかをmain（CloseGuard）へ知らせる。省略時は通知しない（テスト用）。 */
+  readonly windowGateway?: Pick<WindowGateway, "setDirty">;
+  /** window 相当（キーボード・スクロールの結線先）。既定は globalThis の window。 */
   readonly win?: Window;
 }
 
@@ -57,6 +60,7 @@ export class AppShell {
   private readonly gateway: FileGateway;
   private readonly clipboard: ClipboardGateway;
   private readonly tecsgen: TecsgenGateway;
+  private readonly windowGateway: Pick<WindowGateway, "setDirty"> | undefined;
   private readonly win: Window;
 
   private readonly svg: SVGSVGElement;
@@ -91,6 +95,7 @@ export class AppShell {
     this.gateway = opts.gateway;
     this.clipboard = opts.clipboard;
     this.tecsgen = opts.tecsgen;
+    this.windowGateway = opts.windowGateway;
     this.win = opts.win ?? (globalThis as unknown as { window: Window }).window;
 
     const { root } = opts;
@@ -147,7 +152,7 @@ export class AppShell {
     this.bindKeyboard();
     this.bindWheel();
     this.bindScroll();
-    this.bindBeforeUnload();
+    this.bindDirtyReport();
     // 7.6.6節: 記憶済みのルートフォルダがあれば起動時に一度だけ自動復元する。
     this.gateway.onRestoreFileBrowserRoot((path) =>
       void this.fileBrowser.restoreRoot(path).catch((err: unknown) => this.reportActionError("restoreFileBrowserRoot", err)),
@@ -419,13 +424,22 @@ export class AppShell {
     this.disposers.push(() => this.scrollEl.removeEventListener("scroll", onScroll));
   }
 
-  private bindBeforeUnload(): void {
-    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-      if (!this.store.isDirty()) return;
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    this.win.addEventListener("beforeunload", onBeforeUnload);
-    this.disposers.push(() => this.win.removeEventListener("beforeunload", onBeforeUnload));
+  /**
+   * 第7章7.9節: 未保存かどうかが変わるたびにmainへ知らせる。ウィンドウを閉じるときの確認は
+   * mainの`CloseGuard`が行う（`beforeunload`は使わない。実機で確認なしに終了したため）。
+   */
+  private bindDirtyReport(): void {
+    const gateway = this.windowGateway;
+    if (!gateway) return;
+    let reported = this.store.isDirty();
+    gateway.setDirty(reported);
+    this.disposers.push(
+      this.store.subscribe(() => {
+        const dirty = this.store.isDirty();
+        if (dirty === reported) return;
+        reported = dirty;
+        gateway.setDirty(dirty);
+      }),
+    );
   }
 }

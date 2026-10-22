@@ -151,10 +151,11 @@ function mountShell(
   doc: TecscdeDocument = loadDoc(),
   gateway: FileGateway = noopGateway,
   tecsgen: TecsgenGateway = fakeTecsgen().gateway,
+  windowGateway?: { setDirty(dirty: boolean): void },
 ): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
   const store = new AppStore(doc);
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway, win: window });
   shell.start();
   mounted = shell;
   return { shell, store, clipboard };
@@ -922,5 +923,37 @@ cell tRegular Regular {};
       expect(store.filePath).toBe("/root/main.cde");
       expect(store.getReferenceFilePaths()).toContain("/root/celltypes.cdl"); // 残りがreferences
     });
+  });
+});
+
+describe("AppShell — unsaved-changes report to main (7.9)", () => {
+  afterEach(() => {
+    mounted?.dispose();
+    mounted = undefined;
+    document.body.innerHTML = "";
+  });
+
+  it("reports the initial clean state, then only when dirtiness changes", () => {
+    const setDirty = vi.fn();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), noopGateway, fakeTecsgen().gateway, { setDirty });
+    expect(setDirty.mock.calls).toEqual([[false]]);
+
+    store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+    expect(setDirty.mock.calls).toEqual([[false], [true]]);
+
+    // 既にdirtyのまま別の編集をしても、値が変わらない間は通知しない。
+    store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+    store.setSelection(SelectionState.ofCells([asCellId("cController1")]));
+    expect(setDirty).toHaveBeenCalledTimes(2);
+
+    store.markSaved("main.cde");
+    expect(setDirty.mock.calls).toEqual([[false], [true], [false]]);
+  });
+
+  it("no longer registers a beforeunload handler", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    mountShell(fakeClipboard(), loadDoc(), noopGateway, fakeTecsgen().gateway, { setDirty: vi.fn() });
+    expect(add.mock.calls.some(([type]) => type === "beforeunload")).toBe(false);
+    add.mockRestore();
   });
 });

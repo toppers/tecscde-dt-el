@@ -151,6 +151,10 @@ export interface TecscdeApi {
     writeText(text: string): Promise<void>;
     readText(): Promise<string>;
   };
+  /** 第7章7.9節: ウィンドウを閉じるときの未保存確認のため、未保存かどうかをmainへ知らせる。 */
+  readonly window: {
+    setDirty(dirty: boolean): void;
+  };
   /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
   readonly log: {
     append(lines: readonly string[]): Promise<void>;
