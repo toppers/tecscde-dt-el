@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   OpenResult,
   TecsgenResult,
+  AppSettingsView,
   TecsgenVersionResult,
   GeneratedCdlResult,
   CppResult,
@@ -61,6 +62,9 @@ const api: TecscdeApi = {
   clipboard: {
     writeText: (text: string): Promise<void> => ipcRenderer.invoke("clipboard:writeText", text),
     readText: (): Promise<string> => ipcRenderer.invoke("clipboard:readText"),
+  },
+  settings: {
+    get: (): Promise<AppSettingsView> => ipcRenderer.invoke("settings:get"),
   },
   window: {
     setDirty: (dirty: boolean): void => ipcRenderer.send("window:setDirty", dirty),

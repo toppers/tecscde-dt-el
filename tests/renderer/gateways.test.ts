@@ -8,6 +8,7 @@ import { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway.js";
 import { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway.js";
 import { LogGateway } from "../../src/renderer/gateways/log-gateway.js";
 import { WindowGateway } from "../../src/renderer/gateways/window-gateway.js";
+import { SettingsGateway } from "../../src/renderer/gateways/settings-gateway.js";
 import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
@@ -38,6 +39,9 @@ function stubApi(): TecscdeApi {
     clipboard: {
       writeText: vi.fn(),
       readText: vi.fn().mockReturnValue(""),
+    },
+    settings: {
+      get: vi.fn().mockResolvedValue({ allowEditSystemDefined: false }),
     },
     window: {
       setDirty: vi.fn(),
@@ -144,5 +148,13 @@ describe("WindowGateway", () => {
     const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
     new WindowGateway().setDirty(true);
     expect(api.window.setDirty).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("SettingsGateway", () => {
+  it("delegates get to window.tecscde.settings", async () => {
+    const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
+    await expect(new SettingsGateway().get()).resolves.toEqual({ allowEditSystemDefined: false });
+    expect(api.settings.get).toHaveBeenCalled();
   });
 });

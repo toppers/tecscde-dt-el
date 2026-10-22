@@ -906,6 +906,8 @@ cell tRegular Regular {};
         parseTecsgenOptionsFile: vi.fn().mockResolvedValue({
           cdlFiles: ["/root/celltypes.cdl", "/root/main.cde"], // mainプロセスが.tecsgen-optsのディレクトリ基点で解決済みの想定
           importPaths: ["./include"],
+          defineMacros: [],
+          systemDirs: [],
         }),
         openPath,
         resolveImports,

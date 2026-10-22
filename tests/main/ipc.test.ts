@@ -21,12 +21,13 @@ vi.mock("electron", () => ({
 // 第7C章7.7.1節: file:saveSessionはFileServiceを経由せずsaveAppSettingsを直接呼ぶため、
 // ここでは実際のfs/app.getPathに触れないようモックする（app-settings.test.tsで別途検証）。
 const saveAppSettings = vi.fn().mockResolvedValue(undefined);
-vi.mock("../../src/main/app-settings.js", () => ({ saveAppSettings }));
+const loadAppSettings = vi.fn().mockResolvedValue({});
+vi.mock("../../src/main/app-settings.js", () => ({ saveAppSettings, loadAppSettings }));
 
 const { registerIpcHandlers } = await import("../../src/main/ipc.js");
 
 describe("registerIpcHandlers", () => {
-  it("wires every file:* and tecsgen:* channel to the corresponding service method", () => {
+  it("wires every file:* and tecsgen:* channel to the corresponding service method", async () => {
     const fileService = {
       save: vi.fn().mockResolvedValue(undefined),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
@@ -65,6 +66,7 @@ describe("registerIpcHandlers", () => {
         "file:saveAs",
         "file:saveSession",
         "log:append",
+        "settings:get",
         "tecsgen:generate",
         "tecsgen:generatedTypes",
         "tecsgen:preprocess",
@@ -124,6 +126,11 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("tecsgen:version")!({});
     expect(tecsgenRunner.version).toHaveBeenCalled();
+
+    // 第3章3.2節: 設定が無ければ allowEditSystemDefined は false。true と書かれたときだけ true。
+    await expect(handlers.get("settings:get")!({})).resolves.toEqual({ allowEditSystemDefined: false });
+    loadAppSettings.mockResolvedValueOnce({ allowEditSystemDefined: true });
+    await expect(handlers.get("settings:get")!({})).resolves.toEqual({ allowEditSystemDefined: true });
 
     handlers.get("log:append")!({}, ["[W-X] a"]);
     expect(logService.append).toHaveBeenCalledWith(["[W-X] a"]);

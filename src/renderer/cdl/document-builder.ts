@@ -21,6 +21,7 @@ import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
+import { isUnderAny } from "../../shared/path-under";
 
 export interface CdlSource {
   readonly text: string;
@@ -30,6 +31,8 @@ export interface CdlSource {
   readonly editable: boolean;
   /** Plugin-generated cells and types are read-only and are not saved or added to reference paths. */
   readonly generated?: boolean;
+  /** ローダーが`systemDirs`から決める。`-S`のディレクトリ配下から読み込まれたCDLか（第3章3.2節）。 */
+  readonly systemDefined?: boolean;
 }
 
 function isOrdinaryCelltype(decl: CelltypeDecl | CompositeDecl): decl is CelltypeDecl {
@@ -44,6 +47,10 @@ export interface LoadResult {
 
 export interface LoadOptions {
   readonly cdeclResults?: ReadonlyMap<string, CdeclResult>;
+  /** `-S`で指定されたディレクトリ（絶対パス）。配下から読み込んだCDLを`systemDefined`とする（第3章3.2節）。 */
+  readonly systemDirs?: readonly string[];
+  /** `true`なら、`systemDefined`のセルも通常のCDLと同じく編集可能にする（既定は`false`）。 */
+  readonly allowEditSystemDefined?: boolean;
 }
 
 function withLocation(d: Diagnostic, file: string): Diagnostic {
@@ -178,6 +185,8 @@ interface ParsedSource {
   readonly sourcePath?: string;
   readonly editable: boolean;
   readonly generated?: boolean;
+  /** `-S`のディレクトリ配下から読み込まれたCDLか（セルの`systemDefined`と編集可否の元）。 */
+  readonly systemDefined: boolean;
   readonly cells: readonly CellDecl[];
 }
 
@@ -231,7 +240,18 @@ export class CdlDocumentLoader {
    * 複数ファイルをまとめて読み込む（8.1.2）。編集対象ファイルのcellのみeditable=trueとなり、
    * セルタイプはどのファイルで定義されていても全ファイル分を解決対象として扱う。
    */
-  static loadSources(sources: readonly CdlSource[], options: LoadOptions = {}): LoadResult {
+  static loadSources(inputSources: readonly CdlSource[], options: LoadOptions = {}): LoadResult {
+    // 第3章3.2節: `-S`のディレクトリ配下のCDLは`systemDefined`とし、既定では**ソースごと**編集不可にする。
+    // セル単位ではなくソース単位にするのは、編集可能なソースはテンプレートを持ち、保存時にテンプレートの
+    // セルをすべて入れ替えるため（編集不可のセルだけが混ざると、そのセルが書き戻しで消える）。
+    // 編集不可のソースはテンプレートを持たないので、書き戻しの対象にならない。
+    const sources: readonly CdlSource[] = inputSources.map((source) => {
+      const systemDefined =
+        !source.generated && source.sourcePath !== undefined && isUnderAny(source.sourcePath, options.systemDirs ?? []);
+      return systemDefined
+        ? { ...source, systemDefined, editable: source.editable && options.allowEditSystemDefined === true }
+        : source;
+    });
     const diagnostics: Diagnostic[] = [];
     const celltypes = new Map<string, CelltypeRef>();
     const parsedSources: ParsedSource[] = [];
@@ -312,7 +332,11 @@ export class CdlDocumentLoader {
         pendingCelltypes.push({ declaration: ct, source });
       }
 
-      parsedSources.push({ fileName: source.fileName, sourcePath: source.sourcePath, editable: source.editable, generated: source.generated, cells: parsed.cells });
+      parsedSources.push({
+        fileName: source.fileName, sourcePath: source.sourcePath, editable: source.editable, generated: source.generated,
+        systemDefined: source.systemDefined === true,
+        cells: parsed.cells,
+      });
     }
 
     const typeRegistry = new CTypeRegistry(options.cdeclResults, localTypeDefinitions);
@@ -450,6 +474,7 @@ export class CdlDocumentLoader {
               height,
             regionId: asRegionId(regionPath),
               editable: src.editable,
+              systemDefined: src.systemDefined,
               cports: [],
               eports: [],
               attrs,
@@ -504,6 +529,7 @@ export class CdlDocumentLoader {
             height,
           regionId: asRegionId(regionPath),
             editable: src.editable,
+            systemDefined: src.systemDefined,
             cports,
             eports,
             attrs,

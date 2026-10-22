@@ -7,6 +7,7 @@
 // 更新は差し替え＋購読者通知。このモジュールは renderer プロセスで完結し、`electron` へは
 // 触れない（gateways 経由のみ）。
 
+import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
 import { CopyCommand, CutCommand, PasteCommand } from "../commands";
@@ -57,6 +58,10 @@ export class AppStore {
   /** 第7C章7.7.4節: .tecsgen-opts等から与えられた追加のインポート探索パス。 */
   private extraImportPaths: readonly string[] = [];
   private optionsFilePath: string | undefined;
+  /** 第3章3.2節: `.tecsgen-opts`の`-S`で指定されたシステム定義ディレクトリ（絶対パス）。 */
+  private systemDirs: readonly string[] = [];
+  /** 第3章3.2節: `settings.json`の`allowEditSystemDefined`。起動時に一度読む。 */
+  private allowEditSystemDefined = false;
   private generatedTypeSources: readonly GeneratedCdlFile[] = [];
   private portTypeIndex: PortTypeIndex = emptyPortTypeIndex();
   /**
@@ -123,6 +128,26 @@ export class AppStore {
   /** 第7C章7.7.4節: 追加のインポート探索パスを取得する。 */
   getExtraImportPaths(): readonly string[] {
     return this.extraImportPaths;
+  }
+
+  getSystemDirs(): readonly string[] {
+    return this.systemDirs;
+  }
+
+  getAllowEditSystemDefined(): boolean {
+    return this.allowEditSystemDefined;
+  }
+
+  setAllowEditSystemDefined(allow: boolean): void {
+    this.allowEditSystemDefined = allow;
+  }
+
+  /**
+   * 第3章3.2節: 編集対象（主ファイル）が`-S`のディレクトリ配下にあり、既定どおり閲覧のみか。
+   * 閲覧のみのときは編集可能なセルが無く、保存すると中身が失われるため、保存を行わない。
+   */
+  isEditingFileReadOnlySystemDefined(): boolean {
+    return !this.allowEditSystemDefined && this.path !== null && isUnderAny(this.path, this.systemDirs);
   }
 
   getOptionsFilePath(): string | undefined {
@@ -300,6 +325,7 @@ export class AppStore {
     generatedTypeSources: readonly GeneratedCdlFile[] = [],
     portTypeIndex: PortTypeIndex = emptyPortTypeIndex(),
     keepDirty = false,
+    systemDirs: readonly string[] = [],
   ): void {
     this.historyState = History.begin(document);
     if (!keepDirty) this.savedDocument = document;
@@ -311,6 +337,7 @@ export class AppStore {
     this.referenceFilePaths = referenceFilePaths;
     this.extraImportPaths = extraImportPaths;
     this.optionsFilePath = optionsFilePath;
+    this.systemDirs = systemDirs;
     this.generatedTypeSources = generatedTypeSources;
     this.portTypeIndex = portTypeIndex;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。

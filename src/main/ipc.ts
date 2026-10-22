@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
 import type { LogService } from "./log-service.js";
-import { saveAppSettings } from "./app-settings.js";
+import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
 
 export function registerIpcHandlers(
@@ -68,6 +68,10 @@ export function registerIpcHandlers(
     tecsgenRunner.preprocess(headerPath, cppCommand, includeDirs),
   );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
+  // 第3章3.2節: rendererが読む設定（現状は`allowEditSystemDefined`のみ）。
+  ipcMain.handle("settings:get", async () => ({
+    allowEditSystemDefined: (await loadAppSettings()).allowEditSystemDefined === true,
+  }));
   ipcMain.handle("log:append", (_e, lines: readonly string[]) => logService.append(lines));
 
   // 第4章4.1節・第2章2.4節: clipboardはpreloadから直接requireできない

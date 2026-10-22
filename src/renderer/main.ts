@@ -12,6 +12,7 @@ import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
+import { SettingsGateway } from "./gateways/settings-gateway";
 import { AppShell } from "./app/shell";
 import { checkTecsgenVersion } from "./app/tecsgen-version";
 import { applyOpenResult } from "./app/file-actions";
@@ -33,6 +34,11 @@ function main(): void {
   });
 
   const store = new AppStore();
+  // 第3章3.2節: システム定義CDLを編集可能にする設定。起動ドキュメントを読み込む前に反映する。
+  const settingsReady = new SettingsGateway()
+    .get()
+    .then((settings) => store.setAllowEditSystemDefined(settings.allowEditSystemDefined))
+    .catch((error: unknown) => console.error("設定の読み込みに失敗しました:", error));
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
   const tecsgen = new TecsgenGateway();
@@ -48,7 +54,7 @@ function main(): void {
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {
-    void grammarReady
+    void Promise.all([grammarReady, settingsReady])
       .then(() => {
         if (data) return applyOpenResult(store, gateway, tecsgen, data);
       })

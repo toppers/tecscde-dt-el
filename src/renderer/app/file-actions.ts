@@ -96,7 +96,10 @@ export async function applyOpenResult(
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
   ];
-  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, { cdeclResults });
+  const systemDirs = result.systemDirs ?? [];
+  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
+    cdeclResults, systemDirs, allowEditSystemDefined: store.getAllowEditSystemDefined(),
+  });
   const referenceFilePaths = references.map((r) => r.path);
   const referenceSources = new Map(references.map((r) => [r.path, r.content]));
   store.loadDocument(
@@ -109,6 +112,8 @@ export async function applyOpenResult(
     result.optionsFilePath,
     generatedTypeSources,
     portTypeIndex,
+    false,
+    systemDirs,
   );
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
@@ -195,6 +200,8 @@ export async function addAsReference(
   const keepDirty = store.isDirty();
   const mergedSources = new Map(store.getReferenceSources());
   for (const referencePath of store.getReferenceFilePaths()) {
+    // 閲覧のみのシステム定義CDLはテンプレートを持たない（書き戻さない）ので、読み込んだ原文をそのまま使う。
+    if (!store.getDocument().sourceTemplates.has(referencePath)) continue;
     mergedSources.set(referencePath, CdlSerializer.serializeSource(store.getDocument(), referencePath));
   }
   for (const r of discovered) mergedSources.set(r.path, r.content);
@@ -211,7 +218,9 @@ export async function addAsReference(
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
   ];
-  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, { cdeclResults });
+  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
+    cdeclResults, systemDirs: store.getSystemDirs(), allowEditSystemDefined: store.getAllowEditSystemDefined(),
+  });
   store.loadDocument(
     document,
     editablePath,
@@ -225,6 +234,7 @@ export async function addAsReference(
     store.getGeneratedTypeSources(),
     portTypeIndex,
     keepDirty,
+    store.getSystemDirs(),
   );
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
@@ -249,12 +259,15 @@ export async function loadOptionsFile(
     references,
     extraImportPaths: parsed.importPaths,
     optionsFilePath: path,
+    ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
   });
   await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /** ［保存］: 既存パスがあれば上書き、無ければ［名前を付けて保存］へ委譲。 */
 export async function save(store: AppStore, gateway: FileGateway): Promise<void> {
+  // 第3章3.2節: 主ファイルがシステム定義ディレクトリ配下で閲覧のみのときは保存しない。
+  if (store.isEditingFileReadOnlySystemDefined()) return;
   const path = store.filePath;
   if (!path) {
     await saveAs(store, gateway);
@@ -273,6 +286,7 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
 
 /** ［名前を付けて保存］: 保存ダイアログを開く。キャンセル時は何もしない。 */
 export async function saveAs(store: AppStore, gateway: FileGateway): Promise<void> {
+  if (store.isEditingFileReadOnlySystemDefined()) return; // save()と同じ理由
   const document = store.getDocument();
   const text = CdlSerializer.serialize(document);
   const suggested = store.filePath ? baseName(store.filePath) : "untitled.cde";

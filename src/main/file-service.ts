@@ -231,6 +231,7 @@ export class FileService {
     const importPaths: string[] = [];
     let cpp: string | undefined;
     const defineMacros: string[] = [];
+    const systemDirs: string[] = [];
 
     for (let i = 0; i < tokens.length; i += 1) {
       const token = tokens[i]!;
@@ -243,6 +244,22 @@ export class FileService {
       } else if (token.startsWith("--import-path=")) {
         importPaths.push(token.slice("--import-path=".length));
       } else if (token.startsWith("-I") && token.length > 2) {
+        importPaths.push(token.slice(2));
+      } else if (token === "-S" || token === "--system-dir") {
+        // システム定義ディレクトリ。判定用の`systemDirs`へ入れ、同時に探索パス`importPaths`にも
+        // 書かれた値のまま、-Iとの記述順を保って入れる（外部仕様5.3節）。
+        const value = tokens[i + 1];
+        if (value) {
+          systemDirs.push(value);
+          importPaths.push(value);
+          i += 1;
+        }
+      } else if (token.startsWith("--system-dir=")) {
+        const value = token.slice("--system-dir=".length);
+        systemDirs.push(value);
+        importPaths.push(value);
+      } else if (token.startsWith("-S") && token.length > 2) {
+        systemDirs.push(token.slice(2));
         importPaths.push(token.slice(2));
       } else if (token === "-c" || token === "--cpp") {
         const value = tokens[i + 1];
@@ -278,7 +295,13 @@ export class FileService {
     // （fs.readFile）がmainプロセスの起動ディレクトリを基点に相対解決してしまい、実際には
     // 存在しないパスになる。
     const optsDir = dirname(path);
-    return { cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)), importPaths, cpp, defineMacros };
+    return {
+      cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)),
+      importPaths,
+      cpp,
+      defineMacros,
+      systemDirs: systemDirs.map((d) => resolve(optsDir, d)),
+    };
   }
 
   /**

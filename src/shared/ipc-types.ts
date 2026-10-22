@@ -13,6 +13,8 @@ export interface OpenResult {
   readonly references: readonly OpenFileEntry[];
   readonly extraImportPaths?: readonly string[];
   readonly optionsFilePath?: string;
+  /** `.tecsgen-opts`の`-S`で指定されたシステム定義ディレクトリ（絶対パス）。第7C章7.7.4節。 */
+  readonly systemDirs?: readonly string[];
 }
 
 /** [[TECSCDE-DT-EL内部仕様]] 第7章7.6.1節: FileService.listDirectory() が返す1エントリ。 */
@@ -114,6 +116,14 @@ export interface TecsgenOptionsFile {
   readonly cpp?: string;
   /** `-D`/`--define`の値（記述順）。tecsgenの実行に引き継ぐ（外部仕様8.4.2）。 */
   readonly defineMacros: readonly string[];
+  /** `-S`/`--system-dir`の値。オプションファイルのあるディレクトリ基点で絶対パスに解決済み。`importPaths`にも書かれた値のまま入る。 */
+  readonly systemDirs: readonly string[];
+}
+
+/** rendererが読むアプリケーション設定（`settings.json`の一部）。 */
+export interface AppSettingsView {
+  /** `true`なら、システム定義CDLのセルも通常のCDLと同じく編集可能にする。既定は`false`。 */
+  readonly allowEditSystemDefined: boolean;
 }
 
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
@@ -165,6 +175,10 @@ export interface TecscdeApi {
   /** 第7章7.9節: ウィンドウを閉じるときの未保存確認のため、未保存かどうかをmainへ知らせる。 */
   readonly window: {
     setDirty(dirty: boolean): void;
+  };
+  /** 第3章3.2節: アプリケーション設定のうち、rendererが読むもの。 */
+  readonly settings: {
+    get(): Promise<AppSettingsView>;
   };
   /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
   readonly log: {

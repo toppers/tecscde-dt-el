@@ -51,6 +51,7 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     setAttrs(rect, { x, y, width: w, height: h });
     const classes = ["cell-rect"];
     if (!cell.editable) classes.push("readonly");
+    if (cell.systemDefined) classes.push("system-defined");
     if (cell.celltypeUnresolved) classes.push("unresolved");
     rect.setAttribute("class", classes.join(" "));
     element.appendChild(rect);

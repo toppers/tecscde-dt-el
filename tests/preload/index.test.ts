@@ -118,6 +118,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("tecsgen:version");
   });
 
+  it("settings.get invokes settings:get", () => {
+    exposedApi().settings.get();
+    expect(invoke).toHaveBeenCalledWith("settings:get");
+  });
+
   it("clipboard.writeText invokes clipboard:writeText with the text", () => {
     exposedApi().clipboard.writeText("hello");
     expect(invoke).toHaveBeenCalledWith("clipboard:writeText", "hello");

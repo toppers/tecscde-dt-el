@@ -131,6 +131,7 @@ function createWindow(): BrowserWindow {
               ...opened,
               extraImportPaths: parsed.importPaths,
               optionsFilePath: pendingOpenPath,
+              ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
             };
           } else {
             data = await loadSamples(fileService);
@@ -161,8 +162,13 @@ function createWindow(): BrowserWindow {
             .openPaths([...lastSession.referencePaths, lastSession.editablePath])
             .catch(() => null);
           if (opened) {
+            // `-S`の再現は、保存しておいたオプションファイルの再解析で行う（第7C章7.7.4節）。
+            const systemDirs = lastSession.optionsFilePath
+              ? (await fileService.parseTecsgenOptionsFile(lastSession.optionsFilePath).catch(() => undefined))?.systemDirs ?? []
+              : [];
             data = {
               ...opened,
+              ...(systemDirs.length > 0 ? { systemDirs } : {}),
               ...(lastSession.extraImportPaths ? { extraImportPaths: lastSession.extraImportPaths } : {}),
               ...(lastSession.optionsFilePath ? { optionsFilePath: lastSession.optionsFilePath } : {}),
             };

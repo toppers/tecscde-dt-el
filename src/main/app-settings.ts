@@ -9,6 +9,11 @@ import { app } from "electron";
 export interface AppSettings {
   readonly fileBrowserRoot?: string;
   /**
+   * 第3章3.2節: `true`なら、システム定義CDL（`-S`のディレクトリ配下）のセルも通常のCDLと同じく
+   * 編集可能にする。既定は`false`（閲覧のみ）。現状は`settings.json`を直接編集して設定する。
+   */
+  readonly allowEditSystemDefined?: boolean;
+  /**
    * 第7C章7.7.1節: 前回終了時に開いていたファイル集合。`editablePath`は「消去」（7.7.3節）後は
    * 無し——未保存の新規作成はパスを持たないためセッション復元の対象外。references集合は
    * `editablePath`の有無に関わらず維持する。

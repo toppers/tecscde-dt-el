@@ -204,6 +204,7 @@ describe("FileService", () => {
         importPaths: ["./include", "../shared"],
         cpp: "gcc",
         defineMacros: ["FOO=1"],
+        systemDirs: [],
       });
     });
 
@@ -214,7 +215,7 @@ describe("FileService", () => {
 
       const result = await service.parseTecsgenOptionsFile(path);
 
-      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang", defineMacros: [] });
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang", defineMacros: [], systemDirs: [] });
     });
 
     it("returns no cpp when the file has none", async () => {
@@ -224,7 +225,7 @@ describe("FileService", () => {
 
       const result = await service.parseTecsgenOptionsFile(path);
 
-      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./include"], cpp: undefined, defineMacros: [] });
+      expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./include"], cpp: undefined, defineMacros: [], systemDirs: [] });
     });
 
     it("collects every -D/--define form as a macro, in order, without leaking values into cdlFiles", async () => {
@@ -232,6 +233,23 @@ describe("FileService", () => {
       writeFileSync(path, "-D A=1 --define B --define=C=3 -DD=4 main.cdl");
       const result = await new FileService({} as never).parseTecsgenOptionsFile(path);
       expect(result.defineMacros).toEqual(["A=1", "B", "C=3", "D=4"]);
+      expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
+    });
+
+    it("collects every -S/--system-dir form as a system dir (resolved against the file) and as an import path, keeping -I order", async () => {
+      const path = join(dir, "system.tecsgen-opts");
+      writeFileSync(path, "-I ./a -S ./sys1 --system-dir ./sys2 --system-dir=./sys3 -S./sys4 -I ./b main.cdl");
+      const result = await new FileService({} as never).parseTecsgenOptionsFile(path);
+      expect(result.systemDirs).toEqual([join(dir, "sys1"), join(dir, "sys2"), join(dir, "sys3"), join(dir, "sys4")]);
+      expect(result.importPaths).toEqual(["./a", "./sys1", "./sys2", "./sys3", "./sys4", "./b"]);
+      expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
+    });
+
+    it("ignores a trailing -S without a value", async () => {
+      const path = join(dir, "system-missing.tecsgen-opts");
+      writeFileSync(path, "main.cdl -S");
+      const result = await new FileService({} as never).parseTecsgenOptionsFile(path);
+      expect(result.systemDirs).toEqual([]);
       expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
     });
 
@@ -258,6 +276,7 @@ describe("FileService", () => {
         importPaths: ["./first", "../second"],
         cpp: undefined,
         defineMacros: [],
+        systemDirs: [],
       });
     });
 

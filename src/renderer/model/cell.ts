@@ -25,6 +25,8 @@ export interface CellCreateParams {
   readonly locale?: string;
   /** Name in the loaded source; retained when a cell is renamed. */
   readonly sourceName?: string;
+  /** `-S`で指定されたディレクトリ配下のCDLで定義されたセルか（第3章3.2節）。既定は`false`。 */
+  readonly systemDefined?: boolean;
 }
 
 export class Cell {
@@ -44,6 +46,7 @@ export class Cell {
     readonly celltypeUnresolved: boolean,
     readonly locale: string | undefined,
     readonly sourceName: string,
+    readonly systemDefined: boolean,
   ) {}
 
   static create(params: CellCreateParams): Cell {
@@ -64,6 +67,7 @@ export class Cell {
       params.celltypeUnresolved,
       params.locale,
       params.sourceName ?? params.name,
+      params.systemDefined ?? false,
     );
   }
 
@@ -84,6 +88,7 @@ export class Cell {
       this.celltypeUnresolved,
       this.locale,
       this.sourceName,
+      this.systemDefined,
     );
   }
 
@@ -105,6 +110,7 @@ export class Cell {
       this.celltypeUnresolved,
       this.locale,
       this.sourceName,
+      this.systemDefined,
     );
   }
 
@@ -126,6 +132,7 @@ export class Cell {
       this.celltypeUnresolved,
       this.locale,
       this.sourceName,
+      this.systemDefined,
     );
   }
 
