@@ -67,6 +67,11 @@ export class AppStore {
   private referenceSources: ReadonlyMap<string, string> = new Map();
   /** 第9章9.4節: 直近のtecsgen実行結果から変換した診断。次のGenerateまで保持する。 */
   private tecsgenDiagnostics: readonly Diagnostic[] = [];
+  /**
+   * 第9C章9C.5節: 起動時のtecsgenの版の確認による診断。ドキュメントの読み込みや
+   * Generateの結果の差し替えでは消えない（`tecsgenDiagnostics`とは別に持つ）。
+   */
+  private environmentDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
   private readonly listeners = new Set<StoreListener>();
@@ -187,6 +192,7 @@ export class AppStore {
     collector.reportAll(this.loadDiagnostics);
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);
+    collector.reportAll(this.environmentDiagnostics);
     return collector.toReport();
   }
 
@@ -322,6 +328,12 @@ export class AppStore {
   /** 第9章9.4節: `TecsgenResultParser.parse()`の結果を反映する。`getReport()`へ合流する。 */
   setTecsgenDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.tecsgenDiagnostics = diagnostics;
+    this.notify();
+  }
+
+  /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */
+  setEnvironmentDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.environmentDiagnostics = diagnostics;
     this.notify();
   }
 

@@ -34,6 +34,15 @@ export interface TecsgenLaunchFailure {
   readonly detail: string;
 }
 
+/**
+ * [[TECSCDE-DT-EL内部仕様]] 第9C章9C.2節: `tecsgen --version`の結果。tecsgenは版を標準エラー出力へ出す
+ * ため、`text`は標準出力、空なら標準エラー出力（trim済み）。
+ */
+export type TecsgenVersionResult =
+  | { readonly kind: "ok"; readonly text: string }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "failed"; readonly detail: string };
+
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
   readonly stdout: string;
@@ -145,7 +154,7 @@ export interface TecscdeApi {
     generate(args: readonly string[]): Promise<TecsgenResult>;
     generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult>;
     preprocess(headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult>;
-    version(): Promise<string | null>;
+    version(): Promise<TecsgenVersionResult>;
   };
   readonly clipboard: {
     writeText(text: string): Promise<void>;

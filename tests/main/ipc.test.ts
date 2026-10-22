@@ -42,7 +42,7 @@ describe("registerIpcHandlers", () => {
       run: vi.fn().mockResolvedValue("run-result"),
       generatedTypes: vi.fn().mockResolvedValue("generated-types-result"),
       preprocess: vi.fn().mockResolvedValue("preprocess-result"),
-      version: vi.fn().mockResolvedValue("1.9.1"),
+      version: vi.fn().mockResolvedValue({ kind: "ok", text: "tecsgen  version 1.9.1" }),
     };
 
     const logService = { append: vi.fn().mockResolvedValue(undefined) };

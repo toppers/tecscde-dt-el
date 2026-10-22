@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   OpenResult,
   TecsgenResult,
+  TecsgenVersionResult,
   GeneratedCdlResult,
   CppResult,
   TecscdeApi,
@@ -53,7 +54,7 @@ const api: TecscdeApi = {
       ipcRenderer.invoke("tecsgen:generatedTypes", args, editingFilePath, optionsFilePath),
     preprocess: (headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult> =>
       ipcRenderer.invoke("tecsgen:preprocess", headerPath, cppCommand, includeDirs),
-    version: (): Promise<string | null> => ipcRenderer.invoke("tecsgen:version"),
+    version: (): Promise<TecsgenVersionResult> => ipcRenderer.invoke("tecsgen:version"),
   },
   // 実機確認で判明: preloadに公開される`electron`モジュールにはclipboardが
   // 含まれない（ESM/CJS問わず）ため、file/tecsgenと同様にipcMain経由にする。

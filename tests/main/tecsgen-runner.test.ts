@@ -156,11 +156,11 @@ describe("TecsgenRunner", () => {
     });
   });
 
-  it("version() returns null when the executable is not found, else trims stdout", async () => {
+  it("version() returns the trimmed stdout as an ok result", async () => {
     execFileMock.mockResolvedValue({ stdout: "1.9.1\n", stderr: "" });
     const runner = new TecsgenRunner();
 
-    await expect(runner.version()).resolves.toBe("1.9.1");
+    await expect(runner.version()).resolves.toEqual({ kind: "ok", text: "1.9.1" });
   });
 
   it("preprocess() runs preprocessor with default or custom command", async () => {
@@ -219,5 +219,38 @@ describe("TecsgenRunner", () => {
 
     const result = await runner.preprocess("header.h");
     expect(result).toEqual({ stdout: "", stderr: "", exitCode: null, executableFound: false });
+  });
+
+  describe("version() (9C.2節)", () => {
+    it("reads the version from stderr when stdout is empty (tecsgen prints its banner to stderr)", async () => {
+      execFileMock.mockResolvedValue({ stdout: "", stderr: "tecsgen  version 1.9.1  \n" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1" });
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["--version"], { timeout: 30_000 });
+    });
+
+    it("prefers stdout when it has text", async () => {
+      execFileMock.mockResolvedValue({ stdout: "tecsgen 2.0.0\n", stderr: "warning" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 2.0.0" });
+    });
+
+    it("returns an empty text when both streams are empty", async () => {
+      execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "" });
+    });
+
+    it("reports not-found on ENOENT", async () => {
+      execFileMock.mockRejectedValue(Object.assign(new Error("nf"), { code: "ENOENT" }));
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "not-found" });
+    });
+
+    it("reports a launch failure other than ENOENT as failed", async () => {
+      execFileMock.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "permission: EACCES" });
+    });
+
+    it("reports a non-zero exit as failed", async () => {
+      execFileMock.mockRejectedValue(Object.assign(new Error("bad"), { code: 2, stdout: "", stderr: "x" }));
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2" });
+    });
   });
 });

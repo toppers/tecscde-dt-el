@@ -33,7 +33,7 @@ function stubApi(): TecscdeApi {
         result: { stdout: "", stderr: "", exitCode: 0, executableFound: true }, sources: [],
       }),
       preprocess: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
-      version: vi.fn().mockResolvedValue(null),
+      version: vi.fn().mockResolvedValue({ kind: "not-found" }),
     },
     clipboard: {
       writeText: vi.fn(),

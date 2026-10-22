@@ -8,7 +8,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { TecsgenResult, TecsgenLaunchFailure, CppResult, GeneratedCdlResult } from "../shared/ipc-types.js";
+import type { TecsgenResult, TecsgenVersionResult, TecsgenLaunchFailure, CppResult, GeneratedCdlResult } from "../shared/ipc-types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -171,8 +171,18 @@ export class TecsgenRunner {
     }
   }
 
-  async version(): Promise<string | null> {
+  /**
+   * 第9C章9C.2節: `tecsgen --version`で版を読む。tecsgenは版を標準エラー出力へ出すため、
+   * 標準出力が空なら標準エラー出力から読む。
+   */
+  async version(): Promise<TecsgenVersionResult> {
     const result = await this.run(["--version"]);
-    return result.executableFound ? result.stdout.trim() : null;
+    if (result.launchFailure?.kind === "not-found") return { kind: "not-found" };
+    if (result.launchFailure) {
+      const { kind, detail } = result.launchFailure;
+      return { kind: "failed", detail: `${kind}: ${detail}` };
+    }
+    if (result.exitCode !== 0) return { kind: "failed", detail: `終了コード ${result.exitCode}` };
+    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim() };
   }
 }

@@ -13,6 +13,7 @@ import { DiagnosticsLogger } from "./app/diagnostics-logger";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
 import { AppShell } from "./app/shell";
+import { checkTecsgenVersion } from "./app/tecsgen-version";
 import { applyOpenResult } from "./app/file-actions";
 import { CdlGrammar } from "./cdl/grammar";
 import { CdeclGrammar } from "./cdecl/grammar";
@@ -41,6 +42,9 @@ function main(): void {
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
   const logger = new DiagnosticsLogger(store, (lines) => new LogGateway().append(lines));
   store.subscribe(() => logger.sync());
+
+  // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
+  void checkTecsgenVersion(store, tecsgen, new LogGateway());
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {
