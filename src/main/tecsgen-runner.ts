@@ -57,6 +57,11 @@ function withoutOutputOption(args: readonly string[]): string[] {
   return filtered;
 }
 
+/** `-k`/`--kcode`（CDLの文字コード指定）が書かれているか。`-k <code>`、`-k<code>`、`--kcode <code>`、`--kcode=<code>`の各形を見る。 */
+function hasKcodeOption(args: readonly string[]): boolean {
+  return args.some((arg) => arg === "-k" || arg === "--kcode" || arg.startsWith("--kcode=") || (arg.startsWith("-k") && !arg.startsWith("--")));
+}
+
 // __tool_info__("cpp") is a command line. Preserve quoted paths and options,
 // including backslashes in Windows paths, when passing it to execFile.
 function splitCommand(command: string): string[] {
@@ -151,8 +156,11 @@ export class TecsgenRunner {
           .filter((line) => !line.trim().startsWith("#"))
           .join(" "))
         : args;
+      // オプションファイルに`-k`が無いときは`-k utf8`を足す（第9章冒頭の注記）。tecsgenの`-k`の既定は`euc`で、
+      // UTF-8のCDLをeucとして読むのを避ける。`-k`が書かれていれば、その値を尊重する。
+      const kcodeArgs = optionsFilePath && !hasKcodeOption(invocationArgs) ? ["-k", "utf8"] : [];
       const result = await this.run(
-        ["-g", outputDir, ...withoutOutputOption(invocationArgs)],
+        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(invocationArgs)],
         dirname(optionsFilePath ?? editingFilePath),
       );
       return { result, sources: await generatedCdlSources(outputDir) };

@@ -72,11 +72,35 @@ describe("TecsgenRunner", () => {
       expect(command).toBe("tecsgen");
       expect(options.cwd).toBe(optionsDir);
       expect(args[0]).toBe("-g");
-      expect(args.slice(2)).toEqual(["-I", "./includes", "-L", "user plugins", "-D", "FLAG=1", "main.cdl"]);
+      // オプションファイルに`-k`が無いので、`-g <dir>`の直後に`-k utf8`が足される。
+      expect(args.slice(2)).toEqual(["-k", "utf8", "-I", "./includes", "-L", "user plugins", "-D", "FLAG=1", "main.cdl"]);
     } finally {
       await rm(optionsFilePath, { force: true });
       await rmdir(optionsDir);
     }
+  });
+
+  describe.each([
+    ["-k euc", ["-k", "euc"]],
+    ["--kcode sjis", ["--kcode", "sjis"]],
+    ["--kcode=none", ["--kcode=none"]],
+    ["-ksjis (attached)", ["-ksjis"]],
+  ])("generatedTypes() with an options file that already has %s", (_label, kArgs) => {
+    it("keeps the file's -k and does not add -k utf8", async () => {
+      const optionsDir = await mkdtemp(join(tmpdir(), "tecscde-options-k-"));
+      const optionsFilePath = join(optionsDir, "k.tecsgen-opts");
+      try {
+        await writeFile(optionsFilePath, `${kArgs.join(" ")} main.cdl`, "utf8");
+        execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+        await new TecsgenRunner().generatedTypes(["ignored.cdl"], join(optionsDir, "main.cdl"), optionsFilePath);
+        const [, args] = execFileMock.mock.calls[0]!;
+        expect(args.slice(2)).toEqual([...kArgs, "main.cdl"]);
+        expect(args).not.toContain("utf8");
+      } finally {
+        await rm(optionsFilePath, { force: true });
+        await rmdir(optionsDir);
+      }
+    });
   });
 
   it("run() returns exitCode 0 and executableFound=true on success", async () => {
