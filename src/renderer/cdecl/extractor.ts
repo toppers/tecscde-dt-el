@@ -31,19 +31,27 @@ export class CdeclExtractor {
       return { typedefs, structs, hasErrors: true, usedFallback: false };
     }
 
-    // トップレベル限定ではなく全ノードを再帰的に走査する。文法側が
-    // extern "C" { ... } の波括弧内部でも typedef_declaration / struct_declaration
-    // を認識するよう既に作られているため（tree-sitter-tecs-cdecl README_ja.md
-    // 「_balanced_braces」節）、ここで波括弧の深さを追跡する必要はない。
-    walk(tree.rootNode, (node) => {
-      if (node.type === "ERROR" || node.isMissing) {
-        hasErrors = true;
-      } else if (node.type === "typedef_declaration") {
-        extractTypedef(node, typedefs);
-      } else if (node.type === "struct_declaration") {
-        extractStructDeclaration(node, structs);
-      }
-    });
+    // 抽出結果（`typedefs`・`structs`）は、ノードの`text`から作った純粋なデータで、ノードを参照しない。
+    // そのため、走査が終わったらTreeを解放してよい。`import_C`のヘッダごとに呼ばれるので、解放しないと
+    // WASM側のメモリが増え続ける（第9B章。`CdlDocumentBuilder.build`と同じく`delete()`する）。
+    // 走査中に例外が出ても解放されるよう、`finally`で行う。
+    try {
+      // トップレベル限定ではなく全ノードを再帰的に走査する。文法側が
+      // extern "C" { ... } の波括弧内部でも typedef_declaration / struct_declaration
+      // を認識するよう既に作られているため（tree-sitter-tecs-cdecl README_ja.md
+      // 「_balanced_braces」節）、ここで波括弧の深さを追跡する必要はない。
+      walk(tree.rootNode, (node) => {
+        if (node.type === "ERROR" || node.isMissing) {
+          hasErrors = true;
+        } else if (node.type === "typedef_declaration") {
+          extractTypedef(node, typedefs);
+        } else if (node.type === "struct_declaration") {
+          extractStructDeclaration(node, structs);
+        }
+      });
+    } finally {
+      tree.delete();
+    }
 
     return { typedefs, structs, hasErrors, usedFallback: false };
   }
