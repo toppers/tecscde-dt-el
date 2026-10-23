@@ -26,6 +26,7 @@ import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { RegionFilterPanel } from "./region-filter-panel";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { NavigatorView } from "./navigator-panel";
@@ -67,6 +68,9 @@ export class AppShell {
   private readonly scrollEl: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly zoomSlider: HTMLInputElement;
+  /** 第6B章6B.6: 表示制御バーの切り替え（色分け・シグニチャ名）。 */
+  private readonly filterColor: HTMLInputElement;
+  private readonly filterSignature: HTMLInputElement;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
@@ -77,6 +81,7 @@ export class AppShell {
 
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
+  private readonly regionFilter: RegionFilterPanel;
   private readonly propertyPanel: PropertyPanelView;
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
@@ -103,6 +108,8 @@ export class AppShell {
     this.scrollEl = requireEl<HTMLElement>(root, "#canvas-scroll");
     this.toolbar = requireEl<HTMLElement>(root, "#toolbar");
     this.zoomSlider = requireEl<HTMLInputElement>(root, "#zoom-slider");
+    this.filterColor = requireEl<HTMLInputElement>(root, "#filter-color");
+    this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
@@ -116,6 +123,7 @@ export class AppShell {
     this.gesture = new GestureController(this.renderer, host);
 
     this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store);
+    this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
@@ -149,6 +157,8 @@ export class AppShell {
     this.disposers.push(this.gesture.attach(this.svg));
     this.bindToolbar();
     this.bindZoomSlider();
+    this.bindDisplayBar();
+    this.disposers.push(() => this.regionFilter.dispose());
     this.bindKeyboard();
     this.bindWheel();
     this.bindScroll();
@@ -182,6 +192,7 @@ export class AppShell {
     this.refreshToolbarState();
     this.refreshStatus();
     this.palette.render();
+    this.regionFilter.render();
     this.propertyPanel.render();
     this.searchBox.render();
     this.navigator.render();
@@ -312,6 +323,24 @@ export class AppShell {
     this.disposers.push(() => this.zoomSlider.removeEventListener("input", onInput));
   }
 
+  /** 第6B章6B.6・6B.7: 表示制御バーの2つのチェックを `DisplayFilters` に結ぶ。 */
+  private bindDisplayBar(): void {
+    const onColor = (): void => {
+      const f = this.store.view.filters;
+      this.store.setView(this.store.view.withFilters(f.withColorByRegion(this.filterColor.checked)));
+    };
+    const onSignature = (): void => {
+      const f = this.store.view.filters;
+      this.store.setView(this.store.view.withFilters(f.withShowSignatureNames(this.filterSignature.checked)));
+    };
+    this.filterColor.addEventListener("change", onColor);
+    this.filterSignature.addEventListener("change", onSignature);
+    this.disposers.push(() => {
+      this.filterColor.removeEventListener("change", onColor);
+      this.filterSignature.removeEventListener("change", onSignature);
+    });
+  }
+
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
@@ -320,6 +349,10 @@ export class AppShell {
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
     // 外部仕様3.2.1: スライダはボタン・ホイール・キーボードいずれのズーム変更にも追従する。
     this.zoomSlider.value = String(Math.round(this.store.view.zoom * 100));
+    // 第6B章6B.6: 表示制御バーのチェックは常に `DisplayFilters` の状態に従う。
+    const filters = this.store.view.filters;
+    this.filterColor.checked = filters.colorByRegion;
+    this.filterSignature.checked = filters.showSignatureNames;
   }
 
   private setDisabled(selector: string, disabled: boolean): void {

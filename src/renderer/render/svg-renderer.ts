@@ -15,7 +15,7 @@ import { pxPerMm, type CanvasView, type SelectionState } from "./view";
 import { ALIGN_MM } from "../model/align";
 import type { Bar, Join } from "../model/join";
 import type { Cell } from "../model/cell";
-import type { CellId, JoinId } from "../model/ids";
+import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 
@@ -294,12 +294,23 @@ function setsEqual<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
   return true;
 }
 
+function colorsEqual(
+  a: ReadonlyMap<RegionId, string> | null,
+  b: ReadonlyMap<RegionId, string> | null,
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a.size !== b.size) return false;
+  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  return true;
+}
+
 function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
   return (
     a !== undefined &&
     a.zoom === b.zoom &&
     a.gridVisible === b.gridVisible &&
     a.showSignatureNames === b.showSignatureNames &&
-    setsEqual(a.hiddenRegionIds, b.hiddenRegionIds)
+    setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
+    colorsEqual(a.regionColors, b.regionColors)
   );
 }

@@ -65,6 +65,66 @@
         background: var(--border);
         margin: 0 2px;
       }
+      #display-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 3px 8px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        flex: none;
+      }
+      #region-filter {
+        position: relative;
+      }
+      #region-filter-toggle {
+        font: inherit;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      #region-filter-toggle:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #region-filter-popover {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 20;
+        min-width: 220px;
+        max-height: 320px;
+        overflow: auto;
+        padding: 6px 8px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+      }
+      #region-filter-popover[hidden] {
+        display: none;
+      }
+      .region-filter-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+      }
+      .region-swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex: none;
+      }
+      #display-bar label {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
       #zoom-slider {
         width: 100px;
       }
@@ -447,6 +507,14 @@
           <button data-action="searchNext" type="button" title="次のヒットへ">↓</button>
           <div id="search-results"></div>
         </div>
+      </div>
+      <div id="display-bar">
+        <div id="region-filter">
+          <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
+          <div id="region-filter-popover" hidden></div>
+        </div>
+        <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
+        <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
       </div>
       <div id="main">
         <div id="file-browser"></div>

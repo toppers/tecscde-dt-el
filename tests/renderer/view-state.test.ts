@@ -109,71 +109,106 @@ describe("ViewState.toCanvasView — 第5章 CanvasView への射影", () => {
     const v = ViewState.initial()
       .toggleGrid()
       .zoomAt({ x: 0, y: 0 }, 1.5)
-      .withFilters(DisplayFilters.allVisible().withShowSignatureNames(true));
+      .withFilters(DisplayFilters.allVisible().withShowSignatureNames(false));
     const cv = v.toCanvasView(TecscdeDocument.empty().regions);
     expect(cv.zoom).toBeCloseTo(1.5, 9);
     expect(cv.gridVisible).toBe(true);
-    expect(cv.showSignatureNames).toBe(true);
+    expect(cv.showSignatureNames).toBe(false);
     expect([...cv.hiddenRegionIds]).toEqual([]);
   });
 });
 
-describe("DisplayFilters", () => {
-  it("allVisible has no filters and signature labels off", () => {
-    const f = DisplayFilters.allVisible();
-    expect(f.regionFilter).toBeNull();
-    expect(f.namespaceFilter).toBeNull();
-    expect(f.colorByRegion).toBe(false);
-    expect(f.showSignatureNames).toBe(false);
-    expect(f.isAllVisible).toBe(true);
+describe("ViewState.toCanvasView — 第6B章6B.3 regionColors", () => {
+  const tree = RegionTree.of(Region.create(asRegionId("::"), "::", [Region.create(asRegionId("::A"), "::A")]));
+
+  it("is null while colorByRegion is off, and a color map once it is on", () => {
+    const off = ViewState.initial().toCanvasView(tree);
+    expect(off.regionColors).toBeNull();
+    const on = ViewState.initial()
+      .withFilters(DisplayFilters.allVisible().withColorByRegion(true))
+      .toCanvasView(tree);
+    expect(on.regionColors?.has(asRegionId("::A"))).toBe(true);
+    expect(on.regionColors?.has(asRegionId("::"))).toBe(false);
   });
 
-  it("withers are independent and equals compares by value", () => {
-    const a = DisplayFilters.allVisible().withColorByRegion(true).withShowSignatureNames(true);
-    const b = DisplayFilters.allVisible().withShowSignatureNames(true).withColorByRegion(true);
-    expect(a.equals(b)).toBe(true);
-    expect(a.equals(DisplayFilters.allVisible())).toBe(false);
+  it("reuses the same map for the same RegionTree", () => {
+    const v = ViewState.initial().withFilters(DisplayFilters.allVisible().withColorByRegion(true));
+    expect(v.toCanvasView(tree).regionColors).toBe(v.toCanvasView(tree).regionColors);
   });
 });
 
-describe("resolveHiddenRegionIds — 6.5 リージョン／ネームスペースフィルタ", () => {
+describe("DisplayFilters — 第6B章6B.1", () => {
+  it("allVisible hides nothing, color off, signature labels on", () => {
+    const f = DisplayFilters.allVisible();
+    expect(f.hiddenRegions.size).toBe(0);
+    expect(f.colorByRegion).toBe(false);
+    expect(f.showSignatureNames).toBe(true);
+    expect(f.isAllVisible).toBe(true);
+  });
+
+  it("withRegionHidden adds/removes without mutating the original", () => {
+    const base = DisplayFilters.allVisible();
+    const hidden = base.withRegionHidden(asRegionId("A"), true);
+    expect(base.hiddenRegions.size).toBe(0);
+    expect(hidden.hiddenRegions.has(asRegionId("A"))).toBe(true);
+    expect(hidden.isAllVisible).toBe(false);
+    expect(hidden.withRegionHidden(asRegionId("A"), false).isAllVisible).toBe(true);
+  });
+
+  it("withRegionsRevealed removes only the given ids; withAllRegionsShown clears", () => {
+    const f = DisplayFilters.allVisible()
+      .withRegionHidden(asRegionId("A"), true)
+      .withRegionHidden(asRegionId("B"), true);
+    const r = f.withRegionsRevealed([asRegionId("A"), asRegionId("zzz")]);
+    expect([...r.hiddenRegions]).toEqual([asRegionId("B")]);
+    expect(f.withAllRegionsShown().isAllVisible).toBe(true);
+  });
+
+  it("withers are independent and equals compares by value (set order-insensitive)", () => {
+    const a = DisplayFilters.allVisible().withColorByRegion(true).withShowSignatureNames(false);
+    const b = DisplayFilters.allVisible().withShowSignatureNames(false).withColorByRegion(true);
+    expect(a.equals(b)).toBe(true);
+    expect(a.equals(DisplayFilters.allVisible())).toBe(false);
+    const x = DisplayFilters.allVisible().withRegionHidden(asRegionId("A"), true).withRegionHidden(asRegionId("B"), true);
+    const y = DisplayFilters.allVisible().withRegionHidden(asRegionId("B"), true).withRegionHidden(asRegionId("A"), true);
+    expect(x.equals(y)).toBe(true);
+  });
+});
+
+describe("resolveHiddenRegionIds — 第6B章6B.2", () => {
   // 根 :: ─┬─ A (::A) ── A1 (::A::A1)
   //        └─ B (::B)
   const A1 = Region.create(asRegionId("A1"), "::A::A1");
   const A = Region.create(asRegionId("A"), "::A", [A1]);
   const B = Region.create(asRegionId("B"), "::B");
   const tree = RegionTree.of(Region.create(asRegionId("::"), "::", [A, B]));
+  const hide = (...ids: string[]) =>
+    ids.reduce((f, id) => f.withRegionHidden(asRegionId(id), true), DisplayFilters.allVisible());
 
-  it("no filter → nothing hidden", () => {
+  it("nothing hidden → empty set", () => {
     expect([...resolveHiddenRegionIds(DisplayFilters.allVisible(), tree)]).toEqual([]);
   });
 
-  it("regionFilter = A → A and its descendant A1 visible, B hidden", () => {
-    const hidden = resolveHiddenRegionIds(
-      DisplayFilters.allVisible().withRegionFilter(asRegionId("A")),
-      tree,
-    );
-    expect(hidden.has(asRegionId("B"))).toBe(true);
-    expect(hidden.has(asRegionId("A"))).toBe(false);
-    expect(hidden.has(asRegionId("A1"))).toBe(false);
-  });
-
-  it("namespaceFilter = '::A' → only ::A subtree visible", () => {
-    const hidden = resolveHiddenRegionIds(
-      DisplayFilters.allVisible().withNamespaceFilter("::A"),
-      tree,
-    );
-    expect([...hidden]).toEqual([asRegionId("B")]);
-  });
-
-  it("region + namespace filters combine with AND (empty intersection hides all)", () => {
-    const hidden = resolveHiddenRegionIds(
-      DisplayFilters.allVisible().withRegionFilter(asRegionId("A")).withNamespaceFilter("::B"),
-      tree,
-    );
+  it("hiding A hides A and its descendant A1, not B", () => {
+    const hidden = resolveHiddenRegionIds(hide("A"), tree);
     expect(hidden.has(asRegionId("A"))).toBe(true);
     expect(hidden.has(asRegionId("A1"))).toBe(true);
-    expect(hidden.has(asRegionId("B"))).toBe(true);
+    expect(hidden.has(asRegionId("B"))).toBe(false);
+  });
+
+  it("hiding only the child A1 leaves the parent A visible", () => {
+    const hidden = resolveHiddenRegionIds(hide("A1"), tree);
+    expect([...hidden]).toEqual([asRegionId("A1")]);
+  });
+
+  it("union when parent and child are both hidden, and for siblings", () => {
+    const hidden = resolveHiddenRegionIds(hide("A", "A1", "B"), tree);
+    expect([...hidden].sort()).toEqual(["A", "A1", "B"]);
+  });
+
+  it("never hides the root, and ignores ids not in the tree", () => {
+    const hidden = resolveHiddenRegionIds(hide("::", "ghost"), tree);
+    expect([...hidden]).toEqual([]);
   });
 });
 

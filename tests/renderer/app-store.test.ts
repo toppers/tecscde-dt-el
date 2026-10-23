@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
-import { asCellId } from "../../src/renderer/model/ids";
+import { asCellId, asRegionId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
 import { AppStore } from "../../src/renderer/app/store";
 
@@ -159,5 +159,25 @@ describe("AppStore — 第9章9.5節: tecsgen連携の状態", () => {
     store.setGenerating(false);
     expect(store.isGenerating).toBe(false);
     expect(calls).toBe(2);
+  });
+});
+
+describe("AppStore — 第6B章6B.7 表示フィルタのリセット", () => {
+  const hideA = (store: AppStore): void =>
+    store.setView(store.view.withFilters(store.view.filters.withRegionHidden(asRegionId("::A"), true).withColorByRegion(true)));
+
+  it("loadDocument clears hidden regions but keeps color / signature toggles", () => {
+    const store = new AppStore(loadDoc());
+    hideA(store);
+    store.loadDocument(loadDoc(), "other.cde");
+    expect(store.view.filters.isAllVisible).toBe(true);
+    expect(store.view.filters.colorByRegion).toBe(true);
+  });
+
+  it("loadDocument with keepDirty (adding a reference) keeps hidden regions", () => {
+    const store = new AppStore(loadDoc());
+    hideA(store);
+    store.loadDocument(loadDoc(), "main.cde", [], [], new Map(), [], undefined, [], undefined, true);
+    expect(store.view.filters.hiddenRegions.has(asRegionId("::A"))).toBe(true);
   });
 });

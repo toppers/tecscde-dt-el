@@ -1,0 +1,13 @@
+import("celltypes.cdl");
+
+namespace N {
+  region A {
+    cell tLogger a1 {};
+    region A1 {
+      cell tLogger a2 {};
+    };
+  };
+  region B {
+    cell tLogger b1 {};
+  };
+};

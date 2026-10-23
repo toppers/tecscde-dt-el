@@ -26,12 +26,14 @@ export interface CanvasView {
   readonly showSignatureNames: boolean;
   /** 非表示リージョンに属するセルのID集合（第6章6.5節）。空なら全表示。 */
   readonly hiddenRegionIds: ReadonlySet<RegionId>;
+  /** リージョンごとの色（第6B章6B.3）。`null` は色分けなし。根には色が無い。 */
+  readonly regionColors: ReadonlyMap<RegionId, string> | null;
 }
 
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
 // これはそのフィルタ無し・ズーム100%の既定値であり、`ViewState.initial()` の射影と一致する。
 export function defaultCanvasView(): CanvasView {
-  return { zoom: 1, gridVisible: false, showSignatureNames: false, hiddenRegionIds: new Set() };
+  return { zoom: 1, gridVisible: false, showSignatureNames: true, hiddenRegionIds: new Set(), regionColors: null };
 }
 
 /** モデル座標(mm)1つあたりの画面ピクセル数。 */

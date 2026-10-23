@@ -115,6 +115,14 @@ const BODY_HTML = `
         <div id="search-results"></div>
       </div>
     </div>
+    <div id="display-bar">
+      <div id="region-filter">
+        <button type="button" id="region-filter-toggle">リージョン</button>
+        <div id="region-filter-popover" hidden></div>
+      </div>
+      <label><input type="checkbox" id="filter-color" /> 色分け</label>
+      <label><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
+    </div>
     <div id="main">
       <div id="file-browser"></div>
       <div id="palette">
@@ -220,6 +228,48 @@ cell tRegular Regular {};
     expect(grid().style.display).toBe("none");
     document.querySelector<HTMLButtonElement>("[data-action='toggleGrid']")!.click();
     expect(grid().style.display).toBe("");
+  });
+
+  it("display bar: signature names default on and the checkbox follows the filter state", () => {
+    const { store } = mountShell();
+    const sig = document.querySelector<HTMLInputElement>("#filter-signature")!;
+    const color = document.querySelector<HTMLInputElement>("#filter-color")!;
+    expect(sig.checked).toBe(true);
+    expect(color.checked).toBe(false);
+    expect(document.querySelectorAll(".signature-label").length).toBeGreaterThan(0);
+
+    sig.checked = false;
+    sig.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.view.filters.showSignatureNames).toBe(false);
+    expect(document.querySelectorAll(".signature-label").length).toBe(0);
+
+    color.checked = true;
+    color.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.view.filters.colorByRegion).toBe(true);
+    expect(store.view.toCanvasView(store.getDocument().regions).regionColors).not.toBeNull();
+
+    // 状態を外から変えたとき（例: 別経路）チェックボックスが追従する。
+    store.setView(store.view.withFilters(store.view.filters.withShowSignatureNames(true).withColorByRegion(false)));
+    expect(sig.checked).toBe(true);
+    expect(color.checked).toBe(false);
+  });
+
+  it("region filter: unchecking a region hides its cells; opening another file restores them", () => {
+    const { document: model } = CdlDocumentLoader.loadSingle(
+      "namespace N { region A { cell tLogger c1 {}; }; region B { cell tLogger c2 {}; }; };",
+      "main.cde",
+    );
+    const { store } = mountShell(undefined, model);
+    const cell = (id: string) => document.querySelector<SVGGElement>(`[data-cell-id='${id}']`)!;
+    document.querySelector<HTMLButtonElement>("#region-filter-toggle")!.click();
+    const box = document.querySelector<HTMLInputElement>("input[data-region-id='::N::A']")!;
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(cell("c1").style.display).toBe("none");
+    expect(cell("c2").style.display).toBe("");
+
+    store.loadDocument(model, "other.cde");
+    expect(cell("c1").style.display).toBe("");
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {
