@@ -136,6 +136,7 @@ const BODY_HTML = `
         <div id="canvas-scroll">
           <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
         </div>
+        <div id="region-legend" hidden></div>
         <div id="navigator">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
         </div>
@@ -270,6 +271,21 @@ cell tRegular Regular {};
 
     store.loadDocument(model, "other.cde");
     expect(cell("c1").style.display).toBe("");
+  });
+
+  it("legend: shown on the canvas only while color-by-region is on", () => {
+    const { document: model } = CdlDocumentLoader.loadSingle(
+      "namespace N { region A { cell tLogger c1 {}; }; };",
+      "main.cde",
+    );
+    mountShell(undefined, model);
+    const legend = document.querySelector<HTMLElement>("#region-legend")!;
+    expect(legend.hidden).toBe(true);
+    const color = document.querySelector<HTMLInputElement>("#filter-color")!;
+    color.checked = true;
+    color.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(legend.hidden).toBe(false);
+    expect(legend.textContent).toContain("::N::A");
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {

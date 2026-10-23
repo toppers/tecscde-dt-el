@@ -27,6 +27,7 @@ import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
 import { RegionFilterPanel } from "./region-filter-panel";
+import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { NavigatorView } from "./navigator-panel";
@@ -82,6 +83,7 @@ export class AppShell {
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
   private readonly regionFilter: RegionFilterPanel;
+  private readonly regionLegend: RegionLegendView;
   private readonly propertyPanel: PropertyPanelView;
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
@@ -124,6 +126,7 @@ export class AppShell {
 
     this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store);
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
+    this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
@@ -193,6 +196,7 @@ export class AppShell {
     this.refreshStatus();
     this.palette.render();
     this.regionFilter.render();
+    this.regionLegend.render();
     this.propertyPanel.render();
     this.searchBox.render();
     this.navigator.render();
