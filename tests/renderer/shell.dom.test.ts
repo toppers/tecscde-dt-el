@@ -183,6 +183,47 @@ describe("AppShell — DOM wiring", () => {
     document.body.innerHTML = "";
   });
 
+  it("pans by space + drag without changing selection or document", () => {
+    const { shell, store } = mountShell();
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    const scroll = document.querySelector<HTMLElement>("#canvas-scroll")!;
+    Object.defineProperties(scroll, {
+      clientWidth: { value: 200, configurable: true },
+      clientHeight: { value: 160, configurable: true },
+    });
+    store.setView(store.view.panTo({ x: 100, y: 80 }));
+    store.setSelection(SelectionState.ofCells([asCellId("cSensor1")]));
+    const doc = store.getDocument();
+    const startLeft = scroll.scrollLeft;
+    const startTop = scroll.scrollTop;
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+    svg.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 120, clientY: 80, bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 90, clientY: 60, bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " ", bubbles: true }));
+
+    expect(scroll.scrollLeft).toBeCloseTo(startLeft + 30);
+    expect(scroll.scrollTop).toBeCloseTo(startTop + 20);
+    expect(store.selection.hasCell(asCellId("cSensor1"))).toBe(true);
+    expect(store.getDocument()).toBe(doc);
+    expect(shell.gesture.stateKind).toBe("idle");
+    expect(svg.style.cursor).toBe("");
+  });
+
+  it("does not activate space pan while typing in a text field", () => {
+    const { store } = mountShell();
+    const input = document.querySelector<HTMLInputElement>("#search-input")!;
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    const before = store.view;
+    input.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+    svg.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 120, clientY: 80, bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 90, clientY: 60, bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true }));
+    expect(store.view).toBe(before);
+    expect(svg.style.cursor).toBe("");
+  });
+
   it("shows only the outer composite cell after double-click and Enter", () => {
     const text = `celltype tRegular { entry sTask eTask; };
 composite tComposite {
