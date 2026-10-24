@@ -47,6 +47,7 @@ export class CreateJoinCommand extends Command {
       cport.edgeSide,
       portPosition(target, eport),
       eport.edgeSide,
+      doc.cellValues(), // 外部仕様7.3.2: 他のセルの矩形を避ける経路を優先する
     );
     const join = Join.create(id, this.sourceCellId, cport, this.targetCellId, eport, bars);
 
