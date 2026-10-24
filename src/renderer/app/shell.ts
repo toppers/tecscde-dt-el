@@ -98,6 +98,8 @@ export class AppShell {
   private applyingScroll = false;
   /** scroll ハンドラ由来の setView で、続く render() のスクロール同期を1回だけ抑止する。 */
   private suppressScrollSync = false;
+  private spaceHeld = false;
+  private panDragLast: Point | undefined;
 
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
@@ -166,6 +168,7 @@ export class AppShell {
     this.bindDisplayBar();
     this.disposers.push(() => this.regionFilter.dispose());
     this.bindKeyboard();
+    this.bindSpacePan();
     this.bindWheel();
     this.bindScroll();
     this.bindDirtyReport();
@@ -452,6 +455,72 @@ export class AppShell {
     };
     this.win.addEventListener("keydown", onKey);
     this.disposers.push(() => this.win.removeEventListener("keydown", onKey));
+  }
+
+  /** 外部仕様7.1.2: スペースを押している間は左ドラッグで表示を移動する。 */
+  private bindSpacePan(): void {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey ||
+          (target && (TEXT_INPUT_TAGS.has(target.tagName) || target.isContentEditable ||
+            target.closest("button, a, [role='button']")))) return;
+      e.preventDefault();
+      this.spaceHeld = true;
+      this.svg.style.cursor = "grab";
+    };
+    const stop = (): void => {
+      this.spaceHeld = false;
+      this.panDragLast = undefined;
+      this.svg.style.cursor = "";
+    };
+    const onKeyUp = (e: KeyboardEvent): void => {
+      if (e.code === "Space") stop();
+    };
+    const onDown = (e: MouseEvent): void => {
+      if (!this.spaceHeld || e.button !== 0 || this.gesture.stateKind !== "idle") return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.panDragLast = { x: e.clientX, y: e.clientY };
+      this.svg.style.cursor = "grabbing";
+    };
+    const onMove = (e: MouseEvent): void => {
+      const last = this.panDragLast;
+      if (!last) return;
+      this.panDragLast = { x: e.clientX, y: e.clientY };
+      const k = this.store.view.pxPerMm;
+      if (!Number.isFinite(k) || k <= 0) return;
+      const next = this.store.view.panBy({
+        x: (last.x - e.clientX) / k,
+        y: (last.y - e.clientY) / k,
+      });
+      const viewport = { width: this.scrollEl.clientWidth, height: this.scrollEl.clientHeight };
+      const paper = this.store.getDocument().paper.contentSize();
+      const scroll = scrollForPanCenter(k, next.panCenter, viewport, {
+        width: paper.width * k,
+        height: paper.height * k,
+      });
+      this.store.setView(next.panTo(panCenterFromScroll(k, scroll, viewport)));
+    };
+    const onUp = (e: MouseEvent): void => {
+      if (e.button !== 0 || !this.panDragLast) return;
+      this.panDragLast = undefined;
+      this.svg.style.cursor = this.spaceHeld ? "grab" : "";
+    };
+    this.win.addEventListener("keydown", onKeyDown);
+    this.win.addEventListener("keyup", onKeyUp);
+    this.win.addEventListener("blur", stop);
+    this.svg.addEventListener("mousedown", onDown, true);
+    this.win.addEventListener("mousemove", onMove);
+    this.win.addEventListener("mouseup", onUp);
+    this.disposers.push(() => {
+      stop();
+      this.win.removeEventListener("keydown", onKeyDown);
+      this.win.removeEventListener("keyup", onKeyUp);
+      this.win.removeEventListener("blur", stop);
+      this.svg.removeEventListener("mousedown", onDown, true);
+      this.win.removeEventListener("mousemove", onMove);
+      this.win.removeEventListener("mouseup", onUp);
+    });
   }
 
   private bindWheel(): void {
