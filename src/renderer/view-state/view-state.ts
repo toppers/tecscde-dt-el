@@ -129,6 +129,7 @@ export class ViewState {
       zoom: this.zoom,
       gridVisible: this.gridVisible,
       showSignatureNames: this.filters.showSignatureNames,
+      emphasizeCellName: this.filters.emphasizeCellName,
       hiddenRegionIds,
       regionColors: this.filters.colorByRegion ? cachedColorMap(regions) : null,
     };

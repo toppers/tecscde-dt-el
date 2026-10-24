@@ -124,6 +124,7 @@ const BODY_HTML = `
       </div>
       <label><input type="checkbox" id="filter-color" /> 色分け</label>
       <label><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
+      <label><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
     </div>
     <div id="main">
       <div id="file-browser"></div>
@@ -305,6 +306,23 @@ cell tRegular Regular {};
     expect(btn("alignLeft").disabled).toBe(true); // そろったので無効に戻る
     store.undo();
     expect(x("cLogger1")).not.toBe(x("cSensor1"));
+  });
+
+  it("display bar: cell-name emphasis toggles the label style and hides celltype names", () => {
+    const { store } = mountShell();
+    const box = document.querySelector<HTMLInputElement>("#filter-emphasize")!;
+    expect(box.checked).toBe(false);
+    expect(document.querySelectorAll(".celltype-label").length).toBeGreaterThan(0);
+
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.view.filters.emphasizeCellName).toBe(true);
+    expect(document.querySelectorAll(".celltype-label").length).toBe(0);
+    expect(document.querySelectorAll(".cell-label.emphasized").length).toBeGreaterThan(0);
+
+    store.setView(store.view.withFilters(store.view.filters.withEmphasizeCellName(false)));
+    expect(box.checked).toBe(false);
+    expect(document.querySelectorAll(".celltype-label").length).toBeGreaterThan(0);
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {

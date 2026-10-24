@@ -100,6 +100,15 @@ describe("ViewState — immutable withers", () => {
   });
 });
 
+describe("ViewState.toCanvasView — emphasizeCellName (7.4.2)", () => {
+  it("projects the toggle to the CanvasView", () => {
+    const empty = TecscdeDocument.empty().regions;
+    expect(ViewState.initial().toCanvasView(empty).emphasizeCellName).toBe(false);
+    const on = ViewState.initial().withFilters(DisplayFilters.allVisible().withEmphasizeCellName(true));
+    expect(on.toCanvasView(empty).emphasizeCellName).toBe(true);
+  });
+});
+
 describe("ViewState.toCanvasView — 第5章 CanvasView への射影", () => {
   it("initial projection over an empty document equals defaultCanvasView()", () => {
     const cv = ViewState.initial().toCanvasView(TecscdeDocument.empty().regions);
@@ -144,6 +153,7 @@ describe("DisplayFilters — 第6B章6B.1", () => {
     expect(f.hiddenRegions.size).toBe(0);
     expect(f.colorByRegion).toBe(false);
     expect(f.showSignatureNames).toBe(true);
+    expect(f.emphasizeCellName).toBe(false);
     expect(f.isAllVisible).toBe(true);
   });
 
@@ -163,6 +173,17 @@ describe("DisplayFilters — 第6B章6B.1", () => {
     const r = f.withRegionsRevealed([asRegionId("A"), asRegionId("zzz")]);
     expect([...r.hiddenRegions]).toEqual([asRegionId("B")]);
     expect(f.withAllRegionsShown().isAllVisible).toBe(true);
+  });
+
+  it("withEmphasizeCellName toggles independently and takes part in equals", () => {
+    const base = DisplayFilters.allVisible();
+    const on = base.withEmphasizeCellName(true);
+    expect(base.emphasizeCellName).toBe(false);
+    expect(on.emphasizeCellName).toBe(true);
+    expect(on.equals(base)).toBe(false);
+    expect(on.withColorByRegion(true).emphasizeCellName).toBe(true); // 他の切り替えで落ちない
+    expect(on.withRegionHidden(asRegionId("A"), true).emphasizeCellName).toBe(true);
+    expect(on.withAllRegionsShown().emphasizeCellName).toBe(true);
   });
 
   it("withers are independent and equals compares by value (set order-insensitive)", () => {

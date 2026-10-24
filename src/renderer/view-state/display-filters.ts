@@ -23,11 +23,13 @@ export class DisplayFilters {
     readonly colorByRegion: boolean,
     /** 結合のシグニチャ名ラベルを表示する。既定はオン（外部仕様7.5.2、現行版の常時表示を踏襲）。 */
     readonly showSignatureNames: boolean,
+    /** セル名強調（外部仕様7.4.2）。オンでセル名を大きく表示し、セルタイプ名を隠す。既定はオフ。 */
+    readonly emphasizeCellName: boolean,
   ) {}
 
   /** すべて表示（フィルタなし）。既定状態。 */
   static allVisible(): DisplayFilters {
-    return new DisplayFilters(new Set(), false, true);
+    return new DisplayFilters(new Set(), false, true, false);
   }
 
   get isAllVisible(): boolean {
@@ -39,7 +41,7 @@ export class DisplayFilters {
     const next = new Set(this.hiddenRegions);
     if (hidden) next.add(id);
     else next.delete(id);
-    return new DisplayFilters(next, this.colorByRegion, this.showSignatureNames);
+    return new DisplayFilters(next, this.colorByRegion, this.showSignatureNames, this.emphasizeCellName);
   }
 
   /** 検索のヒットを見せるため、指定したIDを非表示集合から外す（6B.8）。 */
@@ -47,25 +49,32 @@ export class DisplayFilters {
     const next = new Set(this.hiddenRegions);
     let changed = false;
     for (const id of ids) changed = next.delete(id) || changed;
-    return changed ? new DisplayFilters(next, this.colorByRegion, this.showSignatureNames) : this;
+    return changed
+      ? new DisplayFilters(next, this.colorByRegion, this.showSignatureNames, this.emphasizeCellName)
+      : this;
   }
 
   withAllRegionsShown(): DisplayFilters {
     if (this.isAllVisible) return this;
-    return new DisplayFilters(new Set(), this.colorByRegion, this.showSignatureNames);
+    return new DisplayFilters(new Set(), this.colorByRegion, this.showSignatureNames, this.emphasizeCellName);
   }
 
   withColorByRegion(on: boolean): DisplayFilters {
-    return new DisplayFilters(this.hiddenRegions, on, this.showSignatureNames);
+    return new DisplayFilters(this.hiddenRegions, on, this.showSignatureNames, this.emphasizeCellName);
   }
 
   withShowSignatureNames(on: boolean): DisplayFilters {
-    return new DisplayFilters(this.hiddenRegions, this.colorByRegion, on);
+    return new DisplayFilters(this.hiddenRegions, this.colorByRegion, on, this.emphasizeCellName);
+  }
+
+  withEmphasizeCellName(on: boolean): DisplayFilters {
+    return new DisplayFilters(this.hiddenRegions, this.colorByRegion, this.showSignatureNames, on);
   }
 
   equals(other: DisplayFilters): boolean {
     if (this.colorByRegion !== other.colorByRegion) return false;
     if (this.showSignatureNames !== other.showSignatureNames) return false;
+    if (this.emphasizeCellName !== other.emphasizeCellName) return false;
     if (this.hiddenRegions.size !== other.hiddenRegions.size) return false;
     for (const id of this.hiddenRegions) if (!other.hiddenRegions.has(id)) return false;
     return true;
