@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-24T00:47:53.539Z",
+  "saved_at": "2026-10-24T01:05:37.642Z",
   "direct_import": [
     "celltypes.cdl"
   ]
@@ -36,10 +36,22 @@ namespace N {
     
 
 
+
+
+
+
 cell tLogger a2 {
 };
 };
   
+
+
+
+
+
+
+
+
 
 
 
@@ -55,6 +67,18 @@ cell tSensor s1 {
     
     
   
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -99,7 +123,7 @@ __tool_info__("tecscde") {
     },
     "a2": {
       "location": [
-        120,
+        8,
         10,
         25,
         15
@@ -133,8 +157,8 @@ __tool_info__("tecscde") {
     },
     "b2": {
       "location": [
-        10,
-        40,
+        9,
+        62,
         25,
         15
       ],
@@ -152,8 +176,8 @@ __tool_info__("tecscde") {
     },
     "s1": {
       "location": [
-        65,
-        10,
+        8,
+        88,
         25,
         15
       ],
@@ -230,19 +254,19 @@ __tool_info__("tecscde") {
           "dir": "H",
           "fixed": 20,
           "from": 226,
-          "to": 94
+          "to": 37
         },
         {
           "dir": "V",
-          "fixed": 94,
+          "fixed": 37,
           "from": 20,
-          "to": 18
+          "to": 96
         },
         {
           "dir": "H",
-          "fixed": 18,
-          "from": 94,
-          "to": 90
+          "fixed": 96,
+          "from": 37,
+          "to": 33
         }
       ]
     },
@@ -254,27 +278,27 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 45,
-          "from": 10,
-          "to": 6
+          "fixed": 67,
+          "from": 9,
+          "to": 5
         },
         {
           "dir": "H",
-          "fixed": 45,
-          "from": 6,
-          "to": 149
+          "fixed": 67,
+          "from": 5,
+          "to": 37
         },
         {
           "dir": "V",
-          "fixed": 149,
-          "from": 45,
+          "fixed": 37,
+          "from": 67,
           "to": 18
         },
         {
           "dir": "H",
           "fixed": 18,
-          "from": 149,
-          "to": 145
+          "from": 37,
+          "to": 33
         }
       ]
     },
@@ -286,20 +310,20 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 50,
-          "from": 10,
-          "to": 6
+          "fixed": 72,
+          "from": 9,
+          "to": 5
         },
         {
           "dir": "H",
-          "fixed": 50,
-          "from": 6,
+          "fixed": 72,
+          "from": 5,
           "to": 204
         },
         {
           "dir": "V",
           "fixed": 204,
-          "from": 50,
+          "from": 72,
           "to": 18
         },
         {

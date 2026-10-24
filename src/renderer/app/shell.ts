@@ -26,6 +26,7 @@ import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { alignSelection, canAlign } from "./align-actions";
 import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
@@ -249,6 +250,12 @@ export class AppShell {
       case "clear":
         void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
+      case "alignTop":
+        alignSelection(this.store, "top");
+        break;
+      case "alignLeft":
+        alignSelection(this.store, "left");
+        break;
       case "undo":
         this.store.undo();
         break;
@@ -348,6 +355,9 @@ export class AppShell {
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
+    // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
+    this.setDisabled("[data-action='alignTop']", !canAlign(this.store, "top"));
+    this.setDisabled("[data-action='alignLeft']", !canAlign(this.store, "left"));
     const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
     this.setDisabled("[data-action='generate']", !canGenerate);
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);

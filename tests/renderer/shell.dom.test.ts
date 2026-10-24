@@ -101,6 +101,8 @@ const BODY_HTML = `
       <button data-action="clear" type="button">消去</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
+      <button data-action="alignTop" type="button">上端をそろえる</button>
+      <button data-action="alignLeft" type="button">左端をそろえる</button>
       <button data-action="zoomReset" type="button">Reset Rate</button>
       <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" />
       <button data-action="toggleGrid" type="button">グリッド</button>
@@ -286,6 +288,23 @@ cell tRegular Regular {};
     color.dispatchEvent(new Event("change", { bubbles: true }));
     expect(legend.hidden).toBe(false);
     expect(legend.textContent).toContain("::N::A");
+  });
+
+  it("align buttons: enabled only for a multi-selection that would move, and align to the first selected", () => {
+    const { store } = mountShell();
+    const btn = (a: string) => document.querySelector<HTMLButtonElement>(`[data-action='${a}']`)!;
+    expect(btn("alignLeft").disabled).toBe(true);
+
+    store.setSelection(SelectionState.empty().withCellAdded(asCellId("cSensor1")).withCellAdded(asCellId("cLogger1")));
+    expect(btn("alignLeft").disabled).toBe(false);
+    expect(btn("alignTop").disabled).toBe(true); // 3セルとも y が同じ
+
+    btn("alignLeft").click();
+    const x = (id: string) => store.getDocument().getCell(asCellId(id))!.x;
+    expect(x("cLogger1")).toBe(x("cSensor1"));
+    expect(btn("alignLeft").disabled).toBe(true); // そろったので無効に戻る
+    store.undo();
+    expect(x("cLogger1")).not.toBe(x("cSensor1"));
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {
