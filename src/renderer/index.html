@@ -457,6 +457,10 @@
         font-size: 11px;
         fill: #111111;
       }
+      .cell-label.emphasized {
+        font-size: 14px;
+        font-weight: 600;
+      }
       .celltype-label {
         font-size: 9px;
         fill: #666666;
@@ -543,6 +547,7 @@
         </div>
         <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
         <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
+        <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
       </div>
       <div id="main">
         <div id="file-browser"></div>

@@ -24,6 +24,8 @@ export interface CanvasView {
   readonly gridVisible: boolean;
   /** 結合のシグニチャ名ラベルの表示（第6章6.5節 `DisplayFilters`）。 */
   readonly showSignatureNames: boolean;
+  /** セル名強調（外部仕様7.4.2）: オンでセル名を大きく表示し、セルタイプ名を隠す。 */
+  readonly emphasizeCellName: boolean;
   /** 非表示リージョンに属するセルのID集合（第6章6.5節）。空なら全表示。 */
   readonly hiddenRegionIds: ReadonlySet<RegionId>;
   /** リージョンごとの色（第6B章6B.3）。`null` は色分けなし。根には色が無い。 */
@@ -33,7 +35,7 @@ export interface CanvasView {
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
 // これはそのフィルタ無し・ズーム100%の既定値であり、`ViewState.initial()` の射影と一致する。
 export function defaultCanvasView(): CanvasView {
-  return { zoom: 1, gridVisible: false, showSignatureNames: true, hiddenRegionIds: new Set(), regionColors: null };
+  return { zoom: 1, gridVisible: false, showSignatureNames: true, emphasizeCellName: false, hiddenRegionIds: new Set(), regionColors: null };
 }
 
 /** モデル座標(mm)1つあたりの画面ピクセル数。 */

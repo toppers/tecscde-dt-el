@@ -320,6 +320,7 @@ function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
     a.zoom === b.zoom &&
     a.gridVisible === b.gridVisible &&
     a.showSignatureNames === b.showSignatureNames &&
+    a.emphasizeCellName === b.emphasizeCellName &&
     setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
     colorsEqual(a.regionColors, b.regionColors)
   );

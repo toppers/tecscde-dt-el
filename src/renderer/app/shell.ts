@@ -73,6 +73,7 @@ export class AppShell {
   /** 第6B章6B.6: 表示制御バーの切り替え（色分け・シグニチャ名）。 */
   private readonly filterColor: HTMLInputElement;
   private readonly filterSignature: HTMLInputElement;
+  private readonly filterEmphasize: HTMLInputElement;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
@@ -113,6 +114,7 @@ export class AppShell {
     this.zoomSlider = requireEl<HTMLInputElement>(root, "#zoom-slider");
     this.filterColor = requireEl<HTMLInputElement>(root, "#filter-color");
     this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
+    this.filterEmphasize = requireEl<HTMLInputElement>(root, "#filter-emphasize");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
@@ -344,11 +346,17 @@ export class AppShell {
       const f = this.store.view.filters;
       this.store.setView(this.store.view.withFilters(f.withShowSignatureNames(this.filterSignature.checked)));
     };
+    const onEmphasize = (): void => {
+      const f = this.store.view.filters;
+      this.store.setView(this.store.view.withFilters(f.withEmphasizeCellName(this.filterEmphasize.checked)));
+    };
     this.filterColor.addEventListener("change", onColor);
     this.filterSignature.addEventListener("change", onSignature);
+    this.filterEmphasize.addEventListener("change", onEmphasize);
     this.disposers.push(() => {
       this.filterColor.removeEventListener("change", onColor);
       this.filterSignature.removeEventListener("change", onSignature);
+      this.filterEmphasize.removeEventListener("change", onEmphasize);
     });
   }
 
@@ -367,6 +375,7 @@ export class AppShell {
     const filters = this.store.view.filters;
     this.filterColor.checked = filters.colorByRegion;
     this.filterSignature.checked = filters.showSignatureNames;
+    this.filterEmphasize.checked = filters.emphasizeCellName;
   }
 
   private setDisabled(selector: string, disabled: boolean): void {

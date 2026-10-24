@@ -72,16 +72,24 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     const nameLabel = svgEl("text");
     setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 - 3 });
     nameLabel.setAttribute("text-anchor", "middle");
-    nameLabel.setAttribute("class", "cell-label");
+    // 外部仕様7.4.2: セル名強調がオンなら、セル名を大きくセルの中央に置き、セルタイプ名は描かない。
+    const emphasized = ctx.view.emphasizeCellName;
+    nameLabel.setAttribute("class", emphasized ? "cell-label emphasized" : "cell-label");
+    if (emphasized) {
+      nameLabel.setAttribute("dominant-baseline", "middle");
+      setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 });
+    }
     nameLabel.textContent = cell.name;
     element.appendChild(nameLabel);
 
-    const typeLabel = svgEl("text");
-    setAttrs(typeLabel, { x: x + w / 2, y: y + h / 2 + 9 });
-    typeLabel.setAttribute("text-anchor", "middle");
-    typeLabel.setAttribute("class", "celltype-label");
-    typeLabel.textContent = cell.celltypeName;
-    element.appendChild(typeLabel);
+    if (!emphasized) {
+      const typeLabel = svgEl("text");
+      setAttrs(typeLabel, { x: x + w / 2, y: y + h / 2 + 9 });
+      typeLabel.setAttribute("text-anchor", "middle");
+      typeLabel.setAttribute("class", "celltype-label");
+      typeLabel.textContent = cell.celltypeName;
+      element.appendChild(typeLabel);
+    }
 
     for (const port of cell.cports) this.appendPortSymbol(element, cell, port, "cport", k);
     for (const port of cell.eports) this.appendPortSymbol(element, cell, port, "eport", k);
