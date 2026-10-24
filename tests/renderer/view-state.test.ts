@@ -18,6 +18,7 @@ import {
   clampZoom,
   computeNavigator,
   resolveHiddenRegionIds,
+  regionsToReveal,
   searchDocument,
 } from "../../src/renderer/view-state";
 
@@ -209,6 +210,31 @@ describe("resolveHiddenRegionIds — 第6B章6B.2", () => {
   it("never hides the root, and ignores ids not in the tree", () => {
     const hidden = resolveHiddenRegionIds(hide("::", "ghost"), tree);
     expect([...hidden]).toEqual([]);
+  });
+});
+
+describe("regionsToReveal — 第6B章6B.8", () => {
+  const CDL = `
+namespace N {
+  region A { cell tLogger c1 {}; region A1 { cell tLogger c2 {}; }; };
+  region B { cell tController c3 { cLog = c1.eLog; }; };
+};`;
+  const load = () =>
+    CdlDocumentLoader.loadSources([
+      { text: celltypesText, fileName: "celltypes.cdl", editable: false },
+      { text: CDL, fileName: "main.cde", editable: true },
+    ]).document;
+
+  it("a cell hit reveals its region and all ancestors (root excluded)", () => {
+    const doc = load();
+    const hit = searchDocument(doc, "c2")[0]!;
+    expect(regionsToReveal(doc, hit).sort()).toEqual(["::N", "::N::A", "::N::A::A1"]);
+  });
+
+  it("a join hit reveals the regions of both ends", () => {
+    const doc = load();
+    const hit = searchDocument(doc, "cLog")!.find((h) => h.kind === "join")!;
+    expect(regionsToReveal(doc, hit).sort()).toEqual(["::N", "::N::A", "::N::B"]);
   });
 });
 

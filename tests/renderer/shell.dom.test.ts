@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
-import { asCellId, asJoinId } from "../../src/renderer/model/ids";
+import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -591,6 +591,41 @@ cell tRegular Regular {};
       const secondSelection = new Set(store.selection.cellIds);
 
       expect(firstSelection).not.toEqual(secondSelection);
+    });
+
+    it("jumping to a hit in a hidden region reveals it (and its ancestors) — 7.4.2 / 6B.8", () => {
+      const { document: model } = CdlDocumentLoader.loadSingle(
+        "namespace N { region A { cell tLogger c1 {}; region A1 { cell tLogger c2 {}; }; }; region B { cell tLogger c3 {}; }; };",
+        "main.cde",
+      );
+      const { store } = mountShell(undefined, model);
+      store.setView(
+        store.view.withFilters(
+          store.view.filters.withRegionHidden(asRegionId("::N::A"), true).withRegionHidden(asRegionId("::N::B"), true),
+        ),
+      );
+      const cell = (id: string) => document.querySelector<SVGGElement>(`[data-cell-id='${id}']`)!;
+      expect(cell("c2").style.display).toBe("none");
+
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "c2";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+
+      expect(store.view.filters.hiddenRegions.has(asRegionId("::N::A"))).toBe(false);
+      expect(store.view.filters.hiddenRegions.has(asRegionId("::N::B"))).toBe(true); // 無関係なものは触らない
+      expect(cell("c2").style.display).toBe("");
+      expect(store.selection.hasCell(asCellId("c2"))).toBe(true);
+    });
+
+    it("jumping to a visible hit leaves the filters alone", () => {
+      const { store } = mountShell();
+      const before = store.view.filters;
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+      expect(store.view.filters).toBe(before);
     });
 
     it("empty query clears the hit list and count", () => {

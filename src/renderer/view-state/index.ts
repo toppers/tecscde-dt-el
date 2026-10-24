@@ -12,4 +12,4 @@ export {
   type ModelRect,
   type NavigatorModel,
 } from "./navigator";
-export { searchDocument, type SearchHit } from "./search";
+export { regionsToReveal, searchDocument, type SearchHit } from "./search";

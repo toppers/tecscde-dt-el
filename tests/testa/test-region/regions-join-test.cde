@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-23T22:44:44.078Z",
+  "saved_at": "2026-10-24T00:47:53.539Z",
   "direct_import": [
     "celltypes.cdl"
   ]
@@ -34,10 +34,16 @@ namespace N {
     region A1 {
       
     
+
+
 cell tLogger a2 {
 };
 };
   
+
+
+
+
 cell tLogger a1 {
 };
 
@@ -49,6 +55,12 @@ cell tSensor s1 {
     
     
   
+
+
+
+
+
+
 cell tController b1 {
   cLog = a1.eLog;
   cSensor = s1.eRead;

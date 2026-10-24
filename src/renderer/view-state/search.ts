@@ -13,7 +13,8 @@
 // ジャンプ操作としても共用する予定（7.4.2）。本ファイルは順序の定まったヒット列までを
 // 提供し、巡回のカーソル保持はモジュールGが担う。
 
-import type { CellId, JoinId, RegionId } from "../model/ids";
+import { ROOT_REGION_ID, type CellId, type JoinId, type RegionId } from "../model/ids";
+import type { Region } from "../model/region";
 import type { TecscdeDocument } from "../model/document";
 
 export type SearchHit =
@@ -75,4 +76,37 @@ export function searchDocument(
   }
 
   return hits;
+}
+
+/** 根から `target` までの経路（`target` を含み、根を除く）。木に無ければ空。 */
+function pathFromRoot(region: Region, target: RegionId, trail: RegionId[] = []): RegionId[] | undefined {
+  const next = region.id === ROOT_REGION_ID ? trail : [...trail, region.id];
+  if (region.id === target) return next;
+  for (const child of region.children) {
+    const found = pathFromRoot(child, target, next);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * 検索のヒットを見せるために、非表示の集合から外すべきリージョンID（第6B章6B.8、外部仕様7.4.2）。
+ * セルのヒットはそのセルのリージョンと祖先、結合のヒットは両端のセルについて同じものの和集合。
+ * 祖先も含めるのは、祖先が非表示だと子孫も隠れるため（6B.2）。根は含めない。
+ */
+export function regionsToReveal(doc: TecscdeDocument, hit: SearchHit): RegionId[] {
+  const cellIds =
+    hit.kind === "cell"
+      ? [hit.cellId]
+      : (() => {
+          const join = doc.getJoin(hit.joinId);
+          return join ? [join.cellId, join.eportCellId] : [];
+        })();
+  const ids = new Set<RegionId>();
+  for (const cellId of cellIds) {
+    const cell = doc.getCell(cellId);
+    if (!cell) continue;
+    for (const id of pathFromRoot(doc.regions.root, cell.regionId) ?? []) ids.add(id);
+  }
+  return [...ids];
 }
