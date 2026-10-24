@@ -3,7 +3,7 @@
 // （選択＋パン、6.4節7.4.2の巡回機構の最小形）を提供する。フィルタで非表示のヒットは
 // `revealed`のスタイルで示すのみとし、実際にフィルタを緩めて表示する配線は次段とする。
 
-import { searchDocument, type SearchHit } from "../view-state/search";
+import { regionsToReveal, searchDocument, type SearchHit } from "../view-state/search";
 import { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 
@@ -81,6 +81,10 @@ export class SearchBoxView {
     if (!hit) return;
     this.cursor = index;
     const doc = this.store.getDocument();
+    // 第6B章6B.8（外部仕様7.4.2）: 非表示のリージョンにあるヒットは、見えるようフィルタを緩める。
+    // 緩めた分は元に戻さない（利用者がリージョン木で再び外す）。変化が無ければ同じ参照が返り何も起きない。
+    const filters = this.store.view.filters;
+    this.store.setView(this.store.view.withFilters(filters.withRegionsRevealed(regionsToReveal(doc, hit))));
     if (hit.kind === "cell") {
       const cell = doc.getCell(hit.cellId);
       this.store.setSelection(SelectionState.ofCells([hit.cellId]));

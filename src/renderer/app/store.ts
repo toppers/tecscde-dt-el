@@ -342,6 +342,9 @@ export class AppStore {
     this.portTypeIndex = portTypeIndex;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
+    // 第6B章6B.7: 非表示にしたリージョンのIDは前のドキュメントのものなので、別のファイルを開くときは
+    // 戻す（参照ファイルの追加＝keepDirtyでは保つ）。色分け・シグニチャ名の切り替えは保つ。
+    if (!keepDirty) this.viewState = this.viewState.withFilters(this.viewState.filters.withAllRegionsShown());
     this.notify();
   }
 

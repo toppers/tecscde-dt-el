@@ -21,6 +21,7 @@ import type { Point } from "../model/geometry";
 import type { RegionId } from "../model/ids";
 import type { RegionTree } from "../model/region";
 import { MM_TO_PX, type CanvasView } from "../render/view";
+import { regionColorMap } from "./region-colors";
 
 /** ズーム下限（外部仕様3.2.1: 5%）。 */
 export const ZOOM_MIN = 0.05;
@@ -32,6 +33,18 @@ export const ZOOM_STEP = 1.1;
 export function clampZoom(zoom: number): number {
   if (!Number.isFinite(zoom)) return 1;
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+}
+
+/** 色表は `RegionTree` が変わらない限り使い回す（描画層の変更検出を参照比較で済ませるため）。 */
+const colorMapCache = new WeakMap<RegionTree, ReadonlyMap<RegionId, string>>();
+
+function cachedColorMap(regions: RegionTree): ReadonlyMap<RegionId, string> {
+  let map = colorMapCache.get(regions);
+  if (!map) {
+    map = regionColorMap(regions);
+    colorMapCache.set(regions, map);
+  }
+  return map;
 }
 
 export class ViewState {
@@ -117,6 +130,7 @@ export class ViewState {
       gridVisible: this.gridVisible,
       showSignatureNames: this.filters.showSignatureNames,
       hiddenRegionIds,
+      regionColors: this.filters.colorByRegion ? cachedColorMap(regions) : null,
     };
   }
 }

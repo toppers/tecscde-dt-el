@@ -3,7 +3,7 @@
 // 型（`ElementRenderer<Join>` vs `ElementRenderer<Cell>`）で明確になる。
 
 import { ElementRenderer, setAttrs, svgEl } from "./element-renderer";
-import { joinPolyline } from "./svg-path";
+import { STUB_TICK_MM, joinPolyline, joinStub, stubTick } from "./svg-path";
 import { pxPerMm, type CanvasView } from "./view";
 import type { Cell } from "../model/cell";
 import type { Bar, Join } from "../model/join";
@@ -17,6 +17,9 @@ export interface JoinRenderContext {
   readonly target: Cell;
   /** ドラッグ中プレビュー用に経路を差し替える場合のみ指定（通常は `join.bars`）。 */
   readonly bars?: readonly Bar[];
+  /** 呼び口側／受け口側のセルが非表示リージョンに属するか（第6B章6B.5。両方なら呼び出し側が描画自体を省く）。 */
+  readonly sourceHidden?: boolean;
+  readonly targetHidden?: boolean;
 }
 
 function pointsAttr(points: readonly Point[], k: number): string {
@@ -37,6 +40,12 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
     if (!points || points.length < 2) return;
 
     const k = pxPerMm(ctx.view);
+    const parts = joinStub(points, ctx.sourceHidden === true, ctx.targetHidden === true);
+    if (!parts) return;
+    if (parts.isStub) {
+      this.appendStub(element, parts.points, ctx, k);
+      return;
+    }
     const line = svgEl("polyline");
     setAttrs(line, { points: pointsAttr(points, k) });
     line.setAttribute("class", "join-line");
@@ -54,6 +63,26 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
         element.appendChild(label);
       }
     }
+  }
+
+  /** 第6B章6B.5: 一端が非表示の結合を、可視側から短い線と先端の横線で描く。ホバーで相手を示す。 */
+  private appendStub(element: SVGGElement, stub: readonly Point[], ctx: JoinRenderContext, k: number): void {
+    const line = svgEl("polyline");
+    setAttrs(line, { points: pointsAttr(stub, k) });
+    line.setAttribute("class", "join-line join-stub");
+    line.setAttribute("fill", "none");
+    element.appendChild(line);
+
+    const [a, b] = stubTick(stub, STUB_TICK_MM);
+    const tick = svgEl("line");
+    setAttrs(tick, { x1: a.x * k, y1: a.y * k, x2: b.x * k, y2: b.y * k });
+    tick.setAttribute("class", "join-stub-tick");
+    element.appendChild(tick);
+
+    const other = ctx.targetHidden === true ? ctx.target : ctx.source;
+    const title = svgEl("title");
+    title.textContent = `${other.name}（${other.regionId}）`;
+    element.appendChild(title);
   }
 
   /**

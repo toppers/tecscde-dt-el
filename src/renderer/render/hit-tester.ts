@@ -14,11 +14,11 @@
 // `GestureController` は `doc` が変わるたびに新しい `HitTester` へ差し替える。
 
 import { pxToMm, type CanvasView } from "./view";
-import { joinPolyline } from "./svg-path";
+import { joinPolyline, joinStub } from "./svg-path";
 import { portPosition } from "../model/geometry";
 import type { Point } from "../model/geometry";
 import type { Cell } from "../model/cell";
-import type { CellId, JoinId } from "../model/ids";
+import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { TecscdeDocument } from "../model/document";
 
 export type HitResult =
@@ -55,6 +55,8 @@ function distanceToSegment(p: Point, a: Point, b: Point): number {
 
 export class HitTester {
   private readonly barRadiusMm: number;
+  /** 第6B章6B.5: 非表示リージョン。見えていないセルは掴めない。 */
+  private readonly hiddenRegionIds: ReadonlySet<RegionId>;
 
   constructor(
     private readonly doc: TecscdeDocument,
@@ -62,6 +64,11 @@ export class HitTester {
     barSearchRadiusPx: number = DEFAULT_BAR_SEARCH_RADIUS_PX,
   ) {
     this.barRadiusMm = pxToMm(view, barSearchRadiusPx);
+    this.hiddenRegionIds = view.hiddenRegionIds;
+  }
+
+  private visibleCells(): Cell[] {
+    return this.doc.cellValues().filter((cell) => !this.hiddenRegionIds.has(cell.regionId));
   }
 
   /** モデル座標の1点に対するヒットテスト。優先順位はポート＞セル＞結合バー。 */
@@ -79,7 +86,7 @@ export class HitTester {
     const minY = Math.min(a.y, b.y);
     const maxY = Math.max(a.y, b.y);
     const result: CellId[] = [];
-    for (const cell of this.doc.cellValues()) {
+    for (const cell of this.visibleCells()) {
       if (
         cell.x >= minX &&
         cell.y >= minY &&
@@ -93,7 +100,7 @@ export class HitTester {
   }
 
   private hitPort(point: Point): HitResult | undefined {
-    for (const cell of this.doc.cellValues()) {
+    for (const cell of this.visibleCells()) {
       for (const p of cell.cports) {
         if (distance(point, portPosition(cell, p)) <= PORT_HIT_RADIUS_MM) {
           return { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript };
@@ -109,7 +116,7 @@ export class HitTester {
   }
 
   private hitCell(point: Point): HitResult | undefined {
-    for (const cell of this.doc.cellValues()) {
+    for (const cell of this.visibleCells()) {
       if (pointInCell(point, cell)) return { kind: "cell", cellId: cell.id };
     }
     return undefined;
@@ -121,15 +128,24 @@ export class HitTester {
       const source = this.doc.getCell(join.cellId);
       const target = this.doc.getCell(join.eportCellId);
       if (!source || !target) continue;
-      const points = joinPolyline(join, source, target);
-      if (!points) continue;
+      const full = joinPolyline(join, source, target);
+      if (!full) continue;
+      // 一端が非表示ならスタブの部分だけが対象。線分番号は元の結合の番号へ戻す（6B.5）。
+      const parts = joinStub(
+        full,
+        this.hiddenRegionIds.has(source.regionId),
+        this.hiddenRegionIds.has(target.regionId),
+      );
+      if (!parts) continue;
+      const points = parts.points;
       for (let i = 0; i < points.length - 1; i += 1) {
         const a = points[i];
         const b = points[i + 1];
-        if (!a || !b) continue;
+        const barIndex = parts.segmentIndices[i];
+        if (!a || !b || barIndex === undefined) continue;
         const d = distanceToSegment(point, a, b);
         if (d <= this.barRadiusMm && (!best || d < best.d)) {
-          best = { joinId: join.id, barIndex: i, d };
+          best = { joinId: join.id, barIndex, d };
         }
       }
     }

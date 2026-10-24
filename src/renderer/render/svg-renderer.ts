@@ -10,12 +10,12 @@
 import { CellRenderer } from "./cell-renderer";
 import { JoinRenderer } from "./join-renderer";
 import { setAttrs, svgEl } from "./element-renderer";
-import { joinPolyline } from "./svg-path";
+import { joinPolyline, joinStub } from "./svg-path";
 import { pxPerMm, type CanvasView, type SelectionState } from "./view";
 import { ALIGN_MM } from "../model/align";
 import type { Bar, Join } from "../model/join";
 import type { Cell } from "../model/cell";
-import type { CellId, JoinId } from "../model/ids";
+import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 
@@ -135,9 +135,11 @@ export class SvgRenderer {
       const source = doc.getCell(join.cellId);
       const target = doc.getCell(join.eportCellId);
       if (!source || !target) continue;
-      const hidden =
-        view.hiddenRegionIds.has(source.regionId) && view.hiddenRegionIds.has(target.regionId);
-      const ctx = { view, source, target };
+      // 第6B章6B.5: 両端が非表示なら消し、一端だけなら可視側にスタブを描く。
+      const sourceHidden = view.hiddenRegionIds.has(source.regionId);
+      const targetHidden = view.hiddenRegionIds.has(target.regionId);
+      const hidden = sourceHidden && targetHidden;
+      const ctx = { view, source, target, sourceHidden, targetHidden };
       let group = this.joinElements.get(join.id);
       const endpointsChanged =
         this.lastDoc?.getCell(join.cellId) !== source || this.lastDoc?.getCell(join.eportCellId) !== target;
@@ -199,8 +201,16 @@ export class SvgRenderer {
       const source = doc.getCell(join.cellId);
       const target = doc.getCell(join.eportCellId);
       if (!source || !target) continue;
-      const points = joinPolyline(join, source, target);
-      if (!points) continue;
+      const full = joinPolyline(join, source, target);
+      if (!full) continue;
+      // 一端が非表示の結合は、描かれているスタブの部分だけを選択枠にする（6B.5）。
+      const parts = joinStub(
+        full,
+        view.hiddenRegionIds.has(source.regionId),
+        view.hiddenRegionIds.has(target.regionId),
+      );
+      if (!parts) continue;
+      const points = parts.points;
       const line = svgEl("polyline");
       setAttrs(line, { points: points.map((p) => `${p.x * k},${p.y * k}`).join(" ") });
       line.setAttribute("class", "selection-outline join-selected");
@@ -294,12 +304,23 @@ function setsEqual<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
   return true;
 }
 
+function colorsEqual(
+  a: ReadonlyMap<RegionId, string> | null,
+  b: ReadonlyMap<RegionId, string> | null,
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a.size !== b.size) return false;
+  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  return true;
+}
+
 function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
   return (
     a !== undefined &&
     a.zoom === b.zoom &&
     a.gridVisible === b.gridVisible &&
     a.showSignatureNames === b.showSignatureNames &&
-    setsEqual(a.hiddenRegionIds, b.hiddenRegionIds)
+    setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
+    colorsEqual(a.regionColors, b.regionColors)
   );
 }

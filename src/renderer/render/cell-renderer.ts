@@ -13,6 +13,9 @@ export interface CellRenderContext {
   readonly view: CanvasView;
 }
 
+/** リージョンの色の帯の幅(mm)。第6B章6B.5（暫定値）。 */
+export const REGION_TAB_MM = 2;
+
 /** 三角記号の1辺の長さ(px)。外部仕様4.3.1 Triangle_Len/Height相当を簡略化。 */
 const PORT_SYMBOL_PX = 4;
 
@@ -55,6 +58,16 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     if (cell.celltypeUnresolved) classes.push("unresolved");
     rect.setAttribute("class", classes.join(" "));
     element.appendChild(rect);
+
+    // 第6B章6B.5: 色分け表示のリージョンの色は、状態を表す塗り・枠とは別に左端の帯で示す。
+    const regionColor = ctx.view.regionColors?.get(cell.regionId);
+    if (regionColor !== undefined) {
+      const tab = svgEl("rect");
+      setAttrs(tab, { x, y, width: Math.min(REGION_TAB_MM * k, w), height: h });
+      tab.setAttribute("class", "region-tab");
+      tab.setAttribute("fill", regionColor);
+      element.appendChild(tab);
+    }
 
     const nameLabel = svgEl("text");
     setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 - 3 });

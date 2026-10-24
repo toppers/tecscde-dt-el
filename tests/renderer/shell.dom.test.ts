@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
-import { asCellId, asJoinId } from "../../src/renderer/model/ids";
+import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -115,6 +115,14 @@ const BODY_HTML = `
         <div id="search-results"></div>
       </div>
     </div>
+    <div id="display-bar">
+      <div id="region-filter">
+        <button type="button" id="region-filter-toggle">リージョン</button>
+        <div id="region-filter-popover" hidden></div>
+      </div>
+      <label><input type="checkbox" id="filter-color" /> 色分け</label>
+      <label><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
+    </div>
     <div id="main">
       <div id="file-browser"></div>
       <div id="palette">
@@ -128,6 +136,7 @@ const BODY_HTML = `
         <div id="canvas-scroll">
           <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
         </div>
+        <div id="region-legend" hidden></div>
         <div id="navigator">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
         </div>
@@ -220,6 +229,63 @@ cell tRegular Regular {};
     expect(grid().style.display).toBe("none");
     document.querySelector<HTMLButtonElement>("[data-action='toggleGrid']")!.click();
     expect(grid().style.display).toBe("");
+  });
+
+  it("display bar: signature names default on and the checkbox follows the filter state", () => {
+    const { store } = mountShell();
+    const sig = document.querySelector<HTMLInputElement>("#filter-signature")!;
+    const color = document.querySelector<HTMLInputElement>("#filter-color")!;
+    expect(sig.checked).toBe(true);
+    expect(color.checked).toBe(false);
+    expect(document.querySelectorAll(".signature-label").length).toBeGreaterThan(0);
+
+    sig.checked = false;
+    sig.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.view.filters.showSignatureNames).toBe(false);
+    expect(document.querySelectorAll(".signature-label").length).toBe(0);
+
+    color.checked = true;
+    color.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.view.filters.colorByRegion).toBe(true);
+    expect(store.view.toCanvasView(store.getDocument().regions).regionColors).not.toBeNull();
+
+    // 状態を外から変えたとき（例: 別経路）チェックボックスが追従する。
+    store.setView(store.view.withFilters(store.view.filters.withShowSignatureNames(true).withColorByRegion(false)));
+    expect(sig.checked).toBe(true);
+    expect(color.checked).toBe(false);
+  });
+
+  it("region filter: unchecking a region hides its cells; opening another file restores them", () => {
+    const { document: model } = CdlDocumentLoader.loadSingle(
+      "namespace N { region A { cell tLogger c1 {}; }; region B { cell tLogger c2 {}; }; };",
+      "main.cde",
+    );
+    const { store } = mountShell(undefined, model);
+    const cell = (id: string) => document.querySelector<SVGGElement>(`[data-cell-id='${id}']`)!;
+    document.querySelector<HTMLButtonElement>("#region-filter-toggle")!.click();
+    const box = document.querySelector<HTMLInputElement>("input[data-region-id='::N::A']")!;
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(cell("c1").style.display).toBe("none");
+    expect(cell("c2").style.display).toBe("");
+
+    store.loadDocument(model, "other.cde");
+    expect(cell("c1").style.display).toBe("");
+  });
+
+  it("legend: shown on the canvas only while color-by-region is on", () => {
+    const { document: model } = CdlDocumentLoader.loadSingle(
+      "namespace N { region A { cell tLogger c1 {}; }; };",
+      "main.cde",
+    );
+    mountShell(undefined, model);
+    const legend = document.querySelector<HTMLElement>("#region-legend")!;
+    expect(legend.hidden).toBe(true);
+    const color = document.querySelector<HTMLInputElement>("#filter-color")!;
+    color.checked = true;
+    color.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(legend.hidden).toBe(false);
+    expect(legend.textContent).toContain("::N::A");
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {
@@ -525,6 +591,41 @@ cell tRegular Regular {};
       const secondSelection = new Set(store.selection.cellIds);
 
       expect(firstSelection).not.toEqual(secondSelection);
+    });
+
+    it("jumping to a hit in a hidden region reveals it (and its ancestors) — 7.4.2 / 6B.8", () => {
+      const { document: model } = CdlDocumentLoader.loadSingle(
+        "namespace N { region A { cell tLogger c1 {}; region A1 { cell tLogger c2 {}; }; }; region B { cell tLogger c3 {}; }; };",
+        "main.cde",
+      );
+      const { store } = mountShell(undefined, model);
+      store.setView(
+        store.view.withFilters(
+          store.view.filters.withRegionHidden(asRegionId("::N::A"), true).withRegionHidden(asRegionId("::N::B"), true),
+        ),
+      );
+      const cell = (id: string) => document.querySelector<SVGGElement>(`[data-cell-id='${id}']`)!;
+      expect(cell("c2").style.display).toBe("none");
+
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "c2";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+
+      expect(store.view.filters.hiddenRegions.has(asRegionId("::N::A"))).toBe(false);
+      expect(store.view.filters.hiddenRegions.has(asRegionId("::N::B"))).toBe(true); // 無関係なものは触らない
+      expect(cell("c2").style.display).toBe("");
+      expect(store.selection.hasCell(asCellId("c2"))).toBe(true);
+    });
+
+    it("jumping to a visible hit leaves the filters alone", () => {
+      const { store } = mountShell();
+      const before = store.view.filters;
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!.click();
+      expect(store.view.filters).toBe(before);
     });
 
     it("empty query clears the hit list and count", () => {
