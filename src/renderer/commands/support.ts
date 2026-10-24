@@ -89,6 +89,7 @@ export function rerouteJoin(doc: TecscdeDocument, id: JoinId): TecscdeDocument {
     cport.edgeSide,
     portPosition(target, eport),
     eport.edgeSide,
+    doc.cellValues(), // 外部仕様7.3.2: 他のセルの矩形を避ける経路を優先する
   );
   return doc.withJoin(join.withBars(bars));
 }

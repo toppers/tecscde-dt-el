@@ -588,6 +588,7 @@ export class CdlDocumentLoader {
                 cport.edgeSide,
                 portPosition(targetCell, eport),
                 eport.edgeSide,
+                [...cells.values()], // 外部仕様7.3.2: 保存済みの経路が無い結合は、他のセルを避ける
               );
 
           const join = Join.create(jid, sourceCell.id, cport, targetCell.id, eport, bars);

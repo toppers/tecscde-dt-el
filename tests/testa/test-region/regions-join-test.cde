@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-24T01:05:37.642Z",
+  "saved_at": "2026-10-24T02:47:06.188Z",
   "direct_import": [
     "celltypes.cdl"
   ]
@@ -40,10 +40,16 @@ namespace N {
 
 
 
+
+
 cell tLogger a2 {
 };
 };
   
+
+
+
+
 
 
 
@@ -67,6 +73,12 @@ cell tSensor s1 {
     
     
   
+
+
+
+
+
+
 
 
 
@@ -157,8 +169,8 @@ __tool_info__("tecscde") {
     },
     "b2": {
       "location": [
-        9,
-        62,
+        263,
+        11,
         25,
         15
       ],
@@ -171,6 +183,36 @@ __tool_info__("tecscde") {
         "cSensor": {
           "edge": "LEFT",
           "offset": 10
+        }
+      }
+    },
+    "Logger": {
+      "location": [
+        102,
+        35,
+        25,
+        15
+      ],
+      "region": "::",
+      "ports": {
+        "eLog": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    },
+    "Logger1": {
+      "location": [
+        206,
+        67,
+        25,
+        15
+      ],
+      "region": "::",
+      "ports": {
+        "eLog": {
+          "edge": "RIGHT",
+          "offset": 8
         }
       }
     },
@@ -278,20 +320,26 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 67,
-          "from": 9,
-          "to": 5
+          "fixed": 16,
+          "from": 263,
+          "to": 259
+        },
+        {
+          "dir": "V",
+          "fixed": 259,
+          "from": 16,
+          "to": 7
         },
         {
           "dir": "H",
-          "fixed": 67,
-          "from": 5,
+          "fixed": 7,
+          "from": 259,
           "to": 37
         },
         {
           "dir": "V",
           "fixed": 37,
-          "from": 67,
+          "from": 7,
           "to": 18
         },
         {
@@ -310,20 +358,26 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 72,
-          "from": 9,
-          "to": 5
+          "fixed": 21,
+          "from": 263,
+          "to": 259
+        },
+        {
+          "dir": "V",
+          "fixed": 259,
+          "from": 21,
+          "to": 29
         },
         {
           "dir": "H",
-          "fixed": 72,
-          "from": 5,
+          "fixed": 29,
+          "from": 259,
           "to": 204
         },
         {
           "dir": "V",
           "fixed": 204,
-          "from": 72,
+          "from": 29,
           "to": 18
         },
         {
@@ -336,3 +390,9 @@ __tool_info__("tecscde") {
     }
   }
 }
+
+cell tLogger Logger {
+};
+
+cell tLogger Logger1 {
+};

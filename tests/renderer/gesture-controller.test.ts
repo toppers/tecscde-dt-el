@@ -178,10 +178,21 @@ describe("select mode — joining", () => {
 describe("select mode — join bar drag", () => {
   it("commits one MoveJoinBarCommand for a middle bar", () => {
     const h = harness();
-    h.gesture.pointerDown({ x: 50, y: 15 }); // on the long horizontal bar of cController1.cLog
+    // cController1.cLog の経路は他のセルを避けて自動生成される（外部仕様7.3.2）ため、座標を決め打ちせず、
+    // 途中バーのうち最も長いものの中点を掴んで、バーに直交する向きへ動かす。
+    const bars = h.doc().getJoin(asJoinId("cController1.cLog"))!.bars;
+    let index = 1;
+    for (let i = 1; i < bars.length - 1; i += 1) {
+      if (Math.abs(bars[i]!.to - bars[i]!.from) > Math.abs(bars[index]!.to - bars[index]!.from)) index = i;
+    }
+    const bar = bars[index]!;
+    const mid = (bar.from + bar.to) / 2;
+    const at = (shift: number) =>
+      bar.direction === "H" ? { x: mid, y: bar.fixed + shift } : { x: bar.fixed + shift, y: mid };
+    h.gesture.pointerDown(at(0));
     expect(h.gesture.stateKind).toBe("movingJoinBar");
-    h.gesture.pointerMove({ x: 50, y: 22 });
-    h.gesture.pointerUp({ x: 50, y: 25 });
+    h.gesture.pointerMove(at(7));
+    h.gesture.pointerUp(at(10));
     expect(h.dispatched).toHaveLength(1);
     expect(h.dispatched[0]).toBeInstanceOf(MoveJoinBarCommand);
   });

@@ -51,11 +51,22 @@ describe("HitTester.hitTest — priority ポート＞セル＞結合バー", () 
   });
 
   it("returns the join bar when the point is on a bar segment outside every cell", () => {
-    const hit = tester(loadDoc()).hitTest({ x: 50, y: 15 });
+    // 経路は他のセルを避けて自動生成される（外部仕様7.3.2）ため、座標を決め打ちせず、
+    // 結合の途中バーのうち最も長いものの中点を使う。
+    const doc = loadDoc();
+    const bars = doc.getJoin(JOIN_CLOG)!.bars;
+    let index = 1;
+    for (let i = 1; i < bars.length - 1; i += 1) {
+      if (Math.abs(bars[i]!.to - bars[i]!.from) > Math.abs(bars[index]!.to - bars[index]!.from)) index = i;
+    }
+    const bar = bars[index]!;
+    const mid = (bar.from + bar.to) / 2;
+    const point = bar.direction === "H" ? { x: mid, y: bar.fixed } : { x: bar.fixed, y: mid };
+    const hit = tester(doc).hitTest(point);
     expect(hit.kind).toBe("joinBar");
     if (hit.kind === "joinBar") {
       expect(hit.joinId).toBe(JOIN_CLOG);
-      expect(hit.barIndex).toBe(1); // 長い水平区間
+      expect(hit.barIndex).toBe(index);
     }
   });
 
