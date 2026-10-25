@@ -1,9 +1,7 @@
-// [[TECSCDE-DT-EL内部仕様]] 第6章6.4節・第2章2.3節 — 検索ボックス（モジュールG次段）。
-// `searchDocument`（純関数、view-state/search.ts）をUIへ配線する。ヒット一覧からのジャンプ
-// （選択＋パン、6.4節7.4.2の巡回機構の最小形）を提供する。フィルタで非表示のヒットは
-// `revealed`のスタイルで示すのみとし、実際にフィルタを緩めて表示する配線は次段とする。
+// DT-EL internal spec 6.4: list and cycle through the search snapshot from AppShell.
+// Jumping to hidden hits reveals their regions (6B.8).
 
-import { regionsToReveal, searchDocument, type SearchHit } from "../view-state/search";
+import { regionsToReveal, type SearchHit } from "../view-state/search";
 import { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 
@@ -39,14 +37,12 @@ export class SearchBoxView {
     return el;
   }
 
-  render(): void {
+  render(hits: readonly SearchHit[]): void {
     const view = this.store.view;
     if (this.input.value !== (view.searchQuery ?? "")) {
       this.input.value = view.searchQuery ?? "";
     }
-    const doc = this.store.getDocument();
-    const hiddenRegionIds = view.toCanvasView(doc.regions).hiddenRegionIds;
-    this.hits = searchDocument(doc, view.searchQuery, hiddenRegionIds);
+    this.hits = hits;
     if (this.cursor >= this.hits.length) this.cursor = this.hits.length > 0 ? 0 : -1;
 
     this.countEl.textContent = view.searchQuery ? `${this.hits.length}件` : "";

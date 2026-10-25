@@ -8,9 +8,11 @@ import { pxPerMm, type CanvasView } from "./view";
 import type { Cell } from "../model/cell";
 import type { EdgeSide, Port } from "../model/port";
 import { portPosition } from "../model/geometry";
+import { styleSearchHighlight } from "./search-highlights";
 
 export interface CellRenderContext {
   readonly view: CanvasView;
+  readonly searchMatch?: boolean;
 }
 
 /** リージョンの色の帯の幅(mm)。第6B章6B.5（暫定値）。 */
@@ -49,6 +51,14 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     const h = cell.height * k;
 
     element.replaceChildren();
+
+    if (ctx.searchMatch) {
+      const highlight = svgEl("rect");
+      const margin = 0.8 * k;
+      setAttrs(highlight, { x: x - margin, y: y - margin, width: w + 2 * margin, height: h + 2 * margin });
+      styleSearchHighlight(highlight, "cell");
+      element.appendChild(highlight);
+    }
 
     const rect = svgEl("rect");
     setAttrs(rect, { x, y, width: w, height: h });
