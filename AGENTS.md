@@ -131,3 +131,11 @@ The renderer is bundled by `scripts/build-renderer.mjs` (esbuild) into a single
 `dist/renderer/renderer.js` + `index.html`, with `public/samples` copied alongside for packaged
 builds. `esbuild` is a build-time-only devDependency; the distributed app has no renderer
 runtime dependencies.
+
+<!-- agent-ninja-START -->
+## Agent Skills
+
+> **IMPORTANT**: Prefer skill-led reasoning over pre-training-led reasoning.
+> See [Agent Skills](.github/skills/README.md) before working on tasks covered by these skills.
+
+<!-- agent-ninja-END -->
