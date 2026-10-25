@@ -8,9 +8,11 @@ import { pxPerMm, type CanvasView } from "./view";
 import type { Cell } from "../model/cell";
 import type { Bar, Join } from "../model/join";
 import type { Point } from "../model/geometry";
+import { styleSearchHighlight } from "./search-highlights";
 
 export interface JoinRenderContext {
   readonly view: CanvasView;
+  readonly searchMatch?: boolean;
   /** 呼び口側セル（`join.cellId` の実体）。 */
   readonly source: Cell;
   /** 受け口側セル（`join.eportCellId` の実体）。 */
@@ -42,6 +44,12 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
     const k = pxPerMm(ctx.view);
     const parts = joinStub(points, ctx.sourceHidden === true, ctx.targetHidden === true);
     if (!parts) return;
+    if (ctx.searchMatch) {
+      const highlight = svgEl("polyline");
+      setAttrs(highlight, { points: pointsAttr(parts.points, k) });
+      styleSearchHighlight(highlight, "join");
+      element.appendChild(highlight);
+    }
     if (parts.isStub) {
       this.appendStub(element, parts.points, ctx, k);
       return;
@@ -93,6 +101,16 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
     const line = element.querySelector<SVGPolylineElement>("polyline.join-line");
     const points = joinPolyline(join, ctx.source, ctx.target, bars);
     if (!line || !points) return;
-    line.setAttribute("points", pointsAttr(points, pxPerMm(ctx.view)));
+    const parts = joinStub(points, ctx.sourceHidden === true, ctx.targetHidden === true);
+    if (!parts) return;
+    const k = pxPerMm(ctx.view);
+    const value = pointsAttr(parts.points, k);
+    line.setAttribute("points", value);
+    element.querySelector(".search-highlight-join")?.setAttribute("points", value);
+    if (parts.isStub) {
+      const [a, b] = stubTick(parts.points, STUB_TICK_MM);
+      const tick = element.querySelector<SVGLineElement>(".join-stub-tick");
+      if (tick) setAttrs(tick, { x1: a.x * k, y1: a.y * k, x2: b.x * k, y2: b.y * k });
+    }
   }
 }

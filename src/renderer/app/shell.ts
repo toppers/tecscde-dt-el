@@ -31,6 +31,8 @@ import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
+import { searchDocument } from "../view-state/search";
+import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
 import type { AppStore } from "./store";
@@ -194,8 +196,16 @@ export class AppShell {
     const doc = this.store.getDocument();
     const view = this.store.view;
     const canvasView = view.toCanvasView(doc.regions);
+    const hits = searchDocument(doc, view.searchQuery, canvasView.hiddenRegionIds);
+    const cellIds = new Set<CellId>();
+    const joinIds = new Set<JoinId>();
+    for (const hit of hits) {
+      if (hit.kind === "cell") cellIds.add(hit.cellId);
+      else joinIds.add(hit.joinId);
+    }
     this.renderer.render(doc, canvasView, this.store.selection, {
       joinPreview: this.gesture.currentJoinPreview(),
+      searchHighlights: { cellIds, joinIds },
     });
     this.syncScrollFromPan(doc);
     this.refreshToolbarState();
@@ -204,7 +214,7 @@ export class AppShell {
     this.regionFilter.render();
     this.regionLegend.render();
     this.propertyPanel.render();
-    this.searchBox.render();
+    this.searchBox.render(hits);
     this.navigator.render();
     this.diagnosticsPanel.render();
     this.fileBrowser.render();
@@ -406,6 +416,13 @@ export class AppShell {
 
   private bindKeyboard(): void {
     const onKey = (e: KeyboardEvent): void => {
+      // External spec 7.4.2: clear search even while the search input has focus.
+      // Keep selection and filters, and let gestures also handle Escape.
+      if (e.key === "Escape" && !e.isComposing && this.store.view.searchQuery !== null) {
+        e.preventDefault();
+        this.store.setView(this.store.view.withSearchQuery(null));
+        return;
+      }
       const t = e.target as HTMLElement | null;
       if (t && TEXT_INPUT_TAGS.has(t.tagName)) return;
       if (!(e.ctrlKey || e.metaKey)) return;

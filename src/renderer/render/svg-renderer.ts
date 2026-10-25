@@ -18,6 +18,7 @@ import type { Cell } from "../model/cell";
 import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
+import type { SearchHighlights } from "./search-highlights";
 
 export interface JoinPreviewLine {
   readonly from: Point;
@@ -25,6 +26,7 @@ export interface JoinPreviewLine {
 }
 
 export interface RenderOptions {
+  readonly searchHighlights?: SearchHighlights;
   /** 結合作成ドラッグ中の仮結線（5.5節・[[TECSCDE内部仕様]] 6.6節）。 */
   readonly joinPreview?: JoinPreviewLine;
 }
@@ -46,6 +48,8 @@ export class SvgRenderer {
 
   private lastDoc: TecscdeDocument | undefined;
   private lastView: CanvasView | undefined;
+  private lastHighlights: SearchHighlights | undefined;
+  private readonly joinBarPreviews = new Map<JoinId, readonly Bar[]>();
 
   constructor(private readonly svg: SVGSVGElement) {
     // 5.1節スケッチの順序: #cells, #joins, #join-preview, #selection-overlay, #grid。
@@ -76,13 +80,14 @@ export class SvgRenderer {
   ): void {
     const viewChanged = !viewEquals(this.lastView, view);
     this.updateCanvasSize(doc, view);
-    this.reconcileCells(doc, view, viewChanged);
-    this.reconcileJoins(doc, view, viewChanged);
+    this.reconcileCells(doc, view, viewChanged, opts.searchHighlights);
+    this.reconcileJoins(doc, view, viewChanged, opts.searchHighlights);
     this.renderGrid(doc, view);
     this.renderSelectionOverlay(doc, view, selection);
     this.renderJoinPreview(view, opts.joinPreview);
     this.lastDoc = doc;
     this.lastView = view;
+    this.lastHighlights = opts.searchHighlights;
   }
 
   /** 5.1節スケッチの名前。`render` の薄い別名（prev は差分計算に用いず内部状態を使う）。 */
@@ -102,33 +107,38 @@ export class SvgRenderer {
     setAttrs(this.svg, { width: width * k, height: height * k });
   }
 
-  private reconcileCells(doc: TecscdeDocument, view: CanvasView, viewChanged: boolean): void {
+  private reconcileCells(doc: TecscdeDocument, view: CanvasView, viewChanged: boolean, highlights?: SearchHighlights): void {
     for (const [id, group] of this.cellElements) {
       if (!doc.getCell(id)) {
         group.remove();
         this.cellElements.delete(id);
       }
     }
-    const ctx = { view };
     for (const cell of doc.cellValues()) {
       const hidden = view.hiddenRegionIds.has(cell.regionId);
+      const searchMatch = !hidden && highlights?.cellIds.has(cell.id) === true;
+      const matchChanged = (highlights?.cellIds.has(cell.id) === true) !==
+        (this.lastHighlights?.cellIds.has(cell.id) === true);
+      const ctx = { view, searchMatch };
       let group = this.cellElements.get(cell.id);
       if (!group) {
         group = this.cellRenderer.createElement(cell, ctx);
         this.cellLayer.appendChild(group);
         this.cellElements.set(cell.id, group);
-      } else if (viewChanged || this.lastDoc?.getCell(cell.id) !== cell) {
+      } else if (viewChanged || matchChanged || this.lastDoc?.getCell(cell.id) !== cell) {
         this.cellRenderer.updateElement(cell, group, ctx);
       }
       group.style.display = hidden ? "none" : "";
     }
   }
 
-  private reconcileJoins(doc: TecscdeDocument, view: CanvasView, viewChanged: boolean): void {
+  private reconcileJoins(doc: TecscdeDocument, view: CanvasView, viewChanged: boolean, highlights?: SearchHighlights): void {
     for (const [id, group] of this.joinElements) {
-      if (!doc.getJoin(id)) {
+      const join = doc.getJoin(id);
+      if (!join || !doc.getCell(join.cellId) || !doc.getCell(join.eportCellId)) {
         group.remove();
         this.joinElements.delete(id);
+        this.joinBarPreviews.delete(id);
       }
     }
     for (const join of doc.joinValues()) {
@@ -139,7 +149,10 @@ export class SvgRenderer {
       const sourceHidden = view.hiddenRegionIds.has(source.regionId);
       const targetHidden = view.hiddenRegionIds.has(target.regionId);
       const hidden = sourceHidden && targetHidden;
-      const ctx = { view, source, target, sourceHidden, targetHidden };
+      const searchMatch = !hidden && highlights?.joinIds.has(join.id) === true;
+      const matchChanged = (highlights?.joinIds.has(join.id) === true) !==
+        (this.lastHighlights?.joinIds.has(join.id) === true);
+      const ctx = { view, source, target, sourceHidden, targetHidden, searchMatch, bars: this.joinBarPreviews.get(join.id) };
       let group = this.joinElements.get(join.id);
       const endpointsChanged =
         this.lastDoc?.getCell(join.cellId) !== source || this.lastDoc?.getCell(join.eportCellId) !== target;
@@ -147,7 +160,7 @@ export class SvgRenderer {
         group = this.joinRenderer.createElement(join, ctx);
         this.joinLayer.appendChild(group);
         this.joinElements.set(join.id, group);
-      } else if (viewChanged || this.lastDoc?.getJoin(join.id) !== join || endpointsChanged) {
+      } else if (viewChanged || matchChanged || this.lastDoc?.getJoin(join.id) !== join || endpointsChanged) {
         this.joinRenderer.updateElement(join, group, ctx);
       }
       group.style.display = hidden ? "none" : "";
@@ -257,12 +270,32 @@ export class SvgRenderer {
   ): void {
     const group = this.joinElements.get(join.id);
     if (!group) return;
-    this.joinRenderer.previewBars(group, join, { view, source, target }, bars);
+    this.joinBarPreviews.set(join.id, bars);
+    this.joinRenderer.previewBars(group, join, {
+      view, source, target,
+      sourceHidden: view.hiddenRegionIds.has(source.regionId),
+      targetHidden: view.hiddenRegionIds.has(target.regionId),
+    }, bars);
   }
 
-  /** 次の render() で join.bars から再構築されるため実処理は不要。対称性のために置く。 */
+  /** Restore both the normal line and search underlay to confirmed geometry. */
   clearJoinBarPreview(): void {
-    /* no-op: 次の render() が updateElement で復元する */
+    const doc = this.lastDoc;
+    const view = this.lastView;
+    for (const id of this.joinBarPreviews.keys()) {
+      const join = doc?.getJoin(id);
+      const source = join && doc?.getCell(join.cellId);
+      const target = join && doc?.getCell(join.eportCellId);
+      const group = this.joinElements.get(id);
+      if (!join || !source || !target || !group || !view) continue;
+      this.joinRenderer.updateElement(join, group, {
+        view, source, target,
+        sourceHidden: view.hiddenRegionIds.has(source.regionId),
+        targetHidden: view.hiddenRegionIds.has(target.regionId),
+        searchMatch: this.lastHighlights?.joinIds.has(id),
+      });
+    }
+    this.joinBarPreviews.clear();
   }
 
   /** ラバーバンド選択の矩形（モデル座標）。`undefined` で消去。 */

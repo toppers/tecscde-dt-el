@@ -14,6 +14,7 @@ import type { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
 import { MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
+import { portPosition } from "../../src/renderer/model/geometry";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
@@ -630,6 +631,149 @@ cell tRegular Regular {};
   });
 
   describe("SearchBoxView", () => {
+    it.each(["search input", "canvas", "other input"])("Escape clears search from the %s without changing the document or selection", (focus) => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLElement>(".search-hit")!.click();
+      const before = store.getDocument();
+      const selection = store.selection;
+      const view = store.view;
+      const canUndo = store.canUndo;
+      const dirty = store.isDirty();
+      expect(document.querySelector(".search-highlight-cell")).not.toBeNull();
+      expect(document.querySelector(".search-highlight-join")).not.toBeNull();
+      const target = focus === "search input" ? input : focus === "other input"
+        ? document.querySelector<HTMLInputElement>("#property-panel input")!
+        : document.querySelector<SVGSVGElement>("#canvas")!;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+      expect(store.view.searchQuery).toBeNull();
+      expect(input.value).toBe("");
+      expect(document.querySelectorAll(".search-hit")).toHaveLength(0);
+      expect(document.querySelector("#search-count")!.textContent).toBe("");
+      expect(store.selection).toBe(selection);
+      expect(store.view.filters).toBe(view.filters);
+      expect(store.view.panCenter).toEqual(view.panCenter);
+      expect(store.view.zoom).toBe(view.zoom);
+      expect(store.getDocument()).toBe(before);
+      expect(store.canUndo).toBe(canUndo);
+      expect(store.isDirty()).toBe(dirty);
+      expect(document.querySelector(".search-highlight")).toBeNull();
+    });
+
+    it("Escape during IME composition keeps the search query", () => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "Logger";
+      input.dispatchEvent(new Event("input"));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true }));
+      expect(store.view.searchQuery).toBe("Logger");
+      expect(input.value).toBe("Logger");
+      expect(document.querySelector(".search-highlight")).not.toBeNull();
+    });
+
+    it("empty search Escape is a no-op and a new search starts cycling from the first hit", () => {
+      const { store } = mountShell();
+      const notify = vi.fn();
+      const unsubscribe = store.subscribe(notify);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(notify).not.toHaveBeenCalled();
+      unsubscribe();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "c";
+      input.dispatchEvent(new Event("input"));
+      const next = document.querySelector<HTMLButtonElement>("[data-action='searchNext']")!;
+      next.click();
+      const first = store.selection;
+      next.click();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      input.value = "c";
+      input.dispatchEvent(new Event("input"));
+      next.click();
+      expect([...store.selection.cellIds]).toEqual([...first.cellIds]);
+    });
+
+    it("updates highlights after edit, undo, redo, query changes and empty input", () => {
+      const { store } = mountShell();
+      const input = document.querySelector<HTMLInputElement>("#search-input")!;
+      input.value = "cLogger1";
+      input.dispatchEvent(new Event("input"));
+      const halo = () => document.querySelector<SVGRectElement>("[data-cell-id='cLogger1'] .search-highlight-cell")!;
+      const x = halo().getAttribute("x");
+      store.dispatch(new MoveCellsCommand([asCellId("cLogger1")], 10, 0));
+      expect(halo().getAttribute("x")).not.toBe(x);
+      store.undo();
+      expect(halo().getAttribute("x")).toBe(x);
+      store.redo();
+      expect(halo().getAttribute("x")).not.toBe(x);
+      store.setSelection(SelectionState.ofCells([asCellId("cSensor1")]));
+      expect(halo()).not.toBeNull();
+      input.value = "no matches";
+      input.dispatchEvent(new Event("input"));
+      expect(document.querySelector(".search-highlight")).toBeNull();
+      input.value = "cLog";
+      input.dispatchEvent(new Event("input"));
+      expect(document.querySelector(".search-highlight")).not.toBeNull();
+      input.value = "";
+      input.dispatchEvent(new Event("input"));
+      expect(document.querySelector(".search-highlight")).toBeNull();
+    });
+
+    it("Escape cancels joining and clears search in the same key event", () => {
+      const doc = CdlDocumentLoader.loadSources([
+        { text: celltypesText, fileName: "types.cdl", editable: false },
+        { text: "cell tController source {}; cell tLogger target {};", fileName: "main.cde", editable: true },
+      ]).document;
+      const { shell, store } = mountShell(undefined, doc);
+      const source = doc.getCell(asCellId("source"))!;
+      const from = portPosition(source, source.findCPort("cLog")!);
+      store.setView(store.view.withSearchQuery("source"));
+      shell.gesture.pointerDown(from);
+      shell.gesture.pointerMove({ x: from.x + 10, y: from.y + 10 });
+      expect(shell.gesture.stateKind).toBe("joining");
+      expect(document.querySelector("#join-preview line")).not.toBeNull();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(shell.gesture.stateKind).toBe("idle");
+      expect(document.querySelector("#join-preview line")).toBeNull();
+      expect(document.querySelector(".search-highlight")).toBeNull();
+      expect(store.view.searchQuery).toBeNull();
+      expect(store.getDocument()).toBe(doc);
+      expect(store.canUndo).toBe(false);
+    });
+
+    it("Escape cancels a bar preview, restores the line and clears search", () => {
+      let doc = loadDoc();
+      const original = doc.getJoin(asJoinId("cController1.cLog"))!;
+      const source = doc.getCell(original.cellId)!.moveTo(100, 60);
+      const target = doc.getCell(original.eportCellId)!.moveTo(10, 10);
+      const from = portPosition(source, source.findCPort("cLog")!);
+      const to = portPosition(target, target.findEPort("eLog")!);
+      const middle = 70;
+      const join = original.withBars([
+        { direction: "H", fixed: from.y, from: from.x, to: middle },
+        { direction: "V", fixed: middle, from: from.y, to: to.y },
+        { direction: "H", fixed: to.y, from: middle, to: to.x },
+      ]);
+      doc = doc.withCell(source).withCell(target).withJoin(join);
+      const { shell, store } = mountShell(undefined, doc);
+      store.setView(store.view.withSearchQuery("cLog"));
+      const line = () => document.querySelector("[data-join-id='cController1.cLog'] .join-line")!;
+      const confirmed = line().getAttribute("points");
+      const point = { x: middle, y: (from.y + to.y) / 2 };
+      shell.gesture.pointerDown(point);
+      expect(shell.gesture.stateKind).toBe("movingJoinBar");
+      shell.gesture.pointerMove({ x: point.x + 10, y: point.y });
+      expect(line().getAttribute("points")).not.toBe(confirmed);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(shell.gesture.stateKind).toBe("idle");
+      expect(line().getAttribute("points")).toBe(confirmed);
+      expect(document.querySelector(".search-highlight")).toBeNull();
+      expect(store.getDocument()).toBe(doc);
+      expect(store.canUndo).toBe(false);
+    });
+
     it("typing a query lists matching cells (and any join whose label mentions it) with a count", () => {
       const { store } = mountShell();
       const input = document.querySelector<HTMLInputElement>("#search-input")!;
@@ -694,6 +838,12 @@ cell tRegular Regular {};
       expect(store.view.filters.hiddenRegions.has(asRegionId("::N::B"))).toBe(true); // 無関係なものは触らない
       expect(cell("c2").style.display).toBe("");
       expect(store.selection.hasCell(asCellId("c2"))).toBe(true);
+      const revealedFilters = store.view.filters;
+      expect(cell("c2").querySelector(".search-highlight-cell")).not.toBeNull();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(store.view.filters).toBe(revealedFilters);
+      expect(cell("c2").style.display).toBe("");
+      expect(cell("c2").querySelector(".search-highlight-cell")).toBeNull();
     });
 
     it("jumping to a visible hit leaves the filters alone", () => {
