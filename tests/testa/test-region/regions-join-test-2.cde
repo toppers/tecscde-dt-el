@@ -1,0 +1,384 @@
+__tool_info__("tecsgen") {
+  "tecscde_version": "0.1.0",
+  "cde_format_version": "0.1.0.0",
+  "saved_at": "2026-10-24T23:51:56.706Z",
+  "direct_import": [
+    "celltypes.cdl"
+  ]
+}
+
+import("celltypes.cdl");
+
+// 目視確認用: リージョンをまたぐ結合を含むテストデータ（第6B章6B.5 結合スタブ）
+//
+//   N::A  ── a1 (tLogger), s1 (tSensor)
+//     └ N::A::A1 ── a2 (tLogger)
+//   N::B  ── b1 (tController), b2 (tController), s2 (tSensor)
+//
+// 結合（呼び口側 → 受け口側）:
+//   b1.cLog    → a1.eLog   (B → A)        Aを非表示にするとb1側にスタブ
+//   b1.cSensor → s1.eRead  (B → A)        同上
+//   b2.cLog    → a2.eLog   (B → A::A1)    A または A1 を非表示にするとb2側にスタブ
+//   b2.cSensor → s2.eRead  (B → B)        同じリージョン内。Aを非表示にしても通常の線のまま
+//
+// 試すこと:
+//   1. 「リージョン」で N::A を外す → a1, s1, a2 が消え、b1/b2 に4mmのスタブと先端の横線
+//   2. N::A::A1 だけを外す → a2 だけ消え、b2.cLog のスタブのみ。b1の2本は通常の線のまま
+//   3. N::B を外す → b1, b2, s2 が消え、a1/s1/a2 側にスタブ
+//   4. N を外す → すべて消える（結合も消える）
+//   5. 「色分け」をオン → 左端の帯と左下の凡例の色が一致
+namespace N {
+  region A {
+    
+    
+    region A1 {
+      
+    
+
+
+
+
+
+
+
+
+
+
+cell tLogger a2 {
+};
+};
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cell tLogger a1 {
+};
+
+cell tSensor s1 {
+};
+};
+  region B {
+    
+    
+    
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cell tController b1 {
+  cLog = a1.eLog;
+  cSensor = s1.eRead;
+};
+
+cell tController b2 {
+  cLog = a2.eLog;
+  cSensor = s2.eRead;
+};
+
+cell tSensor s2 {
+};
+};
+};
+
+__tool_info__("tecscde") {
+  "paper": {
+    "size": "A4",
+    "orientation": "LANDSCAPE"
+  },
+  "cell_list": {
+    "a1": {
+      "location": [
+        10,
+        10,
+        25,
+        15
+      ],
+      "region": "::N::A",
+      "ports": {
+        "eLog": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    },
+    "a2": {
+      "location": [
+        8,
+        10,
+        25,
+        15
+      ],
+      "region": "::N::A::A1",
+      "ports": {
+        "eLog": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    },
+    "b1": {
+      "location": [
+        148,
+        10,
+        25,
+        15
+      ],
+      "region": "::N::B",
+      "ports": {
+        "cLog": {
+          "edge": "LEFT",
+          "offset": 5
+        },
+        "cSensor": {
+          "edge": "LEFT",
+          "offset": 10
+        }
+      }
+    },
+    "b2": {
+      "location": [
+        181,
+        11,
+        25,
+        15
+      ],
+      "region": "::N::B",
+      "ports": {
+        "cLog": {
+          "edge": "LEFT",
+          "offset": 5
+        },
+        "cSensor": {
+          "edge": "LEFT",
+          "offset": 10
+        }
+      }
+    },
+    "s1": {
+      "location": [
+        8,
+        88,
+        25,
+        15
+      ],
+      "region": "::N::A",
+      "ports": {
+        "eRead": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    },
+    "s2": {
+      "location": [
+        93,
+        10,
+        25,
+        15
+      ],
+      "region": "::N::B",
+      "ports": {
+        "eRead": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    }
+  },
+  "join_list": {
+    "b1.cLog": {
+      "cell": "b1",
+      "cport": "cLog",
+      "targetCell": "a1",
+      "eport": "eLog",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 15,
+          "from": 148,
+          "to": 144
+        },
+        {
+          "dir": "V",
+          "fixed": 144,
+          "from": 15,
+          "to": 7
+        },
+        {
+          "dir": "H",
+          "fixed": 7,
+          "from": 144,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 7,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
+    "b1.cSensor": {
+      "cell": "b1",
+      "cport": "cSensor",
+      "targetCell": "s1",
+      "eport": "eRead",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 20,
+          "from": 148,
+          "to": 144
+        },
+        {
+          "dir": "V",
+          "fixed": 144,
+          "from": 20,
+          "to": 96
+        },
+        {
+          "dir": "H",
+          "fixed": 96,
+          "from": 144,
+          "to": 37
+        },
+        {
+          "dir": "H",
+          "fixed": 96,
+          "from": 37,
+          "to": 33
+        }
+      ]
+    },
+    "b2.cLog": {
+      "cell": "b2",
+      "cport": "cLog",
+      "targetCell": "a2",
+      "eport": "eLog",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 16,
+          "from": 181,
+          "to": 177
+        },
+        {
+          "dir": "V",
+          "fixed": 177,
+          "from": 16,
+          "to": 7
+        },
+        {
+          "dir": "H",
+          "fixed": 7,
+          "from": 177,
+          "to": 37
+        },
+        {
+          "dir": "V",
+          "fixed": 37,
+          "from": 7,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 37,
+          "to": 33
+        }
+      ]
+    },
+    "b2.cSensor": {
+      "cell": "b2",
+      "cport": "cSensor",
+      "targetCell": "s2",
+      "eport": "eRead",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 21,
+          "from": 181,
+          "to": 177
+        },
+        {
+          "dir": "V",
+          "fixed": 177,
+          "from": 21,
+          "to": 27
+        },
+        {
+          "dir": "H",
+          "fixed": 27,
+          "from": 177,
+          "to": 122
+        },
+        {
+          "dir": "V",
+          "fixed": 122,
+          "from": 27,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 122,
+          "to": 118
+        }
+      ]
+    }
+  }
+}
+
+
+
+
