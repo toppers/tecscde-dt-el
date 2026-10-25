@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-24T02:47:06.188Z",
+  "saved_at": "2026-10-24T23:51:22.411Z",
   "direct_import": [
     "celltypes.cdl"
   ]
@@ -42,10 +42,16 @@ namespace N {
 
 
 
+
+
 cell tLogger a2 {
 };
 };
   
+
+
+
+
 
 
 
@@ -73,6 +79,12 @@ cell tSensor s1 {
     
     
   
+
+
+
+
+
+
 
 
 
@@ -150,7 +162,7 @@ __tool_info__("tecscde") {
     },
     "b1": {
       "location": [
-        230,
+        148,
         10,
         25,
         15
@@ -169,7 +181,7 @@ __tool_info__("tecscde") {
     },
     "b2": {
       "location": [
-        263,
+        181,
         11,
         25,
         15
@@ -188,8 +200,8 @@ __tool_info__("tecscde") {
     },
     "Logger": {
       "location": [
-        102,
-        35,
+        50,
+        31,
         25,
         15
       ],
@@ -203,8 +215,8 @@ __tool_info__("tecscde") {
     },
     "Logger1": {
       "location": [
-        206,
-        67,
+        82,
+        65,
         25,
         15
       ],
@@ -233,7 +245,7 @@ __tool_info__("tecscde") {
     },
     "s2": {
       "location": [
-        175,
+        93,
         10,
         25,
         15
@@ -257,19 +269,25 @@ __tool_info__("tecscde") {
         {
           "dir": "H",
           "fixed": 15,
-          "from": 230,
-          "to": 226
+          "from": 148,
+          "to": 144
+        },
+        {
+          "dir": "V",
+          "fixed": 144,
+          "from": 15,
+          "to": 7
         },
         {
           "dir": "H",
-          "fixed": 15,
-          "from": 226,
+          "fixed": 7,
+          "from": 144,
           "to": 39
         },
         {
           "dir": "V",
           "fixed": 39,
-          "from": 15,
+          "from": 7,
           "to": 18
         },
         {
@@ -289,20 +307,20 @@ __tool_info__("tecscde") {
         {
           "dir": "H",
           "fixed": 20,
-          "from": 230,
-          "to": 226
-        },
-        {
-          "dir": "H",
-          "fixed": 20,
-          "from": 226,
-          "to": 37
+          "from": 148,
+          "to": 144
         },
         {
           "dir": "V",
-          "fixed": 37,
+          "fixed": 144,
           "from": 20,
           "to": 96
+        },
+        {
+          "dir": "H",
+          "fixed": 96,
+          "from": 144,
+          "to": 37
         },
         {
           "dir": "H",
@@ -321,19 +339,19 @@ __tool_info__("tecscde") {
         {
           "dir": "H",
           "fixed": 16,
-          "from": 263,
-          "to": 259
+          "from": 181,
+          "to": 177
         },
         {
           "dir": "V",
-          "fixed": 259,
+          "fixed": 177,
           "from": 16,
           "to": 7
         },
         {
           "dir": "H",
           "fixed": 7,
-          "from": 259,
+          "from": 177,
           "to": 37
         },
         {
@@ -359,37 +377,41 @@ __tool_info__("tecscde") {
         {
           "dir": "H",
           "fixed": 21,
-          "from": 263,
-          "to": 259
+          "from": 181,
+          "to": 177
         },
         {
           "dir": "V",
-          "fixed": 259,
+          "fixed": 177,
           "from": 21,
-          "to": 29
+          "to": 27
         },
         {
           "dir": "H",
-          "fixed": 29,
-          "from": 259,
-          "to": 204
+          "fixed": 27,
+          "from": 177,
+          "to": 122
         },
         {
           "dir": "V",
-          "fixed": 204,
-          "from": 29,
+          "fixed": 122,
+          "from": 27,
           "to": 18
         },
         {
           "dir": "H",
           "fixed": 18,
-          "from": 204,
-          "to": 200
+          "from": 122,
+          "to": 118
         }
       ]
     }
   }
 }
+
+
+
+
 
 cell tLogger Logger {
 };
