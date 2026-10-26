@@ -1,5 +1,5 @@
 // [[TECSCDE-DT-EL内部仕様]] 第2章2.3節「G: UIシェル」モジュールG次段 — プロパティパネル
-// （外部仕様3.4節）。選択中のセル／結合に応じて表示を切り替え（3.4.2、対象をセルに限定しない）、
+// （外部仕様3.4節）。選択中のセル／ポート／結合に応じて表示を切り替え（3.4.2）、
 // 複数選択時は個別編集不可の旨を示す。編集不可のオブジェクトは入力欄を読み取り専用にし、
 // その旨を文言で示す（色のみによる区別はしない、3.4.2）。
 //
@@ -8,7 +8,7 @@ import type { Cell } from "../model/cell";
 import type { Join } from "../model/join";
 import type { TecscdeDocument } from "../model/document";
 import type { Region } from "../model/region";
-import type { SelectionState } from "../render/view";
+import type { SelectedPort, SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 
 function field(labelText: string): { wrapper: HTMLDivElement; input: HTMLInputElement } {
@@ -26,6 +26,15 @@ function note(text: string, className = "prop-note"): HTMLDivElement {
   el.className = className;
   el.textContent = text;
   return el;
+}
+
+function selectedPort(doc: TecscdeDocument, selected: SelectedPort) {
+  const cell = doc.getCell(selected.cellId);
+  const ports = selected.kind === "cport" ? cell?.cports : cell?.eports;
+  const port = ports?.find((candidate) => candidate.name === selected.portName && candidate.subscript === selected.subscript);
+  if (!cell || !port) return undefined;
+  const joinCount = "joinId" in port ? (port.joinId === null ? 0 : 1) : port.joinIds.length;
+  return { cell, port, joinCount };
 }
 
 export class PropertyPanelView {
@@ -55,7 +64,11 @@ export class PropertyPanelView {
     heading.textContent = "プロパティ";
     this.root.appendChild(heading);
 
-    if (selection.cellIds.size === 0 && selection.joinIds.size === 0) {
+    if (selection.ports.length > 0) {
+      this.renderPorts(doc, selection.ports);
+      return;
+    }
+    if (selection.isEmpty) {
       this.root.appendChild(note("(未選択)"));
       return;
     }
@@ -76,7 +89,17 @@ export class PropertyPanelView {
 
   /** render()が実際に描画へ使う全入力を反映した署名。これが不変なら再構築不要。 */
   private computeSignature(selection: SelectionState, doc: TecscdeDocument): string {
-    if (selection.cellIds.size === 0 && selection.joinIds.size === 0) return "none";
+    if (selection.ports.length > 0) {
+      return JSON.stringify(selection.ports.map((selected) => {
+        const details = selectedPort(doc, selected);
+        return details ? {
+          selected, name: details.cell.name, editable: details.cell.editable,
+          signature: details.port.signature, edge: details.port.edgeSide, offset: details.port.offset,
+          arraySize: details.port.arraySize, joinCount: details.joinCount,
+        } : { selected, missing: true };
+      }));
+    }
+    if (selection.isEmpty) return "none";
     if (selection.cellIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
       return `multi|${selection.cellIds.size}|${selection.joinIds.size}`;
     }
@@ -118,6 +141,39 @@ export class PropertyPanelView {
     info.className = "prop-readonly";
     info.textContent = `${source?.name ?? "?"}.${join.cportName} → ${target?.name ?? "?"}.${join.eportName}`;
     this.root.appendChild(info);
+  }
+
+  private renderPorts(doc: TecscdeDocument, selected: readonly SelectedPort[]): void {
+    this.root.appendChild(note("ポート情報（読み取り専用）"));
+    for (const reference of selected) {
+      const details = selectedPort(doc, reference);
+      if (!details) {
+        this.root.appendChild(note("選択したポートが見つかりません。"));
+        continue;
+      }
+      const { cell, port, joinCount } = details;
+      const section = document.createElement("section");
+      section.className = "prop-port";
+      const heading = document.createElement("h4");
+      heading.textContent = `${reference.kind === "cport" ? "呼び口" : "受け口"}: ${port.name}${port.subscript === null ? "" : `[${port.subscript}]`}`;
+      section.appendChild(heading);
+      if (!cell.editable) section.appendChild(note("このセルは読み取り専用です。", "prop-readonly-note"));
+      const edges = { LEFT: "左", RIGHT: "右", TOP: "上", BOTTOM: "下" };
+      const fields: readonly (readonly [string, string])[] = [
+        ["所属セル", cell.name], ["名前", port.name], ["シグニチャ", port.signature],
+        ["配列添字", port.subscript === null ? "—" : String(port.subscript)],
+        ["配列長", port.arraySize === null ? "—" : String(port.arraySize)],
+        ["辺", edges[port.edgeSide]], ["位置 (mm)", String(port.offset)], ["結合数", String(joinCount)],
+      ];
+      for (const [label, value] of fields) {
+        const item = field(label);
+        item.input.value = value;
+        item.input.readOnly = true;
+        item.input.setAttribute("aria-label", label);
+        section.appendChild(item.wrapper);
+      }
+      this.root.appendChild(section);
+    }
   }
 
   private renderCell(doc: TecscdeDocument, cell: Cell): void {

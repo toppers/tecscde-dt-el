@@ -150,17 +150,24 @@ export class GestureController {
       return;
     }
 
-    if (hit.kind === "cport") {
+    if (hit.kind === "cport" || hit.kind === "eport") {
       const cell = doc.getCell(hit.cellId);
-      const port = cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);
-      if (port && port.joinId === null) {
+      const cport = hit.kind === "cport"
+        ? cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript) : undefined;
+      // 結合済み呼び口の通常操作は結合を開始しない。修飾クリックで参照選択できる。
+      if (cport?.joinId != null && !mods.shift && !mods.ctrl && !mods.meta) return;
+      const current = this.host.getSelection();
+      const next = mods.ctrl || mods.meta ? current.withPortToggled(hit)
+        : mods.shift ? current.withPortAdded(hit)
+        : current.hasPort(hit) ? current : SelectionState.ofPort(hit);
+      this.host.setSelection(next);
+      if (cport && cport.joinId === null && !mods.shift && !mods.ctrl && !mods.meta) {
         this.transition({
           kind: "joining",
           from: { cellId: hit.cellId, portName: hit.portName, subscript: hit.subscript },
         });
       } else {
-        // 既に結合済みの呼び口はハイライトのみ（結合モードには入らない、外部仕様6.4.1）。
-        this.host.setSelection(SelectionState.empty());
+        this.transition({ kind: "idle" });
       }
       return;
     }
@@ -195,7 +202,7 @@ export class GestureController {
       return;
     }
 
-    // hit.kind === "eport" | "none": 空白クリック → 矩形選択の開始。
+    // 空白クリック → 矩形選択の開始。
     if (!mods.shift && !mods.ctrl && !mods.meta) {
       this.host.setSelection(SelectionState.empty());
     }
@@ -299,7 +306,7 @@ export class GestureController {
   keyDown(key: string, mods: Mods = NO_MODS): boolean {
     if (key === "Delete" || key === "Backspace") {
       const sel = this.host.getSelection();
-      if (sel.isEmpty) return false;
+      if (sel.cellIds.size === 0 && sel.joinIds.size === 0) return false;
       this.host.dispatch(new DeleteCommand([...sel.cellIds], [...sel.joinIds]));
       this.host.setSelection(SelectionState.empty());
       return true;

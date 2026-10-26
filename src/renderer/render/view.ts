@@ -54,8 +54,20 @@ export interface Rect {
   readonly b: Point;
 }
 
+/** 同名ポートと配列要素を区別する、選択用の参照。 */
+export interface SelectedPort {
+  readonly kind: "cport" | "eport";
+  readonly cellId: CellId;
+  readonly portName: string;
+  readonly subscript: number | null;
+}
+
+function samePort(a: SelectedPort, b: SelectedPort): boolean {
+  return a.kind === b.kind && a.cellId === b.cellId && a.portName === b.portName && a.subscript === b.subscript;
+}
+
 /**
- * 選択集合（セル・結合）。不変。空の選択は `SelectionState.empty()`。
+ * 選択集合（セル・結合、または同一セル内のポート）。不変。空の選択は `SelectionState.empty()`。
  * 移動・削除・コピーのコマンド（第4章）は、この一時集合をそのまま対象に取れる
  * （[[TECSCDE内部仕様]] 6.5節）。
  */
@@ -63,6 +75,7 @@ export class SelectionState {
   private constructor(
     readonly cellIds: ReadonlySet<CellId>,
     readonly joinIds: ReadonlySet<JoinId>,
+    readonly ports: readonly SelectedPort[] = [],
   ) {}
 
   static empty(): SelectionState {
@@ -77,8 +90,12 @@ export class SelectionState {
     return new SelectionState(new Set(), new Set([id]));
   }
 
+  static ofPort(port: SelectedPort): SelectionState {
+    return new SelectionState(new Set(), new Set(), [port]);
+  }
+
   get isEmpty(): boolean {
-    return this.cellIds.size === 0 && this.joinIds.size === 0;
+    return this.cellIds.size === 0 && this.joinIds.size === 0 && this.ports.length === 0;
   }
 
   hasCell(id: CellId): boolean {
@@ -87,6 +104,22 @@ export class SelectionState {
 
   hasJoin(id: JoinId): boolean {
     return this.joinIds.has(id);
+  }
+
+  hasPort(port: SelectedPort): boolean {
+    return this.ports.some((selected) => samePort(selected, port));
+  }
+
+  /** ポート選択はセル・結合と排他。同じ所有セルのポートだけを追加する。 */
+  withPortAdded(port: SelectedPort): SelectionState {
+    if (this.hasPort(port)) return this;
+    const ports = this.ports[0]?.cellId === port.cellId ? [...this.ports, port] : [port];
+    return new SelectionState(new Set(), new Set(), ports);
+  }
+
+  withPortToggled(port: SelectedPort): SelectionState {
+    if (!this.hasPort(port)) return this.withPortAdded(port);
+    return new SelectionState(new Set(), new Set(), this.ports.filter((selected) => !samePort(selected, port)));
   }
 
   /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（結合選択はクリアする）。 */

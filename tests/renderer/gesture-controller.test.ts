@@ -175,6 +175,65 @@ describe("select mode — joining", () => {
   });
 });
 
+describe("select mode — ports", () => {
+  it("selects entry ports with an ordinary click and permits selection on read-only cells", () => {
+    const doc = CdlDocumentLoader.loadSources([
+      { text: celltypesText, fileName: "celltypes.cdl", editable: false },
+      { text: mainText, fileName: "main.cde", editable: false },
+    ]).document;
+    const h = harness({ doc });
+    h.gesture.pointerDown({ x: 35, y: 18 });
+    h.gesture.pointerUp({ x: 35, y: 18 });
+    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null }]);
+    expect(h.selection().cellIds.size).toBe(0);
+    expect(h.gesture.stateKind).toBe("idle");
+    expect(h.dispatched).toHaveLength(0);
+  });
+
+  it("adds same-cell ports with Shift, toggles with Ctrl, and replaces ports from another cell", () => {
+    const h = harness();
+    const shift = { ctrl: false, shift: true, meta: false };
+    h.setSelection(SelectionState.ofCells([LOGGER]));
+    h.gesture.pointerDown({ x: 120, y: 15 }, shift);
+    h.gesture.pointerUp({ x: 120, y: 15 });
+    h.gesture.pointerDown({ x: 120, y: 20 }, shift);
+    h.gesture.pointerUp({ x: 120, y: 20 });
+    expect(h.selection().ports.map((port) => port.portName)).toEqual(["cLog", "cSensor"]);
+    expect(h.selection().cellIds.size).toBe(0);
+    h.gesture.pointerDown({ x: 120, y: 15 }, { ctrl: true, shift: false, meta: false });
+    expect(h.selection().ports.map((port) => port.portName)).toEqual(["cSensor"]);
+    h.gesture.pointerDown({ x: 35, y: 18 }, shift);
+    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null }]);
+    h.gesture.pointerDown({ x: 130, y: 15 }, shift);
+    expect(h.selection().ports).toHaveLength(0);
+    expect(h.selection().hasCell(CONTROLLER)).toBe(true);
+    expect(h.dispatched).toHaveLength(0);
+  });
+
+  it("selects a free call port on click without committing an edit and still allows drag-to-join", () => {
+    const freed = new DeleteJoinCommand(asJoinId("cController1.cLog")).apply(loadDoc());
+    const h = harness({ doc: freed });
+    h.gesture.pointerDown({ x: 120, y: 15 });
+    h.gesture.pointerUp({ x: 120, y: 15 });
+    expect(h.selection().ports[0]?.portName).toBe("cLog");
+    expect(h.dispatched).toHaveLength(0);
+    h.gesture.pointerDown({ x: 120, y: 15 });
+    h.gesture.pointerMove({ x: 35, y: 18 });
+    h.gesture.pointerUp({ x: 35, y: 18 });
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.doc().joinCount).toBe(2);
+  });
+
+  it("does not commit empty delete or move commands for a port-only selection", () => {
+    const h = harness();
+    h.gesture.pointerDown({ x: 35, y: 18 });
+    const selection = h.selection();
+    for (const key of ["Delete", "Backspace", "ArrowLeft", "ArrowUp"]) expect(h.gesture.keyDown(key)).toBe(false);
+    expect(h.selection()).toBe(selection);
+    expect(h.dispatched).toHaveLength(0);
+  });
+});
+
 describe("select mode — join bar drag", () => {
   it("commits one MoveJoinBarCommand for a middle bar", () => {
     const h = harness();

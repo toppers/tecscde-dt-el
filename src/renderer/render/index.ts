@@ -9,6 +9,7 @@ export {
   SelectionState,
   type CanvasView,
   type Rect,
+  type SelectedPort,
 } from "./view";
 export { ElementRenderer, svgEl, setAttrs } from "./element-renderer";
 export { joinPolyline } from "./svg-path";

@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
-import { MoveCellsCommand } from "../../src/renderer/commands";
+import { DeleteJoinCommand, MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import { portPosition } from "../../src/renderer/model/geometry";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -592,6 +592,57 @@ cell tRegular Regular {};
     const items = document.querySelectorAll<HTMLButtonElement>(".palette-celltype");
     expect(items.length).toBe(3);
     expect(store.getActiveCelltypeName()).toBe(items[0]!.dataset["celltype"]);
+  });
+
+  it("shows selected port properties and markers without changing the document or history", () => {
+    const { shell, store, clipboard } = mountShell();
+    const doc = store.getDocument();
+    const history = store.history;
+    const write = vi.spyOn(clipboard, "writeText");
+    const shift = { ctrl: false, shift: true, meta: false };
+    shell.gesture.pointerDown({ x: 120, y: 15 }, shift);
+    shell.gesture.pointerUp({ x: 120, y: 15 });
+    const panel = document.querySelector<HTMLElement>("#property-panel")!;
+    const value = (label: string) => panel.querySelector<HTMLInputElement>(`[aria-label='${label}']`)!.value;
+    expect(panel.textContent).toContain("呼び口: cLog");
+    expect(value("所属セル")).toBe("cController1");
+    expect(value("シグニチャ")).toBe("::sLog");
+    expect(value("辺")).toBe("左");
+    expect(value("位置 (mm)")).toBe("5");
+    expect(value("結合数")).toBe("1");
+    expect(Array.from(panel.querySelectorAll<HTMLInputElement>("input")).every((input) => input.readOnly)).toBe(true);
+    expect(document.querySelectorAll("circle.port-selected")).toHaveLength(1);
+    shell.gesture.pointerDown({ x: 120, y: 20 }, shift);
+    shell.gesture.pointerUp({ x: 120, y: 20 });
+    expect(panel.querySelectorAll(".prop-port")).toHaveLength(2);
+    expect(document.querySelectorAll("circle.port-selected")).toHaveLength(2);
+    expect(shell.gesture.keyDown("Delete")).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
+    expect(write).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.history).toBe(history);
+    expect(store.isDirty()).toBe(false);
+    write.mockRestore();
+
+    store.dispatch(new DeleteJoinCommand(asJoinId("cController1.cLog")));
+    expect(value("結合数")).toBe("0");
+    store.undo();
+    expect(value("結合数")).toBe("1");
+    shell.gesture.pointerDown({ x: 35, y: 18 });
+    shell.gesture.pointerUp({ x: 35, y: 18 });
+    expect(panel.textContent).toContain("受け口: eLog");
+    expect(value("所属セル")).toBe("cLogger1");
+    expect(panel.querySelectorAll(".prop-port")).toHaveLength(1);
+  });
+
+  it("allows inspecting a read-only cell's entry port", () => {
+    const { shell, store } = mountShell(fakeClipboard(), loadDoc(false));
+    shell.gesture.pointerDown({ x: 35, y: 18 });
+    shell.gesture.pointerUp({ x: 35, y: 18 });
+    const panel = document.querySelector<HTMLElement>("#property-panel")!;
+    expect(panel.textContent).toContain("受け口: eLog");
+    expect(panel.textContent).toContain("このセルは読み取り専用です。");
+    expect(store.isDirty()).toBe(false);
   });
 
   it("opens read-only celltype details without switching mode, type, selection or history", () => {
