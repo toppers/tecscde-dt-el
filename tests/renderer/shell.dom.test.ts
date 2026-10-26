@@ -179,6 +179,11 @@ const BODY_HTML = `
       <button id="export-cancel" type="button">キャンセル</button>
       <button id="export-confirm" type="button">保存先を選ぶ</button>
     </div>
+    <dialog id="celltype-details-dialog" aria-labelledby="celltype-details-title">
+      <h2 id="celltype-details-title">セルタイプの詳細</h2>
+      <div class="celltype-details-content"></div>
+      <button class="celltype-details-close" type="button">閉じる</button>
+    </dialog>
   </div>
 `;
 
@@ -587,6 +592,43 @@ cell tRegular Regular {};
     const items = document.querySelectorAll<HTMLButtonElement>(".palette-celltype");
     expect(items.length).toBe(3);
     expect(store.getActiveCelltypeName()).toBe(items[0]!.dataset["celltype"]);
+  });
+
+  it("opens read-only celltype details without switching mode, type, selection or history", () => {
+    const { store } = mountShell();
+    store.dispatch(new MoveCellsCommand([asCellId("cSensor1")], 1, 0));
+    store.setSelection(SelectionState.ofCells([asCellId("cSensor1")]));
+    store.setView(store.view.withSearchQuery("Sensor"));
+    const doc = store.getDocument();
+    const history = store.history;
+    const selection = store.selection;
+    const view = store.view;
+    const active = store.getActiveCelltypeName();
+    const mode = store.getMode();
+    const button = document.querySelector<HTMLButtonElement>("[data-celltype-details='tController']")!;
+    button.click();
+    const dialog = document.querySelector<HTMLDialogElement>("#celltype-details-dialog")!;
+    expect(dialog.open).toBe(true);
+    expect(dialog.textContent).toContain("tController");
+    expect(dialog.textContent).toContain("celltypes.cdl");
+    expect(dialog.textContent).toContain("::sLog");
+    expect(dialog.textContent).toContain("cSensor");
+    expect(dialog.textContent).toContain("intervalMs");
+    expect(dialog.querySelector("input, select, textarea")).toBeNull();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    expect(store.getDocument()).toEqual(doc);
+    expect(store.history).toBe(history);
+    expect(store.selection).toBe(selection);
+    expect(store.view).toBe(view);
+    expect(store.getActiveCelltypeName()).toBe(active);
+    expect(store.getMode()).toBe(mode);
+    const close = dialog.querySelector<HTMLButtonElement>(".celltype-details-close")!;
+    close.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(dialog.open).toBe(false);
+    expect(store.view.searchQuery).toBe("Sensor");
+    expect(document.activeElement).toBe(button);
   });
 
   it("toggle-grid button flips the #grid layer visibility", () => {

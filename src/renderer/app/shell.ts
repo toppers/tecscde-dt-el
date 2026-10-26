@@ -28,6 +28,7 @@ import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { CelltypeDetailsView } from "./celltype-details";
 import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
 import { regionStatusText } from "./status-region";
@@ -101,6 +102,7 @@ export class AppShell {
 
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
+  private readonly celltypeDetails: CelltypeDetailsView;
   private readonly panelVisibility: PanelVisibilityView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
@@ -156,7 +158,11 @@ export class AppShell {
     );
     this.gesture = new GestureController(this.renderer, host);
 
-    this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store);
+    this.celltypeDetails = new CelltypeDetailsView(requireEl<HTMLDialogElement>(root, "#celltype-details-dialog"));
+    this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store, (name, trigger) => {
+      const celltype = this.store.getDocument().getCelltype(name);
+      if (celltype) this.celltypeDetails.open(celltype, trigger);
+    });
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
@@ -198,6 +204,8 @@ export class AppShell {
     this.bindDisplayBar();
     this.disposers.push(() => this.regionFilter.dispose());
     this.disposers.push(() => this.panelVisibility.dispose());
+    this.disposers.push(() => this.palette.dispose());
+    this.disposers.push(() => this.celltypeDetails.dispose());
     this.bindKeyboard();
     this.bindSpacePan();
     this.bindWheel();

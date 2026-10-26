@@ -235,7 +235,8 @@
         margin-bottom: 8px;
       }
       #palette-mode button,
-      .palette-celltype {
+      .palette-celltype,
+      .palette-celltype-details {
         font: inherit;
         padding: 3px 6px;
         border: 1px solid var(--border);
@@ -244,6 +245,9 @@
         cursor: pointer;
         text-align: left;
       }
+      .palette-celltype-row { display: flex; gap: 4px; align-items: stretch; }
+      .palette-celltype-row .palette-celltype { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .palette-celltype-details { flex: none; padding: 3px; font-size: 11px; }
       #palette-mode button.active,
       .palette-celltype.active {
         background: var(--accent);
@@ -460,6 +464,31 @@
       #export-dialog-panel label + label { margin-top: 8px; }
       #png-scale-field[hidden] { display: none; }
       #export-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      #celltype-details-dialog {
+        width: 640px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 40px);
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--ink);
+        overflow: auto;
+      }
+      #celltype-details-dialog:not([open]) { display: none; }
+      #celltype-details-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+      #celltype-details-dialog h2 { margin: 0 0 12px; font-size: 17px; }
+      #celltype-details-dialog h3 { margin: 16px 0 6px; font-size: 14px; }
+      #celltype-details-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+      #celltype-details-dialog dd { margin: 0; overflow-wrap: anywhere; }
+      #celltype-details-dialog table { width: 100%; border-collapse: collapse; }
+      #celltype-details-dialog th, #celltype-details-dialog td {
+        padding: 4px 6px;
+        border: 1px solid var(--border);
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
+      #celltype-details-dialog .celltype-details-close { display: block; margin: 16px 0 0 auto; font: inherit; }
       #diagnostics-panel {
         position: absolute;
         bottom: 100%;
@@ -609,6 +638,11 @@
         </div>
       </div>
     </div>
+    <dialog id="celltype-details-dialog" aria-labelledby="celltype-details-title">
+      <h2 id="celltype-details-title">セルタイプの詳細</h2>
+      <div class="celltype-details-content"></div>
+      <button class="celltype-details-close" type="button">閉じる</button>
+    </dialog>
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>
