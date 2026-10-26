@@ -10,7 +10,7 @@
          引き続き禁止のまま（'unsafe-eval'とは異なる、Chromiumの狭いWASM専用許可）。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'"
     />
     <title>TECSCDE</title>
     <style>
@@ -428,6 +428,8 @@
       }
       #export-dialog-panel h2 { margin: 0 0 12px; font-size: 15px; }
       #export-dialog-panel label { display: flex; gap: 12px; align-items: center; }
+      #export-dialog-panel label + label { margin-top: 8px; }
+      #png-scale-field[hidden] { display: none; }
       #export-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
       #diagnostics-panel {
         position: absolute;
@@ -467,7 +469,7 @@
         <button data-action="openFolder" type="button" title="ファイルブラウザのルートフォルダを選ぶ（外部仕様3.5.1節）">フォルダを開く</button>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
-        <button data-action="exportSvg" type="button">SVGエクスポート</button>
+        <button data-action="exportDiagram" type="button">エクスポート</button>
         <button data-action="clear" type="button" title="編集対象をクリアし、新規作成する（外部仕様5.2節）">消去</button>
         <span class="sep"></span>
         <button data-action="undo" type="button">元に戻す</button>
@@ -531,11 +533,24 @@
     </div>
     <div id="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" hidden>
       <div id="export-dialog-panel">
-        <h2 id="export-dialog-title">SVGエクスポート</h2>
+        <h2 id="export-dialog-title">図のエクスポート</h2>
+        <label>形式
+          <select id="export-format">
+            <option value="svg">SVG</option>
+            <option value="png">PNG</option>
+          </select>
+        </label>
         <label>出力範囲
           <select id="export-range">
             <option value="paper">用紙に合わせる</option>
             <option value="content">図の内容に合わせる</option>
+          </select>
+        </label>
+        <label id="png-scale-field" hidden>PNG倍率
+          <select id="png-scale">
+            <option value="1">1×</option>
+            <option value="2" selected>2×</option>
+            <option value="4">4×</option>
           </select>
         </label>
         <div id="export-dialog-actions">

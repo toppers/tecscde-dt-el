@@ -73,8 +73,8 @@ describe("FileGateway", () => {
     gateway.export("/out.txt", "x");
     expect(api.file.export).toHaveBeenCalledWith("/out.txt", "x");
 
-    gateway.chooseExportPath("diagram.svg");
-    expect(api.file.chooseExportPath).toHaveBeenCalledWith("diagram.svg");
+    gateway.chooseExportPath("png", "diagram.png");
+    expect(api.file.chooseExportPath).toHaveBeenCalledWith("png", "diagram.png");
 
     gateway.chooseFolder();
     expect(api.file.chooseFolder).toHaveBeenCalled();

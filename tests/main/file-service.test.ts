@@ -86,7 +86,7 @@ describe("FileService", () => {
     showSaveDialog.mockResolvedValue({ canceled: true });
     const service = new FileService({} as never);
 
-    await expect(service.chooseExportPath("diagram.svg")).resolves.toBeNull();
+    await expect(service.chooseExportPath("svg", "diagram.svg")).resolves.toBeNull();
     expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
       defaultPath: "diagram.svg",
       filters: [{ name: "SVG files", extensions: ["svg"] }],
@@ -99,10 +99,26 @@ describe("FileService", () => {
     showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
     const service = new FileService({} as never);
 
-    const chosen = await service.chooseExportPath("diagram.svg");
+    const chosen = await service.chooseExportPath("svg", "diagram.svg");
     expect(chosen).toBe(target);
     await service.exportFile(chosen!, '<svg xmlns="http://www.w3.org/2000/svg"/>');
     expect(readFileSync(target, "utf-8")).toContain("<svg");
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("chooses a PNG path and writes PNG bytes without text conversion", async () => {
+    const target = join(dir, "diagram.png");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const service = new FileService({} as never);
+    const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 255]);
+
+    await expect(service.chooseExportPath("png", "diagram.png")).resolves.toBe(target);
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.png",
+      filters: [{ name: "PNG files", extensions: ["png"] }],
+    });
+    await service.exportFile(target, bytes);
+    expect(readFileSync(target)).toEqual(Buffer.from(bytes));
     expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
   });
 

@@ -21,6 +21,7 @@ import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway
 import type { TecsgenResult } from "../../src/shared/ipc-types";
 import { AppStore } from "../../src/renderer/app/store";
 import { AppShell } from "../../src/renderer/app/shell";
+import { PngExporter, PngExportTooLargeError } from "../../src/renderer/export/png-exporter";
 
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
 const mainText = readFileSync(resolve(__dirname, "../fixtures/main.cde"), "utf-8");
@@ -101,7 +102,7 @@ const BODY_HTML = `
       <button data-action="openFolder" type="button">フォルダを開く</button>
       <button data-action="save" type="button">保存</button>
       <button data-action="saveAs" type="button">名前を付けて保存</button>
-      <button data-action="exportSvg" type="button">SVGエクスポート</button>
+      <button data-action="exportDiagram" type="button">エクスポート</button>
       <button data-action="clear" type="button">消去</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
@@ -159,7 +160,9 @@ const BODY_HTML = `
       <span id="status-file"></span>
     </div>
     <div id="export-dialog" role="dialog" aria-modal="true" hidden>
+      <select id="export-format"><option value="svg">SVG</option><option value="png">PNG</option></select>
       <select id="export-range"><option value="paper">用紙</option><option value="content">内容</option></select>
+      <label id="png-scale-field" hidden><select id="png-scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select></label>
       <button id="export-cancel" type="button">キャンセル</button>
       <button id="export-confirm" type="button">保存先を選ぶ</button>
     </div>
@@ -202,12 +205,12 @@ describe("AppShell — DOM wiring", () => {
     const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
     const original = store.getDocument();
 
-    document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
     expect(document.querySelector<HTMLElement>("#export-dialog")!.hidden).toBe(false);
     document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
     await flush();
 
-    expect(chooseExportPath).toHaveBeenCalledWith("untitled.svg");
+    expect(chooseExportPath).toHaveBeenCalledWith("svg", "untitled.svg");
     expect(exportFile).not.toHaveBeenCalled();
     expect(store.getDocument()).toBe(original);
     expect(store.isDirty()).toBe(false);
@@ -224,7 +227,7 @@ describe("AppShell — DOM wiring", () => {
     const original = store.getDocument();
     const canUndo = store.canUndo;
 
-    document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
     document.querySelector<HTMLSelectElement>("#export-range")!.value = "content";
     document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
     await flush();
@@ -241,6 +244,61 @@ describe("AppShell — DOM wiring", () => {
     expect(store.isDirty()).toBe(false);
   });
 
+  it("exports PNG bytes at the selected scale without editing the document", async () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    const rasterize = vi.spyOn(PngExporter, "rasterize").mockResolvedValue(bytes);
+    const gateway = fakeFileGateway().gateway;
+    const chooseExportPath = vi.fn().mockResolvedValue("diagram.png");
+    const exportFile = vi.fn().mockResolvedValue(undefined);
+    gateway.chooseExportPath = chooseExportPath;
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const original = store.getDocument();
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+      format.value = "png";
+      format.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(document.querySelector<HTMLElement>("#png-scale-field")!.hidden).toBe(false);
+      expect(document.querySelector<HTMLSelectElement>("#png-scale")!.value).toBe("2");
+      document.querySelector<HTMLSelectElement>("#png-scale")!.value = "4";
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+
+      expect(chooseExportPath).toHaveBeenCalledWith("png", "untitled.png");
+      expect(rasterize).toHaveBeenCalledWith(expect.objectContaining({ svg: expect.stringContaining("<svg") }), 4);
+      expect(exportFile).toHaveBeenCalledWith("diagram.png", bytes);
+      expect(store.getDocument()).toBe(original);
+      expect(store.isDirty()).toBe(false);
+    } finally {
+      rasterize.mockRestore();
+    }
+  });
+
+  it("reports oversized PNGs with a size-specific diagnostic", async () => {
+    const rasterize = vi.spyOn(PngExporter, "rasterize").mockRejectedValue(new PngExportTooLargeError());
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.png");
+    gateway.export = vi.fn();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+      format.value = "png";
+      format.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "E-EXPORT-TOO-LARGE", severity: "error" }),
+      ]));
+      expect(gateway.export).not.toHaveBeenCalled();
+    } finally {
+      rasterize.mockRestore();
+      consoleSpy.mockRestore();
+    }
+  });
+
   it("reports SVG write failures in diagnostics", async () => {
     const gateway = fakeFileGateway().gateway;
     gateway.chooseExportPath = vi.fn().mockResolvedValue("out.svg");
@@ -248,7 +306,7 @@ describe("AppShell — DOM wiring", () => {
     const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
-      document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
       document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
       await flush();
       expect(store.getReport().items).toEqual(expect.arrayContaining([

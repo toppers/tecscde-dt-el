@@ -34,6 +34,8 @@ import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { searchDocument } from "../view-state/search";
 import { SvgExporter, type SvgExportRange } from "../export/svg-exporter";
+import { PngExporter, PngExportTooLargeError, type PngScale } from "../export/png-exporter";
+import type { ExportFormat } from "../../shared/ipc-types";
 import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
@@ -83,7 +85,10 @@ export class AppShell {
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
   private readonly exportDialog: HTMLElement;
+  private readonly exportFormat: HTMLSelectElement;
   private readonly exportRange: HTMLSelectElement;
+  private readonly pngScaleField: HTMLElement;
+  private readonly pngScale: HTMLSelectElement;
   private readonly exportConfirm: HTMLButtonElement;
 
   private readonly renderer: SvgRenderer;
@@ -131,7 +136,10 @@ export class AppShell {
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
     this.exportDialog = requireEl<HTMLElement>(root, "#export-dialog");
+    this.exportFormat = requireEl<HTMLSelectElement>(root, "#export-format");
     this.exportRange = requireEl<HTMLSelectElement>(root, "#export-range");
+    this.pngScaleField = requireEl<HTMLElement>(root, "#png-scale-field");
+    this.pngScale = requireEl<HTMLSelectElement>(root, "#png-scale");
     this.exportConfirm = requireEl<HTMLButtonElement>(root, "#export-confirm");
 
     this.renderer = new SvgRenderer(this.svg);
@@ -274,10 +282,14 @@ export class AppShell {
       case "saveAs":
         void saveAs(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
-      case "exportSvg":
+      case "exportDiagram":
+        if (this.exportBusy) break;
         this.exportDialog.hidden = false;
+        this.exportFormat.value = "svg";
         this.exportRange.value = "paper";
-        this.exportRange.focus();
+        this.pngScale.value = "2";
+        this.pngScaleField.hidden = true;
+        this.exportFormat.focus();
         break;
       case "clear":
         void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
@@ -334,13 +346,14 @@ export class AppShell {
   private bindExportDialog(): void {
     const cancel = requireEl<HTMLButtonElement>(this.exportDialog, "#export-cancel");
     const onCancel = (): void => { this.exportDialog.hidden = true; };
-    const onConfirm = (): void => { void this.exportSvg(); };
+    const onConfirm = (): void => { void this.exportDiagram(); };
+    const onFormat = (): void => { this.pngScaleField.hidden = this.exportFormat.value !== "png"; };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         event.preventDefault();
         onCancel();
       } else if (event.key === "Tab") {
-        const first = this.exportRange;
+        const first = this.exportFormat;
         const last = this.exportConfirm;
         if (event.shiftKey && this.win.document.activeElement === first) {
           event.preventDefault();
@@ -361,36 +374,42 @@ export class AppShell {
     };
     cancel.addEventListener("click", onCancel);
     this.exportConfirm.addEventListener("click", onConfirm);
+    this.exportFormat.addEventListener("change", onFormat);
     this.exportDialog.addEventListener("keydown", onKey);
     this.win.addEventListener("keydown", onWindowKey, true);
     this.disposers.push(() => {
       cancel.removeEventListener("click", onCancel);
       this.exportConfirm.removeEventListener("click", onConfirm);
+      this.exportFormat.removeEventListener("change", onFormat);
       this.exportDialog.removeEventListener("keydown", onKey);
       this.win.removeEventListener("keydown", onWindowKey, true);
     });
   }
 
-  private async exportSvg(): Promise<void> {
+  private async exportDiagram(): Promise<void> {
     if (this.exportBusy) return;
     this.exportBusy = true;
     this.exportConfirm.disabled = true;
     const doc = this.store.getDocument();
     const view = this.store.view.toCanvasView(doc.regions);
     const range = this.exportRange.value as SvgExportRange;
+    const format = this.exportFormat.value as ExportFormat;
+    const scale = Number(this.pngScale.value) as PngScale;
     const title = this.store.filePath ? baseName(this.store.filePath) : "untitled";
-    const suggestedName = `${title.replace(/\.[^.]+$/, "")}.svg`;
+    const suggestedName = `${title.replace(/\.[^.]+$/, "")}.${format}`;
     this.exportDialog.hidden = true;
     try {
-      const path = await this.gateway.chooseExportPath(suggestedName);
+      const path = await this.gateway.chooseExportPath(format, suggestedName);
       if (!path) return;
       const result = SvgExporter.build(doc, view, range, title);
-      await this.gateway.export(path, result.svg);
+      const data = format === "svg" ? result.svg : await PngExporter.rasterize(result, scale);
+      await this.gateway.export(path, data);
       this.store.setExportDiagnostics([]);
     } catch (err: unknown) {
-      this.reportActionError("exportSvg", err);
+      this.reportActionError("exportDiagram", err);
       const message = err instanceof Error ? err.message : String(err);
-      this.store.setExportDiagnostics([{ severity: "error", code: "E-EXPORT-FAILED", message }]);
+      const code = err instanceof PngExportTooLargeError ? "E-EXPORT-TOO-LARGE" : "E-EXPORT-FAILED";
+      this.store.setExportDiagnostics([{ severity: "error", code, message }]);
       this.diagnosticsPanel.open();
     } finally {
       this.exportBusy = false;

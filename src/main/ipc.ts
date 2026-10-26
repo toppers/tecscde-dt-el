@@ -8,7 +8,7 @@ import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
 import type { LogService } from "./log-service.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
-import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
+import type { ExportFormat, ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
 
 export function registerIpcHandlers(
   fileService: FileService,
@@ -30,8 +30,9 @@ export function registerIpcHandlers(
   ipcMain.handle("file:saveAs", (_e, content: string, suggestedName: string) =>
     fileService.saveAsDialog(suggestedName, content),
   );
-  ipcMain.handle("file:export", (_e, path: string, data: string) => fileService.exportFile(path, data));
-  ipcMain.handle("file:chooseExportPath", (_e, suggestedName: string) => fileService.chooseExportPath(suggestedName));
+  ipcMain.handle("file:export", (_e, path: string, data: string | Uint8Array) => fileService.exportFile(path, data));
+  ipcMain.handle("file:chooseExportPath", (_e, format: ExportFormat, suggestedName: string) =>
+    fileService.chooseExportPath(format, suggestedName));
   // 第7章7.6.2節: ファイルブラウザ（2026-09-21採用、TECSCDE-DT外部仕様3.5.1節）。
   ipcMain.handle("file:chooseFolder", () => fileService.chooseFolder());
   ipcMain.handle("file:listDirectory", (_e, dirPath: string) => fileService.listDirectory(dirPath));

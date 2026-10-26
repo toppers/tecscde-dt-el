@@ -51,6 +51,14 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:export", "/out.txt", "data");
   });
 
+  it("file export forwards PNG bytes and a format-specific path request", () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    exposedApi().file.chooseExportPath("png", "diagram.png");
+    expect(invoke).toHaveBeenCalledWith("file:chooseExportPath", "png", "diagram.png");
+    exposedApi().file.export("/out.png", bytes);
+    expect(invoke).toHaveBeenCalledWith("file:export", "/out.png", bytes);
+  });
+
   it("log.append invokes log:append with the lines", () => {
     exposedApi().log.append(["[W-X] a", "[W-Y] b"]);
     expect(invoke).toHaveBeenCalledWith("log:append", ["[W-X] a", "[W-Y] b"]);

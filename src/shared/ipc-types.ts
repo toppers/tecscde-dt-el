@@ -126,6 +126,8 @@ export interface AppSettingsView {
   readonly allowEditSystemDefined: boolean;
 }
 
+export type ExportFormat = "svg" | "png";
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
@@ -134,8 +136,8 @@ export interface TecscdeApi {
   readonly file: {
     save(path: string, content: string): Promise<void>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
-    chooseExportPath(suggestedName: string): Promise<string | null>;
-    export(path: string, data: string): Promise<void>;
+    chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null>;
+    export(path: string, data: string | Uint8Array): Promise<void>;
     /** 第7章7.6.1節: ファイルブラウザのルートフォルダ選択。 */
     chooseFolder(): Promise<string | null>;
     /** 第7章7.6.1節: ディレクトリ直下のみを1階層返す（遅延展開）。 */

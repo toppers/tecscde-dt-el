@@ -86,8 +86,12 @@ describe("registerIpcHandlers", () => {
     handlers.get("file:export")!({}, "/tmp/out.txt", "data");
     expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.txt", "data");
 
-    handlers.get("file:chooseExportPath")!({}, "diagram.svg");
-    expect(fileService.chooseExportPath).toHaveBeenCalledWith("diagram.svg");
+    handlers.get("file:chooseExportPath")!({}, "png", "diagram.png");
+    expect(fileService.chooseExportPath).toHaveBeenCalledWith("png", "diagram.png");
+
+    const png = Uint8Array.from([137, 80, 78, 71]);
+    handlers.get("file:export")!({}, "/tmp/out.png", png);
+    expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.png", png);
 
     handlers.get("file:chooseFolder")!({});
     expect(fileService.chooseFolder).toHaveBeenCalled();

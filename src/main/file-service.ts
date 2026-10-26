@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
 import type {
   DirEntry,
+  ExportFormat,
   ImportRequest,
   ImportResolutionOptions,
   OpenResult,
@@ -133,15 +134,15 @@ export class FileService {
     return result.filePath;
   }
 
-  async exportFile(path: string, data: string): Promise<void> {
+  async exportFile(path: string, data: string | Uint8Array): Promise<void> {
     await this.writeAtomic(path, data);
   }
 
-  /** 7.10節: SVG の保存先を選ぶ。キャンセル後は書き込みを行わない。 */
-  async chooseExportPath(suggestedName: string): Promise<string | null> {
+  /** 7.10節: 形式別の保存先を選ぶ。キャンセル後は書き込みを行わない。 */
+  async chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null> {
     const result = await dialog.showSaveDialog(this.window, {
       defaultPath: suggestedName,
-      filters: [{ name: "SVG files", extensions: ["svg"] }],
+      filters: [{ name: `${format.toUpperCase()} files`, extensions: [format] }],
     });
     return result.canceled ? null : (result.filePath ?? null);
   }
@@ -319,7 +320,7 @@ export class FileService {
    * OSレベルでアトミックであり、書き込み途中でプロセスが異常終了しても元のファイルは
    * 無傷のまま残る。
    */
-  private async writeAtomic(path: string, content: string): Promise<void> {
+  private async writeAtomic(path: string, content: string | Uint8Array): Promise<void> {
     const tmpPath = `${path}.tmp-${process.pid}`;
     await fs.writeFile(tmpPath, content);
     await fs.rename(tmpPath, path);
