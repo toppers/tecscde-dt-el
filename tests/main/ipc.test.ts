@@ -32,6 +32,7 @@ describe("registerIpcHandlers", () => {
       save: vi.fn().mockResolvedValue(undefined),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
       exportFile: vi.fn().mockResolvedValue(undefined),
+      chooseExportPath: vi.fn().mockResolvedValue("/tmp/out.svg"),
       chooseFolder: vi.fn().mockResolvedValue("/tmp/root"),
       listDirectory: vi.fn().mockResolvedValue([]),
       openPath: vi.fn().mockResolvedValue("open-path-result"),
@@ -57,6 +58,7 @@ describe("registerIpcHandlers", () => {
         "clipboard:readText",
         "clipboard:writeText",
         "file:chooseFolder",
+        "file:chooseExportPath",
         "file:confirmDiscardChanges",
         "file:export",
         "file:listDirectory",
@@ -83,6 +85,9 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("file:export")!({}, "/tmp/out.txt", "data");
     expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.txt", "data");
+
+    handlers.get("file:chooseExportPath")!({}, "diagram.svg");
+    expect(fileService.chooseExportPath).toHaveBeenCalledWith("diagram.svg");
 
     handlers.get("file:chooseFolder")!({});
     expect(fileService.chooseFolder).toHaveBeenCalled();

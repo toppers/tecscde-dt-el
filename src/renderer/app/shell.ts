@@ -33,6 +33,7 @@ import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { searchDocument } from "../view-state/search";
+import { SvgExporter, type SvgExportRange } from "../export/svg-exporter";
 import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
@@ -81,6 +82,9 @@ export class AppShell {
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
+  private readonly exportDialog: HTMLElement;
+  private readonly exportRange: HTMLSelectElement;
+  private readonly exportConfirm: HTMLButtonElement;
 
   private readonly renderer: SvgRenderer;
   /** ドラッグ FSM。DOM 結線は `attach` 済み。テストはこの公開メソッドを直接叩ける。 */
@@ -104,6 +108,7 @@ export class AppShell {
   private suppressScrollSync = false;
   private spaceHeld = false;
   private panDragLast: Point | undefined;
+  private exportBusy = false;
 
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
@@ -125,6 +130,9 @@ export class AppShell {
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
+    this.exportDialog = requireEl<HTMLElement>(root, "#export-dialog");
+    this.exportRange = requireEl<HTMLSelectElement>(root, "#export-range");
+    this.exportConfirm = requireEl<HTMLButtonElement>(root, "#export-confirm");
 
     this.renderer = new SvgRenderer(this.svg);
     const host = new AppGestureHost(
@@ -169,6 +177,7 @@ export class AppShell {
     this.disposers.push(this.store.subscribe(() => this.render()));
     this.disposers.push(this.gesture.attach(this.svg));
     this.bindToolbar();
+    this.bindExportDialog();
     this.bindZoomSlider();
     this.bindDisplayBar();
     this.disposers.push(() => this.regionFilter.dispose());
@@ -265,6 +274,11 @@ export class AppShell {
       case "saveAs":
         void saveAs(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
+      case "exportSvg":
+        this.exportDialog.hidden = false;
+        this.exportRange.value = "paper";
+        this.exportRange.focus();
+        break;
       case "clear":
         void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
@@ -315,6 +329,73 @@ export class AppShell {
    */
   private reportActionError(action: string, err: unknown): void {
     console.error(`[AppShell] action "${action}" failed:`, err);
+  }
+
+  private bindExportDialog(): void {
+    const cancel = requireEl<HTMLButtonElement>(this.exportDialog, "#export-cancel");
+    const onCancel = (): void => { this.exportDialog.hidden = true; };
+    const onConfirm = (): void => { void this.exportSvg(); };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      } else if (event.key === "Tab") {
+        const first = this.exportRange;
+        const last = this.exportConfirm;
+        if (event.shiftKey && this.win.document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && this.win.document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+      // ダイアログ表示中に背後の編集ショートカットへ伝えない。
+      event.stopPropagation();
+    };
+    const onWindowKey = (event: KeyboardEvent): void => {
+      if (this.exportDialog.hidden || this.exportDialog.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === "Escape") onCancel();
+    };
+    cancel.addEventListener("click", onCancel);
+    this.exportConfirm.addEventListener("click", onConfirm);
+    this.exportDialog.addEventListener("keydown", onKey);
+    this.win.addEventListener("keydown", onWindowKey, true);
+    this.disposers.push(() => {
+      cancel.removeEventListener("click", onCancel);
+      this.exportConfirm.removeEventListener("click", onConfirm);
+      this.exportDialog.removeEventListener("keydown", onKey);
+      this.win.removeEventListener("keydown", onWindowKey, true);
+    });
+  }
+
+  private async exportSvg(): Promise<void> {
+    if (this.exportBusy) return;
+    this.exportBusy = true;
+    this.exportConfirm.disabled = true;
+    const doc = this.store.getDocument();
+    const view = this.store.view.toCanvasView(doc.regions);
+    const range = this.exportRange.value as SvgExportRange;
+    const title = this.store.filePath ? baseName(this.store.filePath) : "untitled";
+    const suggestedName = `${title.replace(/\.[^.]+$/, "")}.svg`;
+    this.exportDialog.hidden = true;
+    try {
+      const path = await this.gateway.chooseExportPath(suggestedName);
+      if (!path) return;
+      const result = SvgExporter.build(doc, view, range, title);
+      await this.gateway.export(path, result.svg);
+      this.store.setExportDiagnostics([]);
+    } catch (err: unknown) {
+      this.reportActionError("exportSvg", err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.store.setExportDiagnostics([{ severity: "error", code: "E-EXPORT-FAILED", message }]);
+      this.diagnosticsPanel.open();
+    } finally {
+      this.exportBusy = false;
+      this.exportConfirm.disabled = false;
+    }
   }
 
   /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */

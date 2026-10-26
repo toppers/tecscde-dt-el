@@ -31,6 +31,7 @@ export function registerIpcHandlers(
     fileService.saveAsDialog(suggestedName, content),
   );
   ipcMain.handle("file:export", (_e, path: string, data: string) => fileService.exportFile(path, data));
+  ipcMain.handle("file:chooseExportPath", (_e, suggestedName: string) => fileService.chooseExportPath(suggestedName));
   // 第7章7.6.2節: ファイルブラウザ（2026-09-21採用、TECSCDE-DT外部仕様3.5.1節）。
   ipcMain.handle("file:chooseFolder", () => fileService.chooseFolder());
   ipcMain.handle("file:listDirectory", (_e, dirPath: string) => fileService.listDirectory(dirPath));

@@ -25,6 +25,10 @@ export class FileGateway {
     return window.tecscde.file.export(path, data);
   }
 
+  chooseExportPath(suggestedName: string): Promise<string | null> {
+    return window.tecscde.file.chooseExportPath(suggestedName);
+  }
+
   /** 7.6.1節: ファイルブラウザのルートフォルダ選択。 */
   chooseFolder(): Promise<string | null> {
     return window.tecscde.file.chooseFolder();

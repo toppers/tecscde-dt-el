@@ -409,6 +409,26 @@
         font-weight: bold;
         color: #b45309;
       }
+      #export-dialog[hidden] { display: none; }
+      #export-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-items: center;
+        background: rgb(0 0 0 / 35%);
+      }
+      #export-dialog-panel {
+        min-width: 300px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+      }
+      #export-dialog-panel h2 { margin: 0 0 12px; font-size: 15px; }
+      #export-dialog-panel label { display: flex; gap: 12px; align-items: center; }
+      #export-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
       #diagnostics-panel {
         position: absolute;
         bottom: 100%;
@@ -439,76 +459,6 @@
         background: #eeeeee;
       }
 
-      /* --- SvgRenderer / CellRenderer / JoinRenderer が出すクラス --- */
-      .cell-rect {
-        fill: #ffffff;
-        stroke: #333333;
-        stroke-width: 1;
-      }
-      .cell-rect.readonly {
-        fill: #f0f0f0;
-        stroke: #999999;
-      }
-      .cell-rect.unresolved {
-        stroke: #d29922;
-        stroke-dasharray: 3 2;
-      }
-      .cell-label {
-        font-size: 11px;
-        fill: #111111;
-      }
-      .cell-label.emphasized {
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .celltype-label {
-        font-size: 9px;
-        fill: #666666;
-      }
-      .port-symbol {
-        stroke: #333333;
-        stroke-width: 0.75;
-      }
-      .port-symbol-cport {
-        fill: #ffffff;
-      }
-      .port-symbol-eport {
-        fill: #333333;
-      }
-      .join-line {
-        stroke: #444444;
-        stroke-width: 1.25;
-      }
-      .join-stub-tick {
-        stroke: #444444;
-        stroke-width: 1.25;
-      }
-      .signature-label {
-        font-size: 9px;
-        fill: #555555;
-      }
-      .grid-line {
-        stroke: #e2e2e2;
-        stroke-width: 0.5;
-      }
-      .selection-outline {
-        stroke: var(--accent);
-        stroke-width: 1.5;
-        stroke-dasharray: 4 2;
-      }
-      .selection-outline.join-selected {
-        stroke-width: 2.5;
-      }
-      .join-preview {
-        stroke: var(--accent);
-        stroke-width: 1.5;
-        stroke-dasharray: 5 3;
-      }
-      .rubber-band {
-        stroke: var(--accent);
-        stroke-width: 1;
-        stroke-dasharray: 3 2;
-      }
     </style>
   </head>
   <body>
@@ -517,6 +467,7 @@
         <button data-action="openFolder" type="button" title="ファイルブラウザのルートフォルダを選ぶ（外部仕様3.5.1節）">フォルダを開く</button>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
+        <button data-action="exportSvg" type="button">SVGエクスポート</button>
         <button data-action="clear" type="button" title="編集対象をクリアし、新規作成する（外部仕様5.2節）">消去</button>
         <span class="sep"></span>
         <button data-action="undo" type="button">元に戻す</button>
@@ -576,6 +527,21 @@
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>
         <div id="diagnostics-panel" hidden></div>
         <span id="status-file"></span>
+      </div>
+    </div>
+    <div id="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" hidden>
+      <div id="export-dialog-panel">
+        <h2 id="export-dialog-title">SVGエクスポート</h2>
+        <label>出力範囲
+          <select id="export-range">
+            <option value="paper">用紙に合わせる</option>
+            <option value="content">図の内容に合わせる</option>
+          </select>
+        </label>
+        <div id="export-dialog-actions">
+          <button id="export-cancel" type="button">キャンセル</button>
+          <button id="export-confirm" type="button">保存先を選ぶ</button>
+        </div>
       </div>
     </div>
     <script type="module" src="./renderer.js"></script>

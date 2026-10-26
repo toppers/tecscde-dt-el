@@ -18,11 +18,16 @@ import { checkTecsgenVersion } from "./app/tecsgen-version";
 import { applyOpenResult } from "./app/file-actions";
 import { CdlGrammar } from "./cdl/grammar";
 import { CdeclGrammar } from "./cdecl/grammar";
+import { SVG_STYLES } from "./render/svg-styles";
 
 function main(): void {
   if (typeof window === "undefined" || !window.tecscde) {
     throw new Error("preload の window.tecscde が見つかりません（contextBridge 未初期化）");
   }
+
+  const diagramStyle = document.createElement("style");
+  diagramStyle.textContent = SVG_STYLES;
+  document.head.append(diagramStyle);
 
   // 内部仕様2.2 / 9B章9B.3: WASMロードの非同期性は起動時の1点に閉じ込める。
   // onBootstrapはdid-finish-load直後に届くため先に登録し、解析だけ初期化完了を待つ。

@@ -82,6 +82,30 @@ describe("FileService", () => {
     expect(readFileSync(target, "utf-8")).toBe("content");
   });
 
+  it("chooseExportPath asks for an SVG file and cancels without writing", async () => {
+    showSaveDialog.mockResolvedValue({ canceled: true });
+    const service = new FileService({} as never);
+
+    await expect(service.chooseExportPath("diagram.svg")).resolves.toBeNull();
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.svg",
+      filters: [{ name: "SVG files", extensions: ["svg"] }],
+    });
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("chooseExportPath returns the selected SVG path, which exportFile writes atomically", async () => {
+    const target = join(dir, "diagram.svg");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const service = new FileService({} as never);
+
+    const chosen = await service.chooseExportPath("diagram.svg");
+    expect(chosen).toBe(target);
+    await service.exportFile(chosen!, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    expect(readFileSync(target, "utf-8")).toContain("<svg");
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
   it("openPath (7.4節: コマンドライン引数由来) reads a single path without a dialog", async () => {
     const path = join(dir, "argv.cde");
     writeFileSync(path, "from-argv");

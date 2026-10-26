@@ -36,6 +36,7 @@ const noopGateway = {
   save: async () => undefined,
   saveAs: async () => null,
   export: async () => undefined,
+  chooseExportPath: async () => null,
   chooseFolder: async () => null,
   listDirectory: async () => [],
   openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -53,6 +54,7 @@ function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, st
     },
     saveAs: async () => null,
     export: async () => undefined,
+    chooseExportPath: async () => null,
     chooseFolder: async () => null,
     listDirectory: async () => [],
     openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -99,6 +101,7 @@ const BODY_HTML = `
       <button data-action="openFolder" type="button">フォルダを開く</button>
       <button data-action="save" type="button">保存</button>
       <button data-action="saveAs" type="button">名前を付けて保存</button>
+      <button data-action="exportSvg" type="button">SVGエクスポート</button>
       <button data-action="clear" type="button">消去</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
@@ -155,6 +158,11 @@ const BODY_HTML = `
       <div id="diagnostics-panel" hidden></div>
       <span id="status-file"></span>
     </div>
+    <div id="export-dialog" role="dialog" aria-modal="true" hidden>
+      <select id="export-range"><option value="paper">用紙</option><option value="content">内容</option></select>
+      <button id="export-cancel" type="button">キャンセル</button>
+      <button id="export-confirm" type="button">保存先を選ぶ</button>
+    </div>
   </div>
 `;
 
@@ -183,6 +191,73 @@ describe("AppShell — DOM wiring", () => {
     mounted?.dispose();
     mounted = undefined;
     document.body.innerHTML = "";
+  });
+
+  it("opens SVG options and leaves the document untouched when path selection is canceled", async () => {
+    const chooseExportPath = vi.fn().mockResolvedValue(null);
+    const exportFile = vi.fn();
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = chooseExportPath;
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const original = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+    expect(document.querySelector<HTMLElement>("#export-dialog")!.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(chooseExportPath).toHaveBeenCalledWith("untitled.svg");
+    expect(exportFile).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(original);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("exports the selected SVG range without changing history or selection", async () => {
+    const exportFile = vi.fn().mockResolvedValue(undefined);
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("C:\\out\\diagram.svg");
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const id = store.getDocument().cellValues()[0]!.id;
+    store.setSelection(SelectionState.ofCells([id]));
+    const original = store.getDocument();
+    const canUndo = store.canUndo;
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+    document.querySelector<HTMLSelectElement>("#export-range")!.value = "content";
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(exportFile).toHaveBeenCalledOnce();
+    const [path, svg] = exportFile.mock.calls[0] as [string, string];
+    expect(path).toBe("C:\\out\\diagram.svg");
+    expect(svg).toContain('class="cell-rect"');
+    const exportedRoot = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+    expect(exportedRoot.querySelector(".export-frame, .selection-outline")).toBeNull();
+    expect(store.getDocument()).toBe(original);
+    expect(store.selection.hasCell(id)).toBe(true);
+    expect(store.canUndo).toBe(canUndo);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("reports SVG write failures in diagnostics", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("out.svg");
+    gateway.export = vi.fn().mockRejectedValue(new Error("disk full"));
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportSvg']")!.click();
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ severity: "error", code: "E-EXPORT-FAILED", message: "disk full" }),
+      ]));
+      expect(document.querySelector<HTMLElement>("#diagnostics-panel")!.hidden).toBe(false);
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it("pans by space + drag without changing selection or document", () => {

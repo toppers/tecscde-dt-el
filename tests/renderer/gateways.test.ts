@@ -20,6 +20,7 @@ function stubApi(): TecscdeApi {
       save: vi.fn().mockResolvedValue(undefined),
       saveAs: vi.fn().mockResolvedValue(null),
       export: vi.fn().mockResolvedValue(undefined),
+      chooseExportPath: vi.fn().mockResolvedValue(null),
       chooseFolder: vi.fn().mockResolvedValue(null),
       listDirectory: vi.fn().mockResolvedValue([]),
       openPath: vi.fn().mockResolvedValue({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -71,6 +72,9 @@ describe("FileGateway", () => {
 
     gateway.export("/out.txt", "x");
     expect(api.file.export).toHaveBeenCalledWith("/out.txt", "x");
+
+    gateway.chooseExportPath("diagram.svg");
+    expect(api.file.chooseExportPath).toHaveBeenCalledWith("diagram.svg");
 
     gateway.chooseFolder();
     expect(api.file.chooseFolder).toHaveBeenCalled();

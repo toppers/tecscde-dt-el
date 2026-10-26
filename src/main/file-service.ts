@@ -137,6 +137,15 @@ export class FileService {
     await this.writeAtomic(path, data);
   }
 
+  /** 7.10節: SVG の保存先を選ぶ。キャンセル後は書き込みを行わない。 */
+  async chooseExportPath(suggestedName: string): Promise<string | null> {
+    const result = await dialog.showSaveDialog(this.window, {
+      defaultPath: suggestedName,
+      filters: [{ name: "SVG files", extensions: ["svg"] }],
+    });
+    return result.canceled ? null : (result.filePath ?? null);
+  }
+
   /**
    * 7B章7.6.4節: ファイルブラウザ経由で未保存の変更がある状態から別ファイルを開く前の
    * 破棄確認（TECSCDE-DT外部仕様5.7節）。OSネイティブダイアログを使う——3.6.2節が禁じる

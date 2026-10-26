@@ -134,6 +134,7 @@ export interface TecscdeApi {
   readonly file: {
     save(path: string, content: string): Promise<void>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
+    chooseExportPath(suggestedName: string): Promise<string | null>;
     export(path: string, data: string): Promise<void>;
     /** 第7章7.6.1節: ファイルブラウザのルートフォルダ選択。 */
     chooseFolder(): Promise<string | null>;

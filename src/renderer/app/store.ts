@@ -77,6 +77,7 @@ export class AppStore {
    * Generateの結果の差し替えでは消えない（`tecsgenDiagnostics`とは別に持つ）。
    */
   private environmentDiagnostics: readonly Diagnostic[] = [];
+  private exportDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
   private readonly listeners = new Set<StoreListener>();
@@ -218,6 +219,7 @@ export class AppStore {
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);
     collector.reportAll(this.environmentDiagnostics);
+    collector.reportAll(this.exportDiagnostics);
     return collector.toReport();
   }
 
@@ -364,6 +366,12 @@ export class AppStore {
   /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */
   setEnvironmentDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.environmentDiagnostics = diagnostics;
+    this.notify();
+  }
+
+  /** 7F章: 直近のエクスポート失敗だけを診断一覧に保持する。 */
+  setExportDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.exportDiagnostics = diagnostics;
     this.notify();
   }
 

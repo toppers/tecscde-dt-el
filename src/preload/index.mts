@@ -26,6 +26,8 @@ const api: TecscdeApi = {
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:saveAs", content, suggestedName),
     export: (path: string, data: string): Promise<void> => ipcRenderer.invoke("file:export", path, data),
+    chooseExportPath: (suggestedName: string): Promise<string | null> =>
+      ipcRenderer.invoke("file:chooseExportPath", suggestedName),
     chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("file:chooseFolder"),
     listDirectory: (dirPath: string): Promise<readonly DirEntry[]> => ipcRenderer.invoke("file:listDirectory", dirPath),
     openPath: (path: string): Promise<OpenResult> => ipcRenderer.invoke("file:openPath", path),
