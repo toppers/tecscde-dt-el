@@ -155,6 +155,25 @@ export class TecscdeDocument {
     );
   }
 
+  /** 用紙設定はドキュメントに属し、セルや結合を変えずに差し替える。 */
+  withPaper(paper: PaperSpec): TecscdeDocument {
+    if (this.paper.size === paper.size && this.paper.orientation === paper.orientation) return this;
+    return new TecscdeDocument(
+      this.cellsById,
+      this.joinsById,
+      this.celltypesByName,
+      this.regions,
+      this.toolInfoTecsgen,
+      paper,
+      this.referenceFiles,
+      this.editingFileName,
+      this.unknownToolInfoTecscde,
+      this.preservedImports,
+      this.sourceTemplate,
+      this.sourceTemplates,
+    );
+  }
+
   withoutCell(id: CellId): TecscdeDocument {
     const next = new Map(this.cellsById);
     next.delete(id);

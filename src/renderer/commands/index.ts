@@ -15,6 +15,7 @@ export {
   AlignLeftCommand,
 } from "./cell-commands";
 export { CreateJoinCommand, DeleteJoinCommand, MoveJoinBarCommand } from "./join-commands";
+export { ChangePaperCommand } from "./paper-commands";
 export { ChangePortEdgeCommand, MovePortCommand, type PortKind } from "./port-commands";
 export {
   CopyCommand,

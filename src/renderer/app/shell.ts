@@ -13,6 +13,8 @@
 import { GestureController } from "../render/gesture-controller";
 import { SvgRenderer } from "../render/svg-renderer";
 import type { Point } from "../model/geometry";
+import type { PaperOrientation, PaperSize } from "../model/paper";
+import { ChangePaperCommand } from "../commands";
 import type { TecscdeDocument } from "../model/document";
 import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
@@ -76,6 +78,7 @@ export class AppShell {
   private readonly scrollEl: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly zoomSlider: HTMLInputElement;
+  private readonly paperSelect: HTMLSelectElement;
   /** 第6B章6B.6: 表示制御バーの切り替え（色分け・シグニチャ名）。 */
   private readonly filterColor: HTMLInputElement;
   private readonly filterSignature: HTMLInputElement;
@@ -128,6 +131,7 @@ export class AppShell {
     this.scrollEl = requireEl<HTMLElement>(root, "#canvas-scroll");
     this.toolbar = requireEl<HTMLElement>(root, "#toolbar");
     this.zoomSlider = requireEl<HTMLInputElement>(root, "#zoom-slider");
+    this.paperSelect = requireEl<HTMLSelectElement>(root, "#paper-select");
     this.filterColor = requireEl<HTMLInputElement>(root, "#filter-color");
     this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
     this.filterEmphasize = requireEl<HTMLInputElement>(root, "#filter-emphasize");
@@ -187,6 +191,7 @@ export class AppShell {
     this.bindToolbar();
     this.bindExportDialog();
     this.bindZoomSlider();
+    this.bindPaperSelect();
     this.bindDisplayBar();
     this.disposers.push(() => this.regionFilter.dispose());
     this.bindKeyboard();
@@ -459,6 +464,20 @@ export class AppShell {
     this.disposers.push(() => this.zoomSlider.removeEventListener("input", onInput));
   }
 
+  private bindPaperSelect(): void {
+    const onChange = (): void => {
+      if (this.store.isEditingFileReadOnlySystemDefined()) return;
+      const [size, orientation] = this.paperSelect.value.split(":") as [PaperSize, PaperOrientation];
+      if (!(["A4", "A3", "A2"] as string[]).includes(size) ||
+          !(["LANDSCAPE", "PORTRAIT"] as string[]).includes(orientation)) return;
+      const paper = this.store.getDocument().paper;
+      if (size === paper.size && orientation === paper.orientation) return;
+      this.store.dispatch(new ChangePaperCommand(size, orientation));
+    };
+    this.paperSelect.addEventListener("change", onChange);
+    this.disposers.push(() => this.paperSelect.removeEventListener("change", onChange));
+  }
+
   /** 第6B章6B.6・6B.7: 表示制御バーの2つのチェックを `DisplayFilters` に結ぶ。 */
   private bindDisplayBar(): void {
     const onColor = (): void => {
@@ -494,6 +513,9 @@ export class AppShell {
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
     // 外部仕様3.2.1: スライダはボタン・ホイール・キーボードいずれのズーム変更にも追従する。
     this.zoomSlider.value = String(Math.round(this.store.view.zoom * 100));
+    const paper = this.store.getDocument().paper;
+    this.paperSelect.value = `${paper.size}:${paper.orientation}`;
+    this.paperSelect.disabled = this.store.isEditingFileReadOnlySystemDefined();
     // 第6B章6B.6: 表示制御バーのチェックは常に `DisplayFilters` の状態に従う。
     const filters = this.store.view.filters;
     this.filterColor.checked = filters.colorByRegion;

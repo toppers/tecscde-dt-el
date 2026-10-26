@@ -132,6 +132,7 @@ const BODY_HTML = `
       <label><input type="checkbox" id="filter-color" /> 色分け</label>
       <label><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
       <label><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+      <select id="paper-select"><option value="A4:LANDSCAPE">A4 横</option><option value="A4:PORTRAIT">A4 縦</option><option value="A3:LANDSCAPE">A3 横</option><option value="A3:PORTRAIT">A3 縦</option><option value="A2:LANDSCAPE">A2 横</option><option value="A2:PORTRAIT">A2 縦</option></select>
     </div>
     <div id="main">
       <div id="file-browser"></div>
@@ -196,6 +197,51 @@ describe("AppShell — DOM wiring", () => {
     mounted?.dispose();
     mounted = undefined;
     document.body.innerHTML = "";
+  });
+
+  it("updates paper size from the toolbar and tracks it as one undoable change", () => {
+    const { store } = mountShell();
+    const select = document.querySelector<HTMLSelectElement>("#paper-select")!;
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    const original = store.getDocument();
+    expect(select.value).toBe("A4:LANDSCAPE");
+
+    select.value = "A3:PORTRAIT";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.getDocument().paper.contentSize()).toEqual({ width: 277, height: 400 });
+    expect(Number(svg.getAttribute("height"))).toBeCloseTo(400 * store.view.pxPerMm);
+    expect(store.history.past).toHaveLength(1);
+    expect(store.isDirty()).toBe(true);
+
+    store.undo();
+    expect(store.getDocument().paper).toBe(original.paper);
+    expect(select.value).toBe("A4:LANDSCAPE");
+    expect(store.isDirty()).toBe(false);
+    store.redo();
+    expect(select.value).toBe("A3:PORTRAIT");
+    expect(store.getDocument().paper.size).toBe("A3");
+  });
+
+  it("saves the selected paper size and leaves same-value selection out of history", async () => {
+    const { gateway, saveCalls } = fakeFileGateway();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    store.markSaved("C:/diagram.cde");
+    const select = document.querySelector<HTMLSelectElement>("#paper-select")!;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.history.past).toHaveLength(0);
+    expect(store.isDirty()).toBe(false);
+
+    select.value = "A2:LANDSCAPE";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
+    await flush();
+    expect(saveCalls).toHaveLength(1);
+    const saved = CdlDocumentLoader.loadSources([
+      { text: saveCalls[0]![1], fileName: "saved.cde", editable: true },
+    ]).document;
+    expect(saved.paper.size).toBe("A2");
+    expect(saved.paper.orientation).toBe("LANDSCAPE");
+    expect(store.isDirty()).toBe(false);
   });
 
   it("opens SVG options and leaves the document untouched when path selection is canceled", async () => {

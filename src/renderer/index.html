@@ -128,6 +128,8 @@
       #zoom-slider {
         width: 100px;
       }
+      #paper-select { font: inherit; }
+      #paper-control { margin-left: auto; white-space: nowrap; }
       #toolbar label {
         display: inline-flex;
         align-items: center;
@@ -501,6 +503,16 @@
         <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
         <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
         <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+        <label id="paper-control">用紙
+          <select id="paper-select" aria-label="用紙サイズと向き">
+            <option value="A4:LANDSCAPE">A4 横</option>
+            <option value="A4:PORTRAIT">A4 縦</option>
+            <option value="A3:LANDSCAPE">A3 横</option>
+            <option value="A3:PORTRAIT">A3 縦</option>
+            <option value="A2:LANDSCAPE">A2 横</option>
+            <option value="A2:PORTRAIT">A2 縦</option>
+          </select>
+        </label>
       </div>
       <div id="main">
         <div id="file-browser"></div>
