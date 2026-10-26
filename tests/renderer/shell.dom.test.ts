@@ -150,6 +150,7 @@ const BODY_HTML = `
     <div id="statusbar">
       <span id="status-pos"></span>
       <span id="status-zoom"></span>
+      <span id="status-region"></span>
       <button id="status-diag" type="button"></button>
       <div id="diagnostics-panel" hidden></div>
       <span id="status-file"></span>
@@ -365,6 +366,22 @@ cell tRegular Regular {};
     store.setView(store.view.withFilters(store.view.filters.withEmphasizeCellName(false)));
     expect(box.checked).toBe(false);
     expect(document.querySelectorAll(".celltype-label").length).toBeGreaterThan(0);
+  });
+
+  it("status bar shows the region of the selected cell (外部仕様4.9.2)", () => {
+    const { document: model } = CdlDocumentLoader.loadSingle(
+      "namespace N { region A { cell tLogger c1 {}; }; region B { cell tLogger c2 {}; }; };",
+      "main.cde",
+    );
+    const { store } = mountShell(undefined, model);
+    const text = () => document.querySelector<HTMLElement>("#status-region")!.textContent;
+    expect(text()).toBe("");
+    store.setSelection(SelectionState.ofCells([asCellId("c1")]));
+    expect(text()).toBe("リージョン: ::N::A");
+    store.setSelection(SelectionState.ofCells([asCellId("c1"), asCellId("c2")]));
+    expect(text()).toBe("リージョン: 複数（2）");
+    store.setSelection(SelectionState.empty());
+    expect(text()).toBe("");
   });
 
   it("marks the status bar filename as dirty (bold/colored, not just a symbol) until saved", () => {
