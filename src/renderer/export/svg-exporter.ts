@@ -11,6 +11,8 @@ export interface ExportedSvg {
   readonly svg: string;
   readonly widthMm: number;
   readonly heightMm: number;
+  /** 内容が空の場合の用紙範囲へのフォールバックを含む、実際に出力した範囲。 */
+  readonly range: SvgExportRange;
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -97,6 +99,6 @@ export class SvgExporter {
     svg.setAttribute("width", `${widthMm}mm`);
     svg.setAttribute("height", `${heightMm}mm`);
     svg.setAttribute("viewBox", `0 0 ${widthMm * MM_TO_PX} ${heightMm * MM_TO_PX}`);
-    return { svg: new XMLSerializer().serializeToString(svg), widthMm, heightMm };
+    return { svg: new XMLSerializer().serializeToString(svg), widthMm, heightMm, range: paper ? "paper" : "content" };
   }
 }

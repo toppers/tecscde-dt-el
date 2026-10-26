@@ -4,6 +4,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   OpenResult,
+  PdfPage,
   TecsgenResult,
   AppSettingsView,
   TecsgenVersionResult,
@@ -27,6 +28,8 @@ const api: TecscdeApi = {
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:saveAs", content, suggestedName),
     export: (path: string, data: string | Uint8Array): Promise<void> => ipcRenderer.invoke("file:export", path, data),
+    exportPdf: (path: string, svg: string, page: PdfPage): Promise<void> =>
+      ipcRenderer.invoke("file:exportPdf", path, svg, page),
     chooseExportPath: (format: ExportFormat, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:chooseExportPath", format, suggestedName),
     chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("file:chooseFolder"),

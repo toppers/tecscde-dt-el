@@ -9,6 +9,7 @@ import type {
   ImportRequest,
   ImportResolutionOptions,
   OpenResult,
+  PdfPage,
   ResolvedImport,
   TecsgenOptionsFile,
 } from "../../shared/ipc-types.js";
@@ -24,6 +25,10 @@ export class FileGateway {
 
   export(path: string, data: string | Uint8Array): Promise<void> {
     return window.tecscde.file.export(path, data);
+  }
+
+  exportPdf(path: string, svg: string, page: PdfPage): Promise<void> {
+    return window.tecscde.file.exportPdf(path, svg, page);
   }
 
   chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null> {

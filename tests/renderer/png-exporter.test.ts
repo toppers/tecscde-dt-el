@@ -4,7 +4,7 @@ import { Blob as NodeBlob } from "node:buffer";
 import { PngExporter, PngExportTooLargeError } from "../../src/renderer/export/png-exporter";
 import type { ExportedSvg } from "../../src/renderer/export/svg-exporter";
 
-const source: ExportedSvg = { svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', widthMm: 20, heightMm: 10 };
+const source: ExportedSvg = { svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', widthMm: 20, heightMm: 10, range: "paper" };
 
 afterEach(() => {
   vi.restoreAllMocks();

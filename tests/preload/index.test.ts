@@ -59,6 +59,12 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("file:export", "/out.png", bytes);
   });
 
+  it("file.exportPdf forwards the SVG and page options", () => {
+    const page = { kind: "custom" as const, widthMm: 100, heightMm: 80 };
+    exposedApi().file.exportPdf("/out.pdf", "<svg/>", page);
+    expect(invoke).toHaveBeenCalledWith("file:exportPdf", "/out.pdf", "<svg/>", page);
+  });
+
   it("log.append invokes log:append with the lines", () => {
     exposedApi().log.append(["[W-X] a", "[W-Y] b"]);
     expect(invoke).toHaveBeenCalledWith("log:append", ["[W-X] a", "[W-Y] b"]);

@@ -35,7 +35,7 @@ import { SearchBoxView } from "./search-box";
 import { searchDocument } from "../view-state/search";
 import { SvgExporter, type SvgExportRange } from "../export/svg-exporter";
 import { PngExporter, PngExportTooLargeError, type PngScale } from "../export/png-exporter";
-import type { ExportFormat } from "../../shared/ipc-types";
+import type { ExportFormat, PdfPage } from "../../shared/ipc-types";
 import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
@@ -402,8 +402,15 @@ export class AppShell {
       const path = await this.gateway.chooseExportPath(format, suggestedName);
       if (!path) return;
       const result = SvgExporter.build(doc, view, range, title);
-      const data = format === "svg" ? result.svg : await PngExporter.rasterize(result, scale);
-      await this.gateway.export(path, data);
+      if (format === "pdf") {
+        const page: PdfPage = result.range === "paper"
+          ? { kind: "paper", size: doc.paper.size, orientation: doc.paper.orientation }
+          : { kind: "custom", widthMm: result.widthMm, heightMm: result.heightMm };
+        await this.gateway.exportPdf(path, result.svg, page);
+      } else {
+        const data = format === "svg" ? result.svg : await PngExporter.rasterize(result, scale);
+        await this.gateway.export(path, data);
+      }
       this.store.setExportDiagnostics([]);
     } catch (err: unknown) {
       this.reportActionError("exportDiagram", err);

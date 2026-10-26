@@ -64,6 +64,7 @@ describe("SvgExporter", () => {
     const hidden = new Set(doc.cellValues().map((cell) => cell.regionId));
     const result = SvgExporter.build(doc, { ...defaultCanvasView(), hiddenRegionIds: hidden }, "content", "untitled");
     expect(result.widthMm).toBe(doc.paper.contentSize().width + 20);
+    expect(result.range).toBe("paper");
     expect(parse(result.svg).querySelector(".export-frame")).not.toBeNull();
   });
 });

@@ -37,6 +37,7 @@ const noopGateway = {
   save: async () => undefined,
   saveAs: async () => null,
   export: async () => undefined,
+  exportPdf: async () => undefined,
   chooseExportPath: async () => null,
   chooseFolder: async () => null,
   listDirectory: async () => [],
@@ -55,6 +56,7 @@ function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, st
     },
     saveAs: async () => null,
     export: async () => undefined,
+    exportPdf: async () => undefined,
     chooseExportPath: async () => null,
     chooseFolder: async () => null,
     listDirectory: async () => [],
@@ -160,7 +162,7 @@ const BODY_HTML = `
       <span id="status-file"></span>
     </div>
     <div id="export-dialog" role="dialog" aria-modal="true" hidden>
-      <select id="export-format"><option value="svg">SVG</option><option value="png">PNG</option></select>
+      <select id="export-format"><option value="svg">SVG</option><option value="png">PNG</option><option value="pdf">PDF</option></select>
       <select id="export-range"><option value="paper">用紙</option><option value="content">内容</option></select>
       <label id="png-scale-field" hidden><select id="png-scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select></label>
       <button id="export-cancel" type="button">キャンセル</button>
@@ -295,6 +297,76 @@ describe("AppShell — DOM wiring", () => {
       expect(gateway.export).not.toHaveBeenCalled();
     } finally {
       rasterize.mockRestore();
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("exports PDF using the document paper size and orientation", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockResolvedValue(undefined);
+    gateway.export = vi.fn();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+    format.value = "pdf";
+    format.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.querySelector<HTMLElement>("#png-scale-field")!.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(gateway.chooseExportPath).toHaveBeenCalledWith("pdf", "untitled.pdf");
+    expect(gateway.exportPdf).toHaveBeenCalledWith("diagram.pdf", expect.stringContaining("<svg"), {
+      kind: "paper", size: doc.paper.size, orientation: doc.paper.orientation,
+    });
+    expect(gateway.export).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("exports the content range as a custom one-page PDF", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockResolvedValue(undefined);
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    document.querySelector<HTMLSelectElement>("#export-format")!.value = "pdf";
+    document.querySelector<HTMLSelectElement>("#export-range")!.value = "content";
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    const [, svg, page] = vi.mocked(gateway.exportPdf).mock.calls[0]!;
+    expect(page.kind).toBe("custom");
+    if (page.kind !== "custom") throw new Error("expected custom page");
+    expect(page.widthMm).toBeLessThan(doc.paper.contentSize().width + 20);
+    expect(page.heightMm).toBeLessThan(doc.paper.contentSize().height + 20);
+    expect(new DOMParser().parseFromString(svg, "image/svg+xml").querySelector(".export-frame")).toBeNull();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("reports PDF generation failures without changing the document", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockRejectedValue(new Error("print failed"));
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      document.querySelector<HTMLSelectElement>("#export-format")!.value = "pdf";
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "E-EXPORT-FAILED", message: "print failed" }),
+      ]));
+      expect(store.getDocument()).toBe(doc);
+      expect(store.isDirty()).toBe(false);
+    } finally {
       consoleSpy.mockRestore();
     }
   });

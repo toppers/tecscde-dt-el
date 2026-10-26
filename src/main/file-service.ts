@@ -11,10 +11,12 @@ import type {
   ImportRequest,
   ImportResolutionOptions,
   OpenResult,
+  PdfPage,
   ResolvedImport,
   TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
+import { PdfExporter } from "./pdf-exporter.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
 // `.tecsgen-opts`は拡張子すべて小文字・大文字小文字を区別する（外部仕様5.3）。`.cde`/`.cdl`は区別しない。
@@ -136,6 +138,11 @@ export class FileService {
 
   async exportFile(path: string, data: string | Uint8Array): Promise<void> {
     await this.writeAtomic(path, data);
+  }
+
+  async exportPdf(path: string, svg: string, page: PdfPage): Promise<void> {
+    const pdf = await PdfExporter.render(svg, page);
+    await this.writeAtomic(path, pdf);
   }
 
   /** 7.10節: 形式別の保存先を選ぶ。キャンセル後は書き込みを行わない。 */

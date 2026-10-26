@@ -8,6 +8,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FileService } from "../../src/main/file-service.js";
 
+const pdfRender = vi.hoisted(() => vi.fn());
+vi.mock("../../src/main/pdf-exporter.js", () => ({ PdfExporter: { render: pdfRender } }));
+
 const showOpenDialog = vi.fn();
 const showSaveDialog = vi.fn();
 const showMessageBox = vi.fn();
@@ -37,6 +40,7 @@ describe("FileService", () => {
     showOpenDialog.mockReset();
     showSaveDialog.mockReset();
     showMessageBox.mockReset();
+    pdfRender.mockReset();
     getPath.mockReset().mockReturnValue(dir);
     // このマシン自体がWindowsのため、app-settings.tsのLOCALAPPDATA分岐（2026-09-22）が
     // 実際のユーザーのAppDataへ書き込まないよう、一時ディレクトリへ差し替えて分離する。
@@ -119,6 +123,37 @@ describe("FileService", () => {
     });
     await service.exportFile(target, bytes);
     expect(readFileSync(target)).toEqual(Buffer.from(bytes));
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("chooses a PDF path and writes generated PDF bytes atomically", async () => {
+    const target = join(dir, "diagram.pdf");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const bytes = Buffer.from("%PDF-1.7\n");
+    pdfRender.mockResolvedValue(bytes);
+    const service = new FileService({} as never);
+    const page = { kind: "paper" as const, size: "A4" as const, orientation: "LANDSCAPE" as const };
+
+    await expect(service.chooseExportPath("pdf", "diagram.pdf")).resolves.toBe(target);
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.pdf",
+      filters: [{ name: "PDF files", extensions: ["pdf"] }],
+    });
+    await service.exportPdf(target, "<svg/>", page);
+    expect(pdfRender).toHaveBeenCalledWith("<svg/>", page);
+    expect(readFileSync(target)).toEqual(bytes);
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("keeps an existing PDF when PDF generation fails", async () => {
+    const target = join(dir, "diagram.pdf");
+    writeFileSync(target, "old PDF");
+    pdfRender.mockRejectedValue(new Error("print failed"));
+    const service = new FileService({} as never);
+
+    await expect(service.exportPdf(target, "<svg/>", { kind: "custom", widthMm: 100, heightMm: 80 }))
+      .rejects.toThrow("print failed");
+    expect(readFileSync(target, "utf-8")).toBe("old PDF");
     expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
   });
 

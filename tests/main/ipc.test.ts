@@ -32,6 +32,7 @@ describe("registerIpcHandlers", () => {
       save: vi.fn().mockResolvedValue(undefined),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
       exportFile: vi.fn().mockResolvedValue(undefined),
+      exportPdf: vi.fn().mockResolvedValue(undefined),
       chooseExportPath: vi.fn().mockResolvedValue("/tmp/out.svg"),
       chooseFolder: vi.fn().mockResolvedValue("/tmp/root"),
       listDirectory: vi.fn().mockResolvedValue([]),
@@ -61,6 +62,7 @@ describe("registerIpcHandlers", () => {
         "file:chooseExportPath",
         "file:confirmDiscardChanges",
         "file:export",
+        "file:exportPdf",
         "file:listDirectory",
         "file:openPath",
         "file:parseTecsgenOptionsFile",
@@ -92,6 +94,10 @@ describe("registerIpcHandlers", () => {
     const png = Uint8Array.from([137, 80, 78, 71]);
     handlers.get("file:export")!({}, "/tmp/out.png", png);
     expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.png", png);
+
+    const page = { kind: "paper", size: "A4", orientation: "LANDSCAPE" };
+    handlers.get("file:exportPdf")!({}, "/tmp/out.pdf", "<svg/>", page);
+    expect(fileService.exportPdf).toHaveBeenCalledWith("/tmp/out.pdf", "<svg/>", page);
 
     handlers.get("file:chooseFolder")!({});
     expect(fileService.chooseFolder).toHaveBeenCalled();
