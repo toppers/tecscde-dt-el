@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-25T03:41:03.224Z",
+  "saved_at": "2026-10-25T21:49:26.800Z",
   "direct_import": [
     "celltypes.cdl"
   ]
@@ -46,10 +46,16 @@ namespace N {
 
 
 
+
+
 cell tLogger a2 {
 };
 };
   
+
+
+
+
 
 
 
@@ -121,6 +127,12 @@ cell tSensor s1 {
 
 
 
+
+
+
+
+
+
 cell tController b1 {
   cLog = a1.eLog;
   cSensor = s1.eRead;
@@ -144,8 +156,8 @@ __tool_info__("tecscde") {
   "cell_list": {
     "a1": {
       "location": [
-        31,
-        9,
+        10,
+        8,
         25,
         15
       ],
@@ -159,8 +171,8 @@ __tool_info__("tecscde") {
     },
     "a2": {
       "location": [
-        62,
-        9,
+        41,
+        8,
         25,
         15
       ],
@@ -174,8 +186,8 @@ __tool_info__("tecscde") {
     },
     "b1": {
       "location": [
-        148,
-        10,
+        121,
+        8,
         25,
         15
       ],
@@ -193,8 +205,8 @@ __tool_info__("tecscde") {
     },
     "b2": {
       "location": [
-        181,
-        11,
+        156,
+        8,
         25,
         15
       ],
@@ -212,8 +224,8 @@ __tool_info__("tecscde") {
     },
     "s1": {
       "location": [
-        112,
-        41,
+        85,
+        39,
         25,
         15
       ],
@@ -227,8 +239,8 @@ __tool_info__("tecscde") {
     },
     "s2": {
       "location": [
-        93,
-        10,
+        72,
+        9,
         25,
         15
       ],
@@ -250,33 +262,33 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 15,
-          "from": 148,
-          "to": 144
+          "fixed": 13,
+          "from": 121,
+          "to": 117
         },
         {
           "dir": "V",
-          "fixed": 144,
-          "from": 15,
-          "to": 7
+          "fixed": 117,
+          "from": 13,
+          "to": 5
         },
         {
           "dir": "H",
-          "fixed": 7,
-          "from": 144,
-          "to": 60
+          "fixed": 5,
+          "from": 117,
+          "to": 39
         },
         {
           "dir": "V",
-          "fixed": 60,
-          "from": 7,
-          "to": 17
+          "fixed": 39,
+          "from": 5,
+          "to": 16
         },
         {
           "dir": "H",
-          "fixed": 17,
-          "from": 60,
-          "to": 56
+          "fixed": 16,
+          "from": 39,
+          "to": 35
         }
       ]
     },
@@ -288,27 +300,27 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 20,
-          "from": 148,
-          "to": 144
+          "fixed": 18,
+          "from": 121,
+          "to": 117
         },
         {
           "dir": "H",
-          "fixed": 20,
-          "from": 144,
-          "to": 141
+          "fixed": 18,
+          "from": 117,
+          "to": 114
         },
         {
           "dir": "V",
-          "fixed": 141,
-          "from": 20,
-          "to": 49
+          "fixed": 114,
+          "from": 18,
+          "to": 47
         },
         {
           "dir": "H",
-          "fixed": 49,
-          "from": 141,
-          "to": 137
+          "fixed": 47,
+          "from": 114,
+          "to": 110
         }
       ]
     },
@@ -320,33 +332,33 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
+          "fixed": 13,
+          "from": 156,
+          "to": 152
+        },
+        {
+          "dir": "V",
+          "fixed": 152,
+          "from": 13,
+          "to": 5
+        },
+        {
+          "dir": "H",
+          "fixed": 5,
+          "from": 152,
+          "to": 70
+        },
+        {
+          "dir": "V",
+          "fixed": 70,
+          "from": 5,
+          "to": 16
+        },
+        {
+          "dir": "H",
           "fixed": 16,
-          "from": 181,
-          "to": 177
-        },
-        {
-          "dir": "V",
-          "fixed": 177,
-          "from": 16,
-          "to": 7
-        },
-        {
-          "dir": "H",
-          "fixed": 7,
-          "from": 177,
-          "to": 91
-        },
-        {
-          "dir": "V",
-          "fixed": 91,
-          "from": 7,
-          "to": 17
-        },
-        {
-          "dir": "H",
-          "fixed": 17,
-          "from": 91,
-          "to": 87
+          "from": 70,
+          "to": 66
         }
       ]
     },
@@ -358,33 +370,33 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 21,
-          "from": 181,
-          "to": 177
+          "fixed": 18,
+          "from": 156,
+          "to": 152
         },
         {
           "dir": "V",
-          "fixed": 177,
-          "from": 21,
+          "fixed": 152,
+          "from": 18,
           "to": 27
         },
         {
           "dir": "H",
           "fixed": 27,
-          "from": 177,
-          "to": 122
+          "from": 152,
+          "to": 101
         },
         {
           "dir": "V",
-          "fixed": 122,
+          "fixed": 101,
           "from": 27,
-          "to": 18
+          "to": 17
         },
         {
           "dir": "H",
-          "fixed": 18,
-          "from": 122,
-          "to": 118
+          "fixed": 17,
+          "from": 101,
+          "to": 97
         }
       ]
     }

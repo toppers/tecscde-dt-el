@@ -27,6 +27,7 @@ import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
 import { alignSelection, canAlign } from "./align-actions";
+import { regionStatusText } from "./status-region";
 import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
@@ -79,6 +80,7 @@ export class AppShell {
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
+  private readonly statusRegion: HTMLElement;
 
   private readonly renderer: SvgRenderer;
   /** ドラッグ FSM。DOM 結線は `attach` 済み。テストはこの公開メソッドを直接叩ける。 */
@@ -122,6 +124,7 @@ export class AppShell {
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
+    this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
 
     this.renderer = new SvgRenderer(this.svg);
     const host = new AppGestureHost(
@@ -400,6 +403,8 @@ export class AppShell {
 
   private refreshStatus(): void {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
+    // 外部仕様4.9.2: 選択したセルの所属リージョンをステータス表示に示す。
+    this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
     const path = this.store.filePath;
     const dirty = path !== null && this.store.isDirty();
     this.statusFile.textContent = path ? `${baseName(path)}${dirty ? " ● 未保存の変更" : ""}` : "(未保存)";
