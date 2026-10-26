@@ -125,6 +125,16 @@ const BODY_HTML = `
       </div>
     </div>
     <div id="display-bar">
+      <details id="panel-visibility">
+        <summary>表示</summary>
+        <div id="panel-visibility-options">
+          <label><input type="checkbox" data-panel="toolbar" checked /> ツールバー</label>
+          <label><input type="checkbox" data-panel="palette" checked /> セルタイプ一覧</label>
+          <label><input type="checkbox" data-panel="property-panel" checked /> プロパティ</label>
+          <label><input type="checkbox" data-panel="statusbar" checked /> ステータス表示</label>
+          <label><input type="checkbox" data-panel="file-browser" checked /> ファイルブラウザ</label>
+        </div>
+      </details>
       <div id="region-filter">
         <button type="button" id="region-filter-toggle">リージョン</button>
         <div id="region-filter-popover" hidden></div>
@@ -197,6 +207,65 @@ describe("AppShell — DOM wiring", () => {
     mounted?.dispose();
     mounted = undefined;
     document.body.innerHTML = "";
+  });
+
+  it("hides and restores every optional region from an always reachable menu without changing editor state", () => {
+    const { store } = mountShell();
+    store.setSelection(SelectionState.ofCells([store.getDocument().cellValues()[0]!.id]));
+    store.setView(store.view.withSearchQuery("Sensor"));
+    const doc = store.getDocument();
+    const view = store.view;
+    const selection = store.selection;
+    const history = store.history;
+    const menu = document.querySelector<HTMLDetailsElement>("#panel-visibility")!;
+    const ids = ["toolbar", "palette", "property-panel", "statusbar", "file-browser"];
+    const propertyInput = document.querySelector("#property-panel input");
+    const palette = document.querySelector<HTMLElement>("#palette")!;
+    palette.style.width = "222px";
+    menu.open = true;
+
+    for (const id of ids) {
+      const checkbox = document.querySelector<HTMLInputElement>(`[data-panel='${id}']`)!;
+      expect(checkbox.checked).toBe(true);
+      checkbox.click();
+      expect(document.getElementById(id)!.hidden).toBe(true);
+    }
+    store.setSelection(selection); // ストアの再描画でも非表示状態を維持する。
+    expect(document.querySelector<HTMLElement>("#display-bar")!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("#canvas-area")!.hidden).toBe(false);
+    expect(menu.open).toBe(true);
+    for (const id of ids) {
+      expect(document.getElementById(id)!.hidden).toBe(true);
+      document.querySelector<HTMLInputElement>(`[data-panel='${id}']`)!.click();
+      expect(document.getElementById(id)!.hidden).toBe(false);
+    }
+    expect(document.querySelector("#property-panel input")).toBe(propertyInput);
+    expect(palette.style.width).toBe("222px");
+    expect(store.getDocument()).toBe(doc);
+    expect(store.view).toBe(view);
+    expect(store.selection).toBe(selection);
+    expect(store.history).toBe(history);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("closes the visibility menu with Escape without clearing canvas search", () => {
+    const { store } = mountShell();
+    store.setView(store.view.withSearchQuery("Sensor"));
+    const menu = document.querySelector<HTMLDetailsElement>("#panel-visibility")!;
+    menu.open = true;
+    const checkbox = menu.querySelector<HTMLInputElement>("input")!;
+    checkbox.focus();
+    checkbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menu.open).toBe(false);
+    expect(store.view.searchQuery).toBe("Sensor");
+    expect(document.activeElement).toBe(menu.querySelector("summary"));
+  });
+
+  it("removes visibility handlers when the shell is disposed", () => {
+    const { shell } = mountShell();
+    shell.dispose();
+    document.querySelector<HTMLInputElement>("[data-panel='toolbar']")!.click();
+    expect(document.querySelector<HTMLElement>("#toolbar")!.hidden).toBe(false);
   });
 
   it("updates paper size from the toolbar and tracks it as one undoable change", () => {

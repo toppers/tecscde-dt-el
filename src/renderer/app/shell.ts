@@ -28,6 +28,7 @@ import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
 import { regionStatusText } from "./status-region";
 import { RegionFilterPanel } from "./region-filter-panel";
@@ -100,6 +101,7 @@ export class AppShell {
 
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
+  private readonly panelVisibility: PanelVisibilityView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
   private readonly propertyPanel: PropertyPanelView;
@@ -182,6 +184,7 @@ export class AppShell {
           this.reportActionError("loadOptionsFile", err),
         ),
     );
+    this.panelVisibility = new PanelVisibilityView(root, () => this.render());
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -194,6 +197,7 @@ export class AppShell {
     this.bindPaperSelect();
     this.bindDisplayBar();
     this.disposers.push(() => this.regionFilter.dispose());
+    this.disposers.push(() => this.panelVisibility.dispose());
     this.bindKeyboard();
     this.bindSpacePan();
     this.bindWheel();

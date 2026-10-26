@@ -74,6 +74,33 @@
         border-bottom: 1px solid var(--border);
         flex: none;
       }
+      #toolbar[hidden], #palette[hidden], #property-panel[hidden], #statusbar[hidden], #file-browser[hidden] {
+        display: none;
+      }
+      #panel-visibility { position: relative; flex: none; }
+      #panel-visibility > summary {
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: #fff;
+        cursor: pointer;
+      }
+      #panel-visibility-options {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 180px;
+        padding: 8px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+      }
+      #panel-visibility:not([open]) #panel-visibility-options { display: none; }
       #region-filter {
         position: relative;
       }
@@ -496,6 +523,16 @@
         </div>
       </div>
       <div id="display-bar">
+        <details id="panel-visibility">
+          <summary>表示</summary>
+          <div id="panel-visibility-options">
+            <label><input type="checkbox" data-panel="toolbar" aria-controls="toolbar" checked /> ツールバー</label>
+            <label><input type="checkbox" data-panel="palette" aria-controls="palette" checked /> セルタイプ一覧</label>
+            <label><input type="checkbox" data-panel="property-panel" aria-controls="property-panel" checked /> プロパティ</label>
+            <label><input type="checkbox" data-panel="statusbar" aria-controls="statusbar" checked /> ステータス表示</label>
+            <label><input type="checkbox" data-panel="file-browser" aria-controls="file-browser" checked /> ファイルブラウザ</label>
+          </div>
+        </details>
         <div id="region-filter">
           <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
           <div id="region-filter-popover" hidden></div>
