@@ -548,7 +548,8 @@ describe("AppShell — DOM wiring", () => {
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: 90, clientY: 60, bubbles: true }));
     window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true }));
     expect(store.view).toBe(before);
-    expect(svg.style.cursor).toBe("");
+    expect(svg.style.cursor).not.toBe("grab");
+    expect(svg.style.cursor).not.toBe("grabbing");
   });
 
   it("shows only the outer composite cell after double-click and Enter", () => {
@@ -1781,5 +1782,15 @@ describe("AppShell — unsaved-changes report to main (7.9)", () => {
     shell.openDiagnostics();
     expect(panel.hidden).toBe(false);
     expect(panel.textContent).toContain("W-TECSGEN-VERSION-OLD");
+  });
+
+  it("updates svg.style.cursor on mouse move over canvas and clears on mouseleave (#15)", () => {
+    mountShell();
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10, bubbles: true }));
+    expect(svg.style.cursor).toBe("default");
+
+    svg.dispatchEvent(new Event("mouseleave"));
+    expect(svg.style.cursor).toBe("");
   });
 });

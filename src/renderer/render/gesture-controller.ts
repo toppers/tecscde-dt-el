@@ -470,6 +470,73 @@ export class GestureController {
     return cport !== undefined && eport !== undefined && cport.signature === eport.signature;
   }
 
+  /**
+   * 外部仕様 3.7 / 6.4.1: ポインタ直下の要素・操作状態に応じたカーソル形状を算出する。
+   * - 通常（空白等）: "default"
+   * - 呼び口の上（アイドル時）: 未結合なら結合開始可能な形状 "crosshair"、結合済みなら "pointer"
+   * - 受け口の上（アイドル時）: "pointer"
+   * - 結合操作中: "crosshair"（操作中）、シグニチャ一致受け口の上なら "pointer"（結合先として有効）
+   * - セルの上: "move"（ドラッグ移動可能）
+   * - 結合バーの上: 水平バーなら "ns-resize"、垂直バーなら "ew-resize"
+   * - 新規セル配置モード: "crosshair"
+   */
+  computeCursor(point: Point): string {
+    const s = this.state;
+    if (s.kind === "joining") {
+      const hit = this.hitTester().hitTest(point);
+      if (hit.kind === "eport" && this.signatureMatches(s.from, hit)) {
+        return "pointer";
+      }
+      return "crosshair";
+    }
+
+    if (s.kind === "movingCells") {
+      return "move";
+    }
+
+    if (s.kind === "movingJoinBar") {
+      return s.axis === "y" ? "ns-resize" : "ew-resize";
+    }
+
+    if (s.kind === "boxSelect") {
+      return "crosshair";
+    }
+
+    if (this.host.getMode() === "newCell") {
+      return "crosshair";
+    }
+
+    const hit = this.hitTester().hitTest(point);
+    if (hit.kind === "cport") {
+      const cell = this.host.getDocument().getCell(hit.cellId);
+      const cport = cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);
+      if (cport && cport.joinId === null) {
+        return "crosshair";
+      }
+      return "pointer";
+    }
+
+    if (hit.kind === "eport") {
+      return "pointer";
+    }
+
+    if (hit.kind === "joinBar") {
+      const doc = this.host.getDocument();
+      const join = doc.getJoin(hit.joinId);
+      const bar = join?.bars[hit.barIndex];
+      if (join && bar && hit.barIndex > 0 && hit.barIndex < join.bars.length - 1) {
+        return bar.direction === "H" ? "ns-resize" : "ew-resize";
+      }
+      return "pointer";
+    }
+
+    if (hit.kind === "cell") {
+      return "move";
+    }
+
+    return "default";
+  }
+
   // --- DOMイベントの結線（renderer プロセスでのみ呼ぶ） ---
 
   /**
@@ -490,12 +557,32 @@ export class GestureController {
       meta: e.metaKey,
     });
 
+    const updateCursor = (p: Point): void => {
+      if (svg.style.cursor === "grab" || svg.style.cursor === "grabbing") return;
+      svg.style.cursor = this.computeCursor(p);
+    };
+
     const onDown = (e: MouseEvent): void => {
       if (e.button !== 0) return;
-      this.pointerDown(toModel(e), modsOf(e));
+      const pt = toModel(e);
+      this.pointerDown(pt, modsOf(e));
+      updateCursor(pt);
     };
-    const onMove = (e: MouseEvent): void => this.pointerMove(toModel(e));
-    const onUp = (e: MouseEvent): void => this.pointerUp(toModel(e));
+    const onMove = (e: MouseEvent): void => {
+      const pt = toModel(e);
+      this.pointerMove(pt);
+      updateCursor(pt);
+    };
+    const onUp = (e: MouseEvent): void => {
+      const pt = toModel(e);
+      this.pointerUp(pt);
+      updateCursor(pt);
+    };
+    const onMouseLeave = (): void => {
+      if (svg.style.cursor !== "grab" && svg.style.cursor !== "grabbing") {
+        svg.style.cursor = "";
+      }
+    };
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
@@ -504,6 +591,7 @@ export class GestureController {
     const onContextMenu = (e: Event): void => e.preventDefault();
 
     svg.addEventListener("mousedown", onDown);
+    svg.addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     window.addEventListener("keydown", onKey);
@@ -511,6 +599,7 @@ export class GestureController {
 
     return () => {
       svg.removeEventListener("mousedown", onDown);
+      svg.removeEventListener("mouseleave", onMouseLeave);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("keydown", onKey);

@@ -611,3 +611,52 @@ describe("box selection", () => {
     expect(ids).toContain(CONTROLLER);
   });
 });
+
+describe("context-sensitive cursors (#15)", () => {
+  it("computes appropriate cursor depending on hover target and drag state", () => {
+    const h = harness();
+    const doc = h.doc();
+    const controller = doc.getCell(CONTROLLER)!;
+    const logger = doc.getCell(LOGGER)!;
+
+    // 空白位置では default
+    expect(h.gesture.computeCursor({ x: 0, y: 0 })).toBe("default");
+
+    // セル本体位置では move
+    expect(h.gesture.computeCursor({ x: controller.x + 10, y: controller.y + 10 })).toBe("move");
+
+    // newCell モードでは crosshair
+    const newCellH = harness({ mode: "newCell", celltype: "tLogger" });
+    expect(newCellH.gesture.computeCursor({ x: 0, y: 0 })).toBe("crosshair");
+
+    // 結合バーのカーソル判定
+    const join = doc.getJoin(asJoinId("cController1.cLog"))!;
+    const midIndex = 1;
+    const midBar = join.bars[midIndex]!;
+    const barPoint = midBar.direction === "H"
+      ? { x: (midBar.from + midBar.to) / 2, y: midBar.fixed }
+      : { x: midBar.fixed, y: (midBar.from + midBar.to) / 2 };
+    const expectedBarCursor = midBar.direction === "H" ? "ns-resize" : "ew-resize";
+    expect(h.gesture.computeCursor(barPoint)).toBe(expectedBarCursor);
+
+    // 結合ドラッグ中のカーソル判定
+    // 結合を解除して cLog をフリーにする
+    const freed = new DeleteJoinCommand(asJoinId("cController1.cLog")).apply(doc);
+    const joinH = harness({ doc: freed });
+    // cLog の位置（x: 120, y: 15）からドラッグ開始
+    joinH.gesture.pointerDown({ x: 120, y: 15 });
+    expect(joinH.gesture.stateKind).toBe("joining");
+
+    // 結合操作中（空白上）は crosshair
+    expect(joinH.gesture.computeCursor({ x: 50, y: 50 })).toBe("crosshair");
+
+    // シグニチャ一致受け口の上（cLogger1 の eLog: x: 35, y: 18）は pointer
+    expect(joinH.gesture.computeCursor({ x: 35, y: 18 })).toBe("pointer");
+
+    // pointerUp で idle に復帰し default に戻る
+    joinH.gesture.pointerUp({ x: 50, y: 50 });
+    expect(joinH.gesture.stateKind).toBe("idle");
+    expect(joinH.gesture.computeCursor({ x: 0, y: 0 })).toBe("default");
+  });
+});
+
