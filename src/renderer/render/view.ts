@@ -136,4 +136,19 @@ export class SelectionState {
     next.add(id);
     return new SelectionState(next, new Set());
   }
+
+  /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（セル・ポート選択はクリアする）。 */
+  withJoinToggled(id: JoinId): SelectionState {
+    const next = new Set(this.joinIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return new SelectionState(new Set(), next);
+  }
+
+  /** Shift+クリック相当: 結合を追加する（既存の結合選択は保つ、セル・ポート選択はクリアする）。 */
+  withJoinAdded(id: JoinId): SelectionState {
+    const next = new Set(this.joinIds);
+    next.add(id);
+    return new SelectionState(new Set(), next);
+  }
 }

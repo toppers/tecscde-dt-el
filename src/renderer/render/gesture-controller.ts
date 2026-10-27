@@ -188,7 +188,19 @@ export class GestureController {
     }
 
     if (hit.kind === "joinBar") {
-      this.host.setSelection(SelectionState.ofJoin(hit.joinId));
+      const current = this.host.getSelection();
+      let next: SelectionState;
+      if (mods.ctrl || mods.meta) next = current.withJoinToggled(hit.joinId);
+      else if (mods.shift) next = current.withJoinAdded(hit.joinId);
+      else if (current.hasJoin(hit.joinId)) next = current;
+      else next = SelectionState.ofJoin(hit.joinId);
+      this.host.setSelection(next);
+
+      if (!next.hasJoin(hit.joinId)) {
+        this.transition({ kind: "idle" });
+        return;
+      }
+
       const join = doc.getJoin(hit.joinId);
       const bar = join?.bars[hit.barIndex];
       // 先頭・末尾のバー（ポート直結区間）は移動対象外（geometry.moveBarBars 参照）。

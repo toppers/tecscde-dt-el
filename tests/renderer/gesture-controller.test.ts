@@ -282,6 +282,55 @@ describe("select mode — join bar drag", () => {
     expect(h.dispatched).toHaveLength(1);
     expect(h.dispatched[0]).toBeInstanceOf(MoveJoinBarCommand);
   });
+
+  it("adds joins with Shift, toggles with Ctrl, and replaces without modifiers (spec 6.2.2)", () => {
+    const h = harness();
+    const join1Id = asJoinId("cController1.cLog");
+    const join2Id = asJoinId("cController1.cSensor");
+
+    const bar1 = h.doc().getJoin(join1Id)!.bars[1]!;
+    const pt1 = bar1.direction === "H"
+      ? { x: (bar1.from + bar1.to) / 2, y: bar1.fixed }
+      : { x: bar1.fixed, y: (bar1.from + bar1.to) / 2 };
+
+    const bar2 = h.doc().getJoin(join2Id)!.bars[1]!;
+    const pt2 = bar2.direction === "H"
+      ? { x: (bar2.from + bar2.to) / 2, y: bar2.fixed }
+      : { x: bar2.fixed, y: (bar2.from + bar2.to) / 2 };
+
+    // 1. 通常クリックで結合1を選択
+    h.gesture.pointerDown(pt1);
+    h.gesture.pointerUp(pt1);
+    expect(h.selection().joinIds.size).toBe(1);
+    expect(h.selection().hasJoin(join1Id)).toBe(true);
+
+    // 2. Shift+クリックで結合2を追加
+    h.gesture.pointerDown(pt2, { ctrl: false, shift: true, meta: false });
+    h.gesture.pointerUp(pt2);
+    expect(h.selection().joinIds.size).toBe(2);
+    expect(h.selection().hasJoin(join1Id)).toBe(true);
+    expect(h.selection().hasJoin(join2Id)).toBe(true);
+
+    // 3. Ctrl+クリックで結合1を解除
+    h.gesture.pointerDown(pt1, { ctrl: true, shift: false, meta: false });
+    h.gesture.pointerUp(pt1);
+    expect(h.selection().joinIds.size).toBe(1);
+    expect(h.selection().hasJoin(join1Id)).toBe(false);
+    expect(h.selection().hasJoin(join2Id)).toBe(true);
+
+    // 4. Ctrl+クリックで結合1を再選択
+    h.gesture.pointerDown(pt1, { ctrl: true, shift: false, meta: false });
+    h.gesture.pointerUp(pt1);
+    expect(h.selection().joinIds.size).toBe(2);
+    expect(h.selection().hasJoin(join1Id)).toBe(true);
+    expect(h.selection().hasJoin(join2Id)).toBe(true);
+
+    // 5. Delete キーで複数選択された結合を一括削除
+    expect(h.gesture.keyDown("Delete")).toBe(true);
+    expect(h.doc().getJoin(join1Id)).toBeUndefined();
+    expect(h.doc().getJoin(join2Id)).toBeUndefined();
+    expect(h.selection().isEmpty).toBe(true);
+  });
 });
 
 describe("keyboard", () => {

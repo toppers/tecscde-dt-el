@@ -72,7 +72,7 @@ export class PropertyPanelView {
       this.root.appendChild(note("(未選択)"));
       return;
     }
-    if (selection.cellIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
+    if (selection.cellIds.size > 1 || selection.joinIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
       this.root.appendChild(note("(複数選択 — 個別編集はセルを1つだけ選択してください)"));
       return;
     }
@@ -100,7 +100,7 @@ export class PropertyPanelView {
       }));
     }
     if (selection.isEmpty) return "none";
-    if (selection.cellIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
+    if (selection.cellIds.size > 1 || selection.joinIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
       return `multi|${selection.cellIds.size}|${selection.joinIds.size}`;
     }
     if (selection.joinIds.size > 0) {
