@@ -33,6 +33,7 @@ export interface CelltypeDecl {
   readonly qualifiedName: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly attributeOptions?: ReadonlyMap<string, readonly string[]>;
 }
 
 export interface JoinAssignDecl {
@@ -94,6 +95,7 @@ export interface CompositeDecl {
   readonly name: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly attributeOptions?: ReadonlyMap<string, readonly string[]>;
   readonly structure: CompositeStructure;
   readonly hasUnsupportedSyntax: boolean;
 }
@@ -308,16 +310,31 @@ export class CdlDocumentBuilder {
   }
 
   private static collectAttributeNames(attributeNode: Node): string[] {
+    return this.collectAttributes(attributeNode).names;
+  }
+
+  private static collectAttributes(attributeNode: Node): {
+    names: string[];
+    options: Map<string, readonly string[]>;
+  } {
     const names: string[] = [];
+    const options = new Map<string, readonly string[]>();
     const body = attributeNode.childForFieldName("body");
-    if (!body) return names;
+    if (!body) return { names, options };
     for (let i = 0; i < body.namedChildCount; i += 1) {
       const decl = body.namedChild(i);
       if (!decl || decl.type !== "attribute_declaration") continue;
-      const name = innermostIdentifier(decl);
-      if (name !== undefined) names.push(name);
+      const declarator = decl.childForFieldName("declarator");
+      const name = declarator ? innermostIdentifier(declarator) : innermostIdentifier(decl);
+      if (name !== undefined) {
+        names.push(name);
+        const text = decl.text;
+        if (/\bbool(_t)?\b/.test(text)) {
+          options.set(name, ["true", "false"]);
+        }
+      }
     }
-    return names;
+    return { names, options };
   }
 
   private static collectComposite(compositeNode: Node, parentPath: string): CompositeDecl | undefined {
@@ -325,6 +342,7 @@ export class CdlDocumentBuilder {
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const attributeOptions = new Map<string, readonly string[]>();
     const internalCells: CompositeStructure["internalCells"][number][] = [];
     const portExports: CompositeStructure["portExports"][number][] = [];
     let hasUnsupportedSyntax = compositeNode.hasError;
@@ -346,9 +364,12 @@ export class CdlDocumentBuilder {
             if (port) ports.push(port);
             else hasUnsupportedSyntax = true;
           } else if (member.type === "composite_attribute") {
-            const names = CdlDocumentBuilder.collectAttributeNames(member);
-            if (names.length === 0) hasUnsupportedSyntax = true;
-            attributes.push(...names);
+            const collected = CdlDocumentBuilder.collectAttributes(member);
+            if (collected.names.length === 0) hasUnsupportedSyntax = true;
+            attributes.push(...collected.names);
+            for (const [k, v] of collected.options) {
+              attributeOptions.set(k, v);
+            }
           } else if (member.type === "internal_cell") {
             const type = member.childForFieldName("type");
             const cellName = member.childForFieldName("name");
@@ -400,6 +421,7 @@ export class CdlDocumentBuilder {
       name: qualifiedName,
       ports,
       attributes,
+      attributeOptions,
       structure: { internalCells, portExports, rawText: compositeNode.text },
       hasUnsupportedSyntax,
     };
@@ -410,6 +432,7 @@ export class CdlDocumentBuilder {
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const attributeOptions = new Map<string, readonly string[]>();
     const body = celltypeNode.childForFieldName("body");
     if (body) {
       for (let i = 0; i < body.namedChildCount; i += 1) {
@@ -424,7 +447,11 @@ export class CdlDocumentBuilder {
             const port = CdlDocumentBuilder.collectPort(member, parentPath);
             if (port) ports.push(port);
           } else if (member.type === "attribute") {
-            attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+            const collected = CdlDocumentBuilder.collectAttributes(member);
+            attributes.push(...collected.names);
+            for (const [k, v] of collected.options) {
+              attributeOptions.set(k, v);
+            }
           } else if (member.type === "require") {
             const required = CdlDocumentBuilder.collectRequire(member, parentPath);
             if (required) ports.push(required);
@@ -434,7 +461,7 @@ export class CdlDocumentBuilder {
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: name.text, qualifiedName, ports, attributes };
+    return { name: name.text, qualifiedName, ports, attributes, attributeOptions };
   }
 
   private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {

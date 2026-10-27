@@ -23,8 +23,29 @@ function field(labelText: string): { wrapper: HTMLDivElement; input: HTMLInputEl
   const label = document.createElement("label");
   label.textContent = labelText;
   const input = document.createElement("input");
+  input.setAttribute("aria-label", labelText);
   wrapper.append(label, input);
   return { wrapper, input };
+}
+
+function comboField(
+  labelText: string,
+  options: readonly string[],
+): { wrapper: HTMLDivElement; select: HTMLSelectElement } {
+  const wrapper = document.createElement("div");
+  wrapper.className = "prop-field";
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", labelText);
+  for (const opt of options) {
+    const optEl = document.createElement("option");
+    optEl.value = opt;
+    optEl.textContent = opt;
+    select.appendChild(optEl);
+  }
+  wrapper.append(label, select);
+  return { wrapper, select };
 }
 
 function note(text: string, className = "prop-note"): HTMLDivElement {
@@ -253,13 +274,31 @@ export class PropertyPanelView {
     }
     const attrNames = celltype?.attributeNames ?? Object.keys(cell.attrs);
     for (const attrName of attrNames) {
-      const attrField = field(attrName);
-      attrField.input.value = cell.attrs[attrName] ?? "";
-      attrField.input.readOnly = !cell.editable;
-      attrField.input.addEventListener("change", () => {
-        this.store.dispatch(new EditAttrCommand(cell.id, attrName, attrField.input.value));
-      });
-      this.root.appendChild(attrField.wrapper);
+      const options = celltype?.getAttributeOptions(attrName);
+      if (options && options.length > 0) {
+        const combo = comboField(attrName, options);
+        const val = cell.attrs[attrName] ?? "";
+        if (val && !options.includes(val)) {
+          const optEl = document.createElement("option");
+          optEl.value = val;
+          optEl.textContent = val;
+          combo.select.insertBefore(optEl, combo.select.firstChild);
+        }
+        combo.select.value = val || (options[0] ?? "");
+        combo.select.disabled = !cell.editable;
+        combo.select.addEventListener("change", () => {
+          this.store.dispatch(new EditAttrCommand(cell.id, attrName, combo.select.value));
+        });
+        this.root.appendChild(combo.wrapper);
+      } else {
+        const attrField = field(attrName);
+        attrField.input.value = cell.attrs[attrName] ?? "";
+        attrField.input.readOnly = !cell.editable;
+        attrField.input.addEventListener("change", () => {
+          this.store.dispatch(new EditAttrCommand(cell.id, attrName, attrField.input.value));
+        });
+        this.root.appendChild(attrField.wrapper);
+      }
     }
   }
 
@@ -325,23 +364,62 @@ export class PropertyPanelView {
     );
 
     for (const attrName of commonAttrNames) {
-      const attrField = field(attrName);
-      const firstVal = cells[0]!.attrs[attrName] ?? "";
-      const sameVal = cells.every((c) => (c.attrs[attrName] ?? "") === firstVal);
-      if (sameVal) {
-        attrField.input.value = firstVal;
-      } else {
-        attrField.input.value = "";
-        attrField.input.placeholder = "(複数)";
-      }
-      attrField.input.readOnly = allReadOnly;
-      attrField.input.addEventListener("change", () => {
-        const editableIds = cells.filter((c) => c.editable).map((c) => c.id);
-        if (editableIds.length > 0) {
-          this.store.dispatch(new EditCellsAttrCommand(editableIds, attrName, attrField.input.value));
-        }
+      const firstCt = doc.getCelltype(cells[0]!.celltypeName);
+      const firstOptions = firstCt?.getAttributeOptions(attrName);
+      const allHaveSameOptions = Boolean(firstOptions) && cells.every((c) => {
+        const ct = doc.getCelltype(c.celltypeName);
+        const opts = ct?.getAttributeOptions(attrName);
+        return opts && opts.length === firstOptions!.length && opts.every((o, i) => o === firstOptions![i]);
       });
-      this.root.appendChild(attrField.wrapper);
+
+      if (allHaveSameOptions && firstOptions) {
+        const combo = comboField(attrName, firstOptions);
+        const firstVal = cells[0]!.attrs[attrName] ?? "";
+        const sameVal = cells.every((c) => (c.attrs[attrName] ?? "") === firstVal);
+        if (!sameVal) {
+          const multiOpt = document.createElement("option");
+          multiOpt.value = "";
+          multiOpt.textContent = "(複数)";
+          multiOpt.disabled = true;
+          multiOpt.selected = true;
+          combo.select.insertBefore(multiOpt, combo.select.firstChild);
+          combo.select.value = "";
+        } else {
+          if (firstVal && !firstOptions.includes(firstVal)) {
+            const optEl = document.createElement("option");
+            optEl.value = firstVal;
+            optEl.textContent = firstVal;
+            combo.select.insertBefore(optEl, combo.select.firstChild);
+          }
+          combo.select.value = firstVal || (firstOptions[0] ?? "");
+        }
+        combo.select.disabled = allReadOnly;
+        combo.select.addEventListener("change", () => {
+          const editableIds = cells.filter((c) => c.editable).map((c) => c.id);
+          if (editableIds.length > 0 && combo.select.value) {
+            this.store.dispatch(new EditCellsAttrCommand(editableIds, attrName, combo.select.value));
+          }
+        });
+        this.root.appendChild(combo.wrapper);
+      } else {
+        const attrField = field(attrName);
+        const firstVal = cells[0]!.attrs[attrName] ?? "";
+        const sameVal = cells.every((c) => (c.attrs[attrName] ?? "") === firstVal);
+        if (sameVal) {
+          attrField.input.value = firstVal;
+        } else {
+          attrField.input.value = "";
+          attrField.input.placeholder = "(複数)";
+        }
+        attrField.input.readOnly = allReadOnly;
+        attrField.input.addEventListener("change", () => {
+          const editableIds = cells.filter((c) => c.editable).map((c) => c.id);
+          if (editableIds.length > 0) {
+            this.store.dispatch(new EditCellsAttrCommand(editableIds, attrName, attrField.input.value));
+          }
+        });
+        this.root.appendChild(attrField.wrapper);
+      }
     }
   }
 

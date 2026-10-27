@@ -412,6 +412,7 @@ export class CdlDocumentLoader {
         cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
         eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
         attributeNames: ct.attributes,
+        attributeOptions: ct.attributeOptions,
         hiddenRequirePortCount,
         locale: source.fileName,
         composite,
