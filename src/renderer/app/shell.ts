@@ -155,6 +155,9 @@ export class AppShell {
       this.store,
       () => this.render(),
       (p) => this.updateStatusPos(p),
+      (msg) => {
+        this.statusPos.textContent = msg;
+      },
     );
     this.gesture = new GestureController(this.renderer, host);
 

@@ -14,6 +14,7 @@ import {
   AddCellCommand,
   CreateJoinCommand,
   DeleteCommand,
+  InsertPortElementCommand,
   MoveCellsCommand,
   MoveJoinBarCommand,
 } from "../../src/renderer/commands";
@@ -49,6 +50,7 @@ const noopSink: GesturePreviewSink = {
 interface Harness {
   readonly gesture: GestureController;
   readonly dispatched: Command[];
+  readonly messages: string[];
   doc(): TecscdeDocument;
   selection(): SelectionState;
   setSelection(sel: SelectionState): void;
@@ -58,6 +60,7 @@ function harness(opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; cel
   let doc = opts.doc ?? loadDoc();
   let selection = SelectionState.empty();
   const dispatched: Command[] = [];
+  const messages: string[] = [];
   const host: GestureHost = {
     getDocument: () => doc,
     getView: () => defaultCanvasView(),
@@ -71,11 +74,15 @@ function harness(opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; cel
     },
     getMode: () => opts.mode ?? "select",
     getActiveCelltypeName: () => opts.celltype,
+    postMessage: (m) => {
+      messages.push(m);
+    },
     requestRender: () => {},
   };
   return {
     gesture: new GestureController(noopSink, host),
     dispatched,
+    messages,
     doc: () => doc,
     selection: () => selection,
     setSelection: (s) => {
@@ -279,6 +286,115 @@ describe("keyboard", () => {
     const cmd = h.dispatched[0];
     expect(cmd).toBeInstanceOf(MoveCellsCommand);
     expect(h.doc().getCell(CONTROLLER)!.x).toBe(121);
+  });
+
+  it("Insert key dispatches InsertPortElementCommand on variable array port", () => {
+    const doc = CdlDocumentLoader.loadSources([
+      {
+        text: `
+signature sSig { void run(void); };
+celltype tArray {
+  call sSig cPort[];
+};
+cell tArray Cell1 {};
+`,
+        fileName: "main.cdl",
+        sourcePath: "/project/main.cdl",
+        editable: true,
+      },
+    ]).document;
+
+    // 可変長配列ポート cPort[0] を追加してセルを構成
+    const cellId = asCellId("Cell1");
+    const cport0 = doc.getCell(cellId)!.cports[0]!.withSubscript(0);
+    const updatedDoc = doc.withCell(doc.getCell(cellId)!.withCPorts([cport0]));
+
+    const h = harness({ doc: updatedDoc });
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId,
+        portName: "cPort",
+        subscript: 0,
+      }),
+    );
+
+    // Insert (after)
+    expect(h.gesture.keyDown("Insert")).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.dispatched[0]).toBeInstanceOf(InsertPortElementCommand);
+    expect(h.doc().getCell(cellId)!.cports).toHaveLength(2);
+
+    // Shift+Insert (before)
+    expect(h.gesture.keyDown("Insert", { ctrl: false, shift: true, meta: false })).toBe(true);
+    expect(h.dispatched).toHaveLength(2);
+    expect(h.doc().getCell(cellId)!.cports).toHaveLength(3);
+  });
+
+  it("Insert key warns when port is not an array port", () => {
+    const h = harness();
+    // cLogger1 の受け口 eLog (非配列)
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "eport",
+        cellId: LOGGER,
+        portName: "eLog",
+        subscript: null,
+      }),
+    );
+    expect(h.gesture.keyDown("Insert")).toBe(true);
+    expect(h.dispatched).toHaveLength(0);
+    expect(h.messages).toContain("配列ポートではありません");
+  });
+
+  it("Delete key deletes variable array port member with subscript > 0 and warns for subscript 0", () => {
+    const doc = CdlDocumentLoader.loadSources([
+      {
+        text: `
+signature sSig { void run(void); };
+celltype tArray {
+  call sSig cPort[];
+};
+cell tArray Cell1 {};
+`,
+        fileName: "main.cdl",
+        sourcePath: "/project/main.cdl",
+        editable: true,
+      },
+    ]).document;
+
+    const cellId = asCellId("Cell1");
+    const cport0 = doc.getCell(cellId)!.cports[0]!.withSubscript(0);
+    const cport1 = doc.getCell(cellId)!.cports[0]!.withSubscript(1);
+    const updatedDoc = doc.withCell(doc.getCell(cellId)!.withCPorts([cport0, cport1]));
+
+    const h = harness({ doc: updatedDoc });
+
+    // 添字0 の削除拒否メッセージ
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId,
+        portName: "cPort",
+        subscript: 0,
+      }),
+    );
+    expect(h.gesture.keyDown("Delete")).toBe(false);
+    expect(h.messages).toContain("先頭要素は削除できません");
+    expect(h.dispatched).toHaveLength(0);
+
+    // 添字1 の削除成功
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId,
+        portName: "cPort",
+        subscript: 1,
+      }),
+    );
+    expect(h.gesture.keyDown("Delete")).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.doc().getCell(cellId)!.cports).toHaveLength(1);
   });
 });
 

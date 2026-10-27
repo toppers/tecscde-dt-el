@@ -62,6 +62,10 @@ export class CPort extends Port {
     return new CPort(this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.joinId);
   }
 
+  withSubscript(subscript: number | null): CPort {
+    return new CPort(this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.joinId);
+  }
+
   withJoin(joinId: JoinId): CPort {
     if (this.joinId !== null) {
       throw new InvariantViolation(`CPort ${this.name} already has a join`);
@@ -102,6 +106,10 @@ export class EPort extends Port {
 
   withEdge(edgeSide: EdgeSide, offset: number): EPort {
     return new EPort(this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.joinIds);
+  }
+
+  withSubscript(subscript: number | null): EPort {
+    return new EPort(this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.joinIds);
   }
 
   withJoin(joinId: JoinId): EPort {

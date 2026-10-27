@@ -30,6 +30,7 @@ import {
   AddCellCommand,
   CreateJoinCommand,
   DeleteCommand,
+  InsertPortElementCommand,
   MoveCellsCommand,
   MoveJoinBarCommand,
 } from "../commands";
@@ -87,6 +88,8 @@ export interface GestureHost {
   getActiveCelltypeName(): string | undefined;
   /** ステータス表示用（第6章6.2節）。 */
   onPointerModelPosition?(point: Point | undefined): void;
+  /** 利用者への拒否理由や案内メッセージ通知（外部仕様6.1.2・6.3.2）。 */
+  postMessage?(message: string): void;
   requestRender(): void;
 }
 
@@ -302,12 +305,85 @@ export class GestureController {
   /**
    * キー入力を処理する。処理した場合は true（呼び出し側が `preventDefault` する）。
    * 削除・矢印キー移動はキャンバス上の選択に対して働く（[[TECSCDE内部仕様]] 6.3節）。
+   * 外部仕様6.1.1・6.1.2: Insert キー（Shift+Insert）による配列ポート要素の挿入。
+   * 外部仕様6.3.1・6.3.2: Delete キーによる配列ポート要素の削除。
    */
   keyDown(key: string, mods: Mods = NO_MODS): boolean {
+    if (key === "Insert") {
+      const sel = this.host.getSelection();
+      if (sel.ports.length > 0) {
+        const selected = sel.ports[0]!;
+        const doc = this.host.getDocument();
+        const cell = doc.getCell(selected.cellId);
+        if (!cell || !cell.editable) {
+          this.host.postMessage?.("読み込み専用セルのポートは編集できません");
+          return true;
+        }
+        const port =
+          selected.kind === "cport"
+            ? cell.findCPort(selected.portName, selected.subscript)
+            : cell.findEPort(selected.portName, selected.subscript);
+        if (!port) return false;
+
+        if (selected.subscript === null && port.arraySize === null) {
+          this.host.postMessage?.("配列ポートではありません");
+          return true;
+        }
+        if (port.arraySize !== null) {
+          this.host.postMessage?.("固定長配列には要素を追加できません");
+          return true;
+        }
+
+        this.host.dispatch(
+          new InsertPortElementCommand(
+            selected.cellId,
+            selected.kind === "cport" ? "CPort" : "EPort",
+            selected.portName,
+            selected.subscript ?? 0,
+            mods.shift,
+          ),
+        );
+        return true;
+      }
+      return false;
+    }
+
     if (key === "Delete" || key === "Backspace") {
       const sel = this.host.getSelection();
-      if (sel.cellIds.size === 0 && sel.joinIds.size === 0) return false;
-      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...sel.joinIds]));
+      const doc = this.host.getDocument();
+
+      const deletablePorts = sel.ports.filter((p) => {
+        const cell = doc.getCell(p.cellId);
+        if (!cell || !cell.editable) return false;
+        if (p.subscript === null || p.subscript === 0) return false;
+        const port =
+          p.kind === "cport"
+            ? cell.findCPort(p.portName, p.subscript)
+            : cell.findEPort(p.portName, p.subscript);
+        if (!port || port.arraySize !== null) return false;
+        return true;
+      });
+
+      for (const p of sel.ports) {
+        const cell = doc.getCell(p.cellId);
+        if (!cell || !cell.editable) continue;
+        const port =
+          p.kind === "cport"
+            ? cell.findCPort(p.portName, p.subscript)
+            : cell.findEPort(p.portName, p.subscript);
+        if (!port) continue;
+        if (port.arraySize !== null && p.subscript !== null) {
+          this.host.postMessage?.("固定長配列の要素は削除できません");
+        } else if (p.subscript === 0) {
+          this.host.postMessage?.("先頭要素は削除できません");
+        }
+      }
+
+      if (sel.cellIds.size === 0 && sel.joinIds.size === 0 && deletablePorts.length === 0) {
+        return false;
+      }
+
+      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...sel.joinIds], deletablePorts));
       this.host.setSelection(SelectionState.empty());
       return true;
     }

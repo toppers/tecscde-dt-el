@@ -18,6 +18,7 @@ import { isIdentifier } from "../model/identifier";
 import { asCellId, ROOT_REGION_ID, type CellId, type JoinId, type RegionId } from "../model/ids";
 import type { PortTemplate } from "../model/celltype";
 import type { TecscdeDocument } from "../model/document";
+import type { SelectedPort } from "../render/view";
 
 export const DEFAULT_CELL_WIDTH_MM = 25;
 export const DEFAULT_CELL_HEIGHT_MM = 15;
@@ -134,7 +135,8 @@ export class MoveCellsCommand extends Command {
 
 /**
  * カスケード削除（外部仕様6.3.2）: 結合バー・呼び口・受け口いずれの選択からも呼べるよう、
- * cellIds・joinIds を独立に受け取る。読み込み専用は静かに拒否する。
+ * cellIds・joinIds・ports を独立に受け取る。読み込み専用は静かに拒否する。
+ * 配列ポート要素（subscript > 0）が選択されている場合は、該当要素と接続結合を削除し添字を詰める。
  */
 export class DeleteCommand extends Command {
   readonly kind = "Delete";
@@ -143,9 +145,10 @@ export class DeleteCommand extends Command {
   constructor(
     private readonly cellIds: readonly CellId[],
     private readonly joinIds: readonly JoinId[] = [],
+    private readonly ports: readonly SelectedPort[] = [],
   ) {
     super();
-    this.summary = `delete ${cellIds.length} cell(s), ${joinIds.length} join(s)`;
+    this.summary = `delete ${cellIds.length} cell(s), ${joinIds.length} join(s), ${ports.length} port(s)`;
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
@@ -156,6 +159,46 @@ export class DeleteCommand extends Command {
       const source = next.getCell(join.cellId);
       if (!source?.editable) continue;
       next = disconnectJoin(next, jid);
+    }
+    for (const p of this.ports) {
+      const cell = next.getCell(p.cellId);
+      if (!cell?.editable) continue;
+      // 添字0や非配列は要素自体の削除不可（仕様6.3.1）
+      if (p.subscript === null || p.subscript === 0) continue;
+
+      if (p.kind === "cport") {
+        const port = cell.findCPort(p.portName, p.subscript);
+        if (!port || port.arraySize !== null) continue;
+        if (port.joinId) next = disconnectJoin(next, port.joinId);
+        const refreshed = next.getCell(p.cellId);
+        if (!refreshed) continue;
+        const updatedCPorts: CPort[] = [];
+        for (const cp of refreshed.cports) {
+          if (cp.name === p.portName && cp.subscript === p.subscript) continue;
+          if (cp.name === p.portName && cp.subscript !== null && cp.subscript > p.subscript) {
+            updatedCPorts.push(cp.withSubscript(cp.subscript - 1));
+          } else {
+            updatedCPorts.push(cp);
+          }
+        }
+        next = next.withCell(refreshed.withCPorts(updatedCPorts));
+      } else {
+        const port = cell.findEPort(p.portName, p.subscript);
+        if (!port || port.arraySize !== null) continue;
+        for (const jid of port.joinIds) next = disconnectJoin(next, jid);
+        const refreshed = next.getCell(p.cellId);
+        if (!refreshed) continue;
+        const updatedEPorts: EPort[] = [];
+        for (const ep of refreshed.eports) {
+          if (ep.name === p.portName && ep.subscript === p.subscript) continue;
+          if (ep.name === p.portName && ep.subscript !== null && ep.subscript > p.subscript) {
+            updatedEPorts.push(ep.withSubscript(ep.subscript - 1));
+          } else {
+            updatedEPorts.push(ep);
+          }
+        }
+        next = next.withCell(refreshed.withEPorts(updatedEPorts));
+      }
     }
     for (const id of this.cellIds) {
       const cell = next.getCell(id);

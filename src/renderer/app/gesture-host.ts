@@ -20,6 +20,8 @@ export class AppGestureHost implements GestureHost {
     private readonly requestRenderFn: () => void,
     /** ステータスバーへポインタのモデル座標を出すためのコールバック（任意）。 */
     private readonly onPointerModelPositionFn?: (point: Point | undefined) => void,
+    /** 操作拒否や案内メッセージを通知するためのコールバック（任意）。 */
+    private readonly onMessageFn?: (message: string) => void,
   ) {}
 
   getDocument(): TecscdeDocument {
@@ -52,6 +54,10 @@ export class AppGestureHost implements GestureHost {
 
   onPointerModelPosition(point: Point | undefined): void {
     this.onPointerModelPositionFn?.(point);
+  }
+
+  postMessage(message: string): void {
+    this.onMessageFn?.(message);
   }
 
   requestRender(): void {
