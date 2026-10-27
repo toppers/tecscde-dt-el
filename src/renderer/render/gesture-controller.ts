@@ -428,6 +428,14 @@ export class GestureController {
       return true;
     }
 
+    // 外部仕様6.8.2: 「すべて選択」（Ctrl+A / Cmd+A）
+    if ((mods.ctrl || mods.meta) && !mods.shift && (key === "a" || key === "A")) {
+      const doc = this.host.getDocument();
+      if (doc.cellCount === 0) return false;
+      this.host.setSelection(SelectionState.ofCells(doc.cellValues().map((c) => c.id)));
+      return true;
+    }
+
     if (key === "Escape" && (this.state.kind === "joining" || this.state.kind === "movingJoinBar")) {
       if (this.state.kind === "movingJoinBar") this.sink.clearJoinBarPreview();
       this.transition({ kind: "idle" });

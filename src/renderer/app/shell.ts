@@ -11,6 +11,7 @@
 // 検索ボックス／ナビゲータパネル／診断パネル（2026-09-11・09-12、各パネルは専用クラスへ委譲する）。
 
 import { GestureController } from "../render/gesture-controller";
+import { SelectionState } from "../render/view";
 import { SvgRenderer } from "../render/svg-renderer";
 import type { Point } from "../model/geometry";
 import type { PaperOrientation, PaperSize } from "../model/paper";
@@ -600,6 +601,15 @@ export class AppShell {
         case "v":
           e.preventDefault();
           void pasteFromClipboard(this.store, this.clipboard);
+          break;
+        case "a":
+          e.preventDefault();
+          {
+            const doc = this.store.getDocument();
+            if (doc.cellCount > 0) {
+              this.store.setSelection(SelectionState.ofCells(doc.cellValues().map((c) => c.id)));
+            }
+          }
           break;
         case "=":
         case "+":

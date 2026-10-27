@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import { asCellId, asJoinId, type CellId } from "../../src/renderer/model/ids";
-import type { TecscdeDocument } from "../../src/renderer/model/document";
+import { TecscdeDocument } from "../../src/renderer/model/document";
 import type { Command } from "../../src/renderer/commands/command";
 import { DeleteJoinCommand } from "../../src/renderer/commands";
 import {
@@ -578,6 +578,23 @@ cell tArray Cell1 {};
     // 添字0のポート自体は残っている
     expect(h.doc().getCell(cellId)!.findCPort("cLog", 0)).toBeDefined();
     expect(h.doc().getCell(cellId)!.findCPort("cLog", 0)!.joinId).toBeNull();
+  });
+
+  it("selects all cells with Ctrl+A (spec 6.8.2)", () => {
+    const h = harness();
+    expect(h.selection().isEmpty).toBe(true);
+
+    const handled = h.gesture.keyDown("a", { ctrl: true, shift: false, meta: false });
+    expect(handled).toBe(true);
+    expect(h.selection().cellIds.size).toBe(h.doc().cellCount);
+    expect(h.selection().hasCell(CONTROLLER)).toBe(true);
+    expect(h.selection().hasCell(LOGGER)).toBe(true);
+    expect(h.selection().joinIds.size).toBe(0);
+    expect(h.selection().ports).toHaveLength(0);
+
+    // 空ドキュメントの場合は false
+    const emptyH = harness({ doc: TecscdeDocument.empty() });
+    expect(emptyH.gesture.keyDown("a", { ctrl: true, shift: false, meta: false })).toBe(false);
   });
 });
 

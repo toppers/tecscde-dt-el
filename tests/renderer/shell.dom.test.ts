@@ -999,6 +999,28 @@ cell tRegular Regular {};
     expect(store.getDocument().getCell(controller)).toBeDefined();
   });
 
+  it("Ctrl+A selects all cells without modifying document or history", () => {
+    const { store } = mountShell();
+    expect(store.selection.isEmpty).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true }));
+
+    expect(store.selection.cellIds.size).toBe(store.getDocument().cellCount);
+    expect(store.selection.cellIds.size).toBeGreaterThan(0);
+    expect(store.canUndo).toBe(false);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("ignores Ctrl+A while focus is on a text input", () => {
+    const { store } = mountShell();
+    const input = document.querySelector<HTMLInputElement>("#search-input")!;
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }));
+
+    expect(store.selection.isEmpty).toBe(true);
+  });
+
   describe("PropertyPanelView", () => {
     it("shows (未選択) when nothing is selected", () => {
       mountShell();
