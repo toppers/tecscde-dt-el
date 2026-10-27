@@ -352,6 +352,21 @@ export class GestureController {
       const sel = this.host.getSelection();
       const doc = this.host.getDocument();
 
+      const joinIdsToDelete = new Set<JoinId>(sel.joinIds);
+      for (const p of sel.ports) {
+        const cell = doc.getCell(p.cellId);
+        if (!cell || !cell.editable) continue;
+        if (p.kind === "cport") {
+          const port = cell.findCPort(p.portName, p.subscript);
+          if (port?.joinId) joinIdsToDelete.add(port.joinId);
+        } else {
+          const port = cell.findEPort(p.portName, p.subscript);
+          if (port) {
+            for (const jid of port.joinIds) joinIdsToDelete.add(jid);
+          }
+        }
+      }
+
       const deletablePorts = sel.ports.filter((p) => {
         const cell = doc.getCell(p.cellId);
         if (!cell || !cell.editable) return false;
@@ -372,6 +387,11 @@ export class GestureController {
             ? cell.findCPort(p.portName, p.subscript)
             : cell.findEPort(p.portName, p.subscript);
         if (!port) continue;
+
+        const hasConnectedJoin =
+          "joinId" in port ? port.joinId !== null : port.joinIds.length > 0;
+        if (hasConnectedJoin) continue;
+
         if (port.arraySize !== null && p.subscript !== null) {
           this.host.postMessage?.("固定長配列の要素は削除できません");
         } else if (p.subscript === 0) {
@@ -379,11 +399,11 @@ export class GestureController {
         }
       }
 
-      if (sel.cellIds.size === 0 && sel.joinIds.size === 0 && deletablePorts.length === 0) {
+      if (sel.cellIds.size === 0 && joinIdsToDelete.size === 0 && deletablePorts.length === 0) {
         return false;
       }
 
-      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...sel.joinIds], deletablePorts));
+      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...joinIdsToDelete], deletablePorts));
       this.host.setSelection(SelectionState.empty());
       return true;
     }

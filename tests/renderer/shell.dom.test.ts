@@ -616,7 +616,7 @@ cell tRegular Regular {};
     shell.gesture.pointerUp({ x: 120, y: 20 });
     expect(panel.querySelectorAll(".prop-port")).toHaveLength(2);
     expect(document.querySelectorAll("circle.port-selected")).toHaveLength(2);
-    expect(shell.gesture.keyDown("Delete")).toBe(false);
+    expect(shell.gesture.keyDown("ArrowLeft")).toBe(false);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
     expect(write).not.toHaveBeenCalled();
     expect(store.getDocument()).toBe(doc);
@@ -627,6 +627,17 @@ cell tRegular Regular {};
     store.dispatch(new DeleteJoinCommand(asJoinId("cController1.cLog")));
     expect(value("結合数")).toBe("0");
     store.undo();
+    expect(value("結合数")).toBe("1");
+
+    // 外部仕様 6.3.2: 呼び口選択からの結合削除
+    expect(shell.gesture.keyDown("Delete")).toBe(true);
+    expect(store.getDocument().getJoin(asJoinId("cController1.cLog"))).toBeUndefined();
+    shell.gesture.pointerDown({ x: 120, y: 15 });
+    shell.gesture.pointerUp({ x: 120, y: 15 });
+    expect(value("結合数")).toBe("0");
+    store.undo();
+    shell.gesture.pointerDown({ x: 120, y: 15 });
+    shell.gesture.pointerUp({ x: 120, y: 15 });
     expect(value("結合数")).toBe("1");
     shell.gesture.pointerDown({ x: 35, y: 18 });
     shell.gesture.pointerUp({ x: 35, y: 18 });

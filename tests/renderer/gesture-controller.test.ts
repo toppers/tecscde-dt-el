@@ -231,13 +231,33 @@ describe("select mode — ports", () => {
     expect(h.doc().joinCount).toBe(2);
   });
 
-  it("does not commit empty delete or move commands for a port-only selection", () => {
+  it("does not commit empty delete or move commands for a port-only selection without joins", () => {
     const h = harness();
-    h.gesture.pointerDown({ x: 35, y: 18 });
+    // まず eLog に接続されている結合を削除してフリーポートにする
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "eport",
+        cellId: LOGGER,
+        portName: "eLog",
+        subscript: null,
+      }),
+    );
+    expect(h.gesture.keyDown("Delete")).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+
+    // 結合のない eLog を再度選択
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "eport",
+        cellId: LOGGER,
+        portName: "eLog",
+        subscript: null,
+      }),
+    );
     const selection = h.selection();
     for (const key of ["Delete", "Backspace", "ArrowLeft", "ArrowUp"]) expect(h.gesture.keyDown(key)).toBe(false);
     expect(h.selection()).toBe(selection);
-    expect(h.dispatched).toHaveLength(0);
+    expect(h.dispatched).toHaveLength(1);
   });
 });
 
@@ -395,6 +415,120 @@ cell tArray Cell1 {};
     expect(h.gesture.keyDown("Delete")).toBe(true);
     expect(h.dispatched).toHaveLength(1);
     expect(h.doc().getCell(cellId)!.cports).toHaveLength(1);
+  });
+
+  it("deletes connected join when call port is selected (spec 6.3.2)", () => {
+    const h = harness();
+    const joinId = asJoinId("cController1.cLog");
+    expect(h.doc().getJoin(joinId)).toBeDefined();
+
+    // 呼び口 cLog を選択して Delete
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId: CONTROLLER,
+        portName: "cLog",
+        subscript: null,
+      }),
+    );
+
+    const handled = h.gesture.keyDown("Delete");
+    expect(handled).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.dispatched[0]).toBeInstanceOf(DeleteCommand);
+    expect(h.doc().getJoin(joinId)).toBeUndefined();
+    expect(h.doc().getCell(CONTROLLER)!.findCPort("cLog")!.joinId).toBeNull();
+    expect(h.selection().isEmpty).toBe(true);
+  });
+
+  it("deletes connected joins when entry port is selected (spec 6.3.2)", () => {
+    const h = harness();
+    const joinId = asJoinId("cController1.cLog");
+    expect(h.doc().getJoin(joinId)).toBeDefined();
+
+    // 受け口 eLog を選択して Delete
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "eport",
+        cellId: LOGGER,
+        portName: "eLog",
+        subscript: null,
+      }),
+    );
+
+    const handled = h.gesture.keyDown("Delete");
+    expect(handled).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.dispatched[0]).toBeInstanceOf(DeleteCommand);
+    expect(h.doc().getJoin(joinId)).toBeUndefined();
+    expect(h.doc().getCell(LOGGER)!.findEPort("eLog")!.joinIds).toEqual([]);
+    expect(h.selection().isEmpty).toBe(true);
+  });
+
+  it("does not delete or dispatch when port has no connected joins and cannot be deleted", () => {
+    const h = harness();
+    const joinId = asJoinId("cController1.cLog");
+    // 結合を削除済みにする
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId: CONTROLLER,
+        portName: "cLog",
+        subscript: null,
+      }),
+    );
+    expect(h.gesture.keyDown("Delete")).toBe(true);
+    expect(h.doc().getJoin(joinId)).toBeUndefined();
+
+    // 再度 cLog を選択して Delete -> 結合がなく単一ポートなので削除できず false
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId: CONTROLLER,
+        portName: "cLog",
+        subscript: null,
+      }),
+    );
+    expect(h.gesture.keyDown("Delete")).toBe(false);
+    expect(h.dispatched).toHaveLength(1); // 1回目のdispatchのみ
+  });
+
+  it("deletes join connected to array port subscript 0 without showing rejection message", () => {
+    const doc = loadDoc();
+    const cellId = CONTROLLER;
+    const cell = doc.getCell(cellId)!;
+
+    // cLog ポートの結合IDを取得
+    const joinId = asJoinId("cController1.cLog");
+    expect(doc.getJoin(joinId)).toBeDefined();
+
+    // cLog を添字0の配列ポートに模倣して設定
+    const cport = cell.findCPort("cLog")!;
+    const updatedCPorts = cell.cports.map((p) =>
+      p.name === "cLog" ? p.withSubscript(0) : p,
+    );
+    const updatedDoc = doc.withCell(cell.withCPorts(updatedCPorts));
+
+    const h = harness({ doc: updatedDoc });
+
+    // 添字0 の cLog を選択して Delete
+    h.setSelection(
+      SelectionState.ofPort({
+        kind: "cport",
+        cellId,
+        portName: "cLog",
+        subscript: 0,
+      }),
+    );
+
+    // 結合が削除される（メッセージは出ない）
+    expect(h.gesture.keyDown("Delete")).toBe(true);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.messages).toHaveLength(0);
+    expect(h.doc().getJoin(joinId)).toBeUndefined();
+    // 添字0のポート自体は残っている
+    expect(h.doc().getCell(cellId)!.findCPort("cLog", 0)).toBeDefined();
+    expect(h.doc().getCell(cellId)!.findCPort("cLog", 0)!.joinId).toBeNull();
   });
 });
 
