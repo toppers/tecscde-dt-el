@@ -3,7 +3,13 @@
 // 複数選択時は個別編集不可の旨を示す。編集不可のオブジェクトは入力欄を読み取り専用にし、
 // その旨を文言で示す（色のみによる区別はしない、3.4.2）。
 //
-import { RenameCellCommand, EditAttrCommand, ChangeRegionCommand } from "../commands";
+import {
+  RenameCellCommand,
+  EditAttrCommand,
+  EditCellsAttrCommand,
+  ChangeRegionCommand,
+  ChangeCellsRegionCommand,
+} from "../commands";
 import type { Cell } from "../model/cell";
 import type { Join } from "../model/join";
 import type { TecscdeDocument } from "../model/document";
@@ -72,6 +78,15 @@ export class PropertyPanelView {
       this.root.appendChild(note("(未選択)"));
       return;
     }
+    if (selection.cellIds.size > 1 && selection.joinIds.size === 0) {
+      const cells = [...selection.cellIds]
+        .map((id) => doc.getCell(id))
+        .filter((c): c is Cell => c !== undefined);
+      if (cells.length > 0) {
+        this.renderMultipleCells(doc, cells);
+        return;
+      }
+    }
     if (selection.cellIds.size > 1 || selection.joinIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
       this.root.appendChild(note("(複数選択 — 個別編集はセルを1つだけ選択してください)"));
       return;
@@ -100,6 +115,18 @@ export class PropertyPanelView {
       }));
     }
     if (selection.isEmpty) return "none";
+    if (selection.cellIds.size > 1 && selection.joinIds.size === 0) {
+      const cells = [...selection.cellIds]
+        .map((id) => doc.getCell(id))
+        .filter((c): c is Cell => c !== undefined);
+      const cellsSig = cells.map((c) => {
+        const attrsSig = Object.entries(c.attrs)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(",");
+        return `${c.id}:${c.editable}:${c.regionId}:${attrsSig}`;
+      }).join(";");
+      return `multi-cells|${cells.length}|${cellsSig}`;
+    }
     if (selection.cellIds.size > 1 || selection.joinIds.size > 1 || (selection.cellIds.size > 0 && selection.joinIds.size > 0)) {
       return `multi|${selection.cellIds.size}|${selection.joinIds.size}`;
     }
@@ -231,6 +258,88 @@ export class PropertyPanelView {
       attrField.input.readOnly = !cell.editable;
       attrField.input.addEventListener("change", () => {
         this.store.dispatch(new EditAttrCommand(cell.id, attrName, attrField.input.value));
+      });
+      this.root.appendChild(attrField.wrapper);
+    }
+  }
+
+  private renderMultipleCells(doc: TecscdeDocument, cells: readonly Cell[]): void {
+    this.root.appendChild(note(`(複数選択: ${cells.length}個のセル — 共通項目を編集できます)`));
+
+    if (cells.some((c) => !c.editable)) {
+      this.root.appendChild(note("読み込み専用ファイル由来のセルが含まれます。", "prop-readonly-note"));
+    }
+
+    const nameField = field("name");
+    nameField.input.value = "(複数選択)";
+    nameField.input.readOnly = true;
+    this.root.appendChild(nameField.wrapper);
+
+    const sameCelltype = cells.every((c) => c.celltypeName === cells[0]!.celltypeName);
+    const typeField = field("celltype");
+    typeField.input.value = sameCelltype ? cells[0]!.celltypeName : "(複数)";
+    typeField.input.readOnly = true;
+    this.root.appendChild(typeField.wrapper);
+
+    const sameRegion = cells.every((c) => c.regionId === cells[0]!.regionId);
+    const regionField = field("region");
+    const regionSelect = document.createElement("select");
+    regionSelect.setAttribute("aria-label", "region");
+
+    if (!sameRegion) {
+      const multiOpt = document.createElement("option");
+      multiOpt.value = "";
+      multiOpt.textContent = "(複数)";
+      multiOpt.disabled = true;
+      multiOpt.selected = true;
+      regionSelect.appendChild(multiOpt);
+    }
+
+    for (const region of this.regionOptions(doc)) {
+      const option = document.createElement("option");
+      option.value = region.id;
+      option.textContent = region.namespacePath;
+      regionSelect.appendChild(option);
+    }
+    if (sameRegion) {
+      regionSelect.value = cells[0]!.regionId;
+    }
+    const allReadOnly = cells.every((c) => !c.editable);
+    regionSelect.disabled = allReadOnly;
+
+    regionSelect.addEventListener("change", () => {
+      const editableIds = cells.filter((c) => c.editable).map((c) => c.id);
+      if (editableIds.length > 0 && regionSelect.value) {
+        this.store.dispatch(new ChangeCellsRegionCommand(editableIds, regionSelect.value as Cell["regionId"]));
+      }
+    });
+    regionField.input.replaceWith(regionSelect);
+    this.root.appendChild(regionField.wrapper);
+
+    const getAttrNames = (c: Cell): string[] => {
+      const ct = doc.getCelltype(c.celltypeName);
+      return ct?.attributeNames ? [...ct.attributeNames] : Object.keys(c.attrs);
+    };
+    const commonAttrNames = getAttrNames(cells[0]!).filter((attr) =>
+      cells.slice(1).every((c) => getAttrNames(c).includes(attr)),
+    );
+
+    for (const attrName of commonAttrNames) {
+      const attrField = field(attrName);
+      const firstVal = cells[0]!.attrs[attrName] ?? "";
+      const sameVal = cells.every((c) => (c.attrs[attrName] ?? "") === firstVal);
+      if (sameVal) {
+        attrField.input.value = firstVal;
+      } else {
+        attrField.input.value = "";
+        attrField.input.placeholder = "(複数)";
+      }
+      attrField.input.readOnly = allReadOnly;
+      attrField.input.addEventListener("change", () => {
+        const editableIds = cells.filter((c) => c.editable).map((c) => c.id);
+        if (editableIds.length > 0) {
+          this.store.dispatch(new EditCellsAttrCommand(editableIds, attrName, attrField.input.value));
+        }
       });
       this.root.appendChild(attrField.wrapper);
     }

@@ -13,10 +13,13 @@ import {
   AlignLeftCommand,
   AlignTopCommand,
   ChangePortEdgeCommand,
+  ChangeRegionCommand,
+  ChangeCellsRegionCommand,
   CreateJoinCommand,
   DeleteCommand,
   DeleteJoinCommand,
   EditAttrCommand,
+  EditCellsAttrCommand,
   History,
   MoveCellCommand,
   MoveCellsCommand,
@@ -91,6 +94,21 @@ describe("cell commands", () => {
     const next = new EditAttrCommand(LOGGER, "level", "5").apply(doc);
     expect(next.getCell(LOGGER)!.attrs.level).toBe("5");
     expect(doc.getCell(LOGGER)!.attrs.level).toBe("1");
+  });
+
+  it("EditCellsAttrCommand updates attribute on multiple cells", () => {
+    const doc = loadDoc();
+    const next = new EditCellsAttrCommand([LOGGER, CONTROLLER], "custom", "val").apply(doc);
+    expect(next.getCell(LOGGER)!.attrs.custom).toBe("val");
+    expect(next.getCell(CONTROLLER)!.attrs.custom).toBe("val");
+  });
+
+  it("ChangeCellsRegionCommand updates region on multiple cells", () => {
+    const doc = loadDoc();
+    const rootId = doc.regions.root.id;
+    const next = new ChangeCellsRegionCommand([LOGGER, SENSOR], rootId).apply(doc);
+    expect(next.getCell(LOGGER)!.regionId).toBe(rootId);
+    expect(next.getCell(SENSOR)!.regionId).toBe(rootId);
   });
 
   it("AlignTopCommand / AlignLeftCommand align to the reference cell", () => {

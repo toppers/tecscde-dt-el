@@ -273,6 +273,47 @@ export class ChangeRegionCommand extends Command {
   }
 }
 
+export class EditCellsAttrCommand extends Command {
+  readonly kind = "EditCellsAttr";
+  override readonly summary: string;
+
+  constructor(
+    private readonly cellIds: readonly CellId[],
+    private readonly attrName: string,
+    private readonly value: string,
+  ) {
+    super();
+    this.summary = `${cellIds.length} cells: ${attrName} = ${value}`;
+  }
+
+  apply(doc: TecscdeDocument): TecscdeDocument {
+    return this.cellIds.reduce(
+      (next, id) => new EditAttrCommand(id, this.attrName, this.value).apply(next),
+      doc,
+    );
+  }
+}
+
+export class ChangeCellsRegionCommand extends Command {
+  readonly kind = "ChangeCellsRegion";
+  override readonly summary: string;
+
+  constructor(
+    private readonly cellIds: readonly CellId[],
+    private readonly regionId: RegionId,
+  ) {
+    super();
+    this.summary = `${cellIds.length} cells: region = ${regionId}`;
+  }
+
+  apply(doc: TecscdeDocument): TecscdeDocument {
+    return this.cellIds.reduce(
+      (next, id) => new ChangeRegionCommand(id, this.regionId).apply(next),
+      doc,
+    );
+  }
+}
+
 type AlignAxis = "top" | "left";
 
 function applyAlign(

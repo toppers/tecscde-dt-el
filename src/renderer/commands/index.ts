@@ -10,7 +10,9 @@ export {
   DeleteCommand,
   RenameCellCommand,
   EditAttrCommand,
+  EditCellsAttrCommand,
   ChangeRegionCommand,
+  ChangeCellsRegionCommand,
   AlignTopCommand,
   AlignLeftCommand,
 } from "./cell-commands";

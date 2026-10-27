@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
-import { DeleteJoinCommand, MoveCellsCommand } from "../../src/renderer/commands";
+import { ChangeCellsRegionCommand, DeleteJoinCommand, MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import { portPosition } from "../../src/renderer/model/geometry";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
@@ -1083,6 +1083,27 @@ cell tRegular Regular {};
       const { store } = mountShell();
       store.setSelection(SelectionState.ofCells([asCellId("cLogger1"), asCellId("cSensor1")]));
       expect(document.querySelector("#property-panel")!.textContent).toContain("複数選択");
+    });
+
+    it("shows common properties and allows batch region/attribute editing for multiple cells (spec 3.4.2 / 6.5.2)", () => {
+      const { store } = mountShell();
+      const logger = asCellId("cLogger1");
+      const sensor = asCellId("cSensor1");
+      store.setSelection(SelectionState.ofCells([logger, sensor]));
+
+      const panel = document.querySelector<HTMLElement>("#property-panel")!;
+      expect(panel.textContent).toContain("複数選択: 2個のセル");
+
+      // リージョンの変更
+      const regionSelect = panel.querySelector<HTMLSelectElement>("select[aria-label='region']")!;
+      expect(regionSelect).not.toBeNull();
+      // ルートリージョンが選択されている
+      expect(regionSelect.value).toBe(store.getDocument().regions.root.id);
+
+      // コマンドのディスパッチテスト
+      store.dispatch(new ChangeCellsRegionCommand([logger, sensor], store.getDocument().regions.root.id));
+      expect(store.canUndo).toBe(true);
+      store.undo();
     });
 
     it("shows join endpoints (read-only) when a join is selected", () => {
