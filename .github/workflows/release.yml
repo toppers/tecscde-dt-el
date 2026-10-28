@@ -15,8 +15,17 @@ permissions:
 
 jobs:
   release:
-    # maker-squirrel はWindows専用のため、他OSのrunnerは使わない。
-    runs-on: windows-latest
+    # OSごとに自分向けのMakerだけが走る（forge.config.js の platforms）。Windows: Squirrel、
+    # macOS: DMG＋ZIP、Linux: DEB＋RPM。mac・Linuxのジョブは2026-10-28時点で未実行・未検証。
+    strategy:
+      # 1つのOSが失敗しても、ほかのOSの成果物は公開できるようにする。
+      fail-fast: false
+      # 各ジョブが同じタグのdraftリリースへ成果物を足す。同時に走ると、draftリリースが
+      # 重複して作られる恐れがあるので、1つずつ順に走らせる。
+      max-parallel: 1
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,9 +37,16 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      # DEBの生成に fakeroot、RPMの生成に rpmbuild（パッケージ名は rpm）が要る。
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg rpm
+
       - run: npm ci
 
-      - run: npm run check
+      # テストは Windows 前提の記述が混じる可能性があるため、他OSでは走らせない
+      # （他OSで通るかは未確認）。ビルドは prePackage が行う。
+      - if: runner.os == 'Windows'
+        run: npm run check
 
       - run: npx electron-forge publish
         env:
