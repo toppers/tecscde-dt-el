@@ -119,10 +119,11 @@ describe("newCell mode", () => {
     expect(h.doc().cellCount).toBe(4);
   });
 
-  it("does nothing when no celltype is active", () => {
+  it("does nothing but asks to pick a celltype when none is active (#17)", () => {
     const h = harness({ mode: "newCell" });
     h.gesture.pointerDown({ x: 300, y: 200 });
     expect(h.dispatched).toHaveLength(0);
+    expect(h.messages).toEqual(["パレットでセルタイプを選択してください"]);
   });
 });
 
@@ -726,5 +727,14 @@ describe("port move and edge change by Alt drag (#8)", () => {
     const { at } = cLogOf(h);
     h.gesture.pointerDown(at);
     expect(h.gesture.stateKind).toBe("joining");
+  });
+
+  it("tells the user why a plain click on a joined call port does nothing (#19)", () => {
+    const h = harness();
+    const { at } = cLogOf(h);
+    h.gesture.pointerDown(at);
+    expect(h.gesture.stateKind).toBe("idle");
+    expect(h.messages).toHaveLength(1);
+    expect(h.messages[0]).toContain("結合済み");
   });
 });

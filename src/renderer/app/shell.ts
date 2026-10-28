@@ -46,7 +46,9 @@ import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
 import type { AppStore } from "./store";
 
-const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+/** 案内・拒否理由をステータスバーに残す時間（ms）。 */
+const STATUS_MESSAGE_MS = 5000;
+const TEXT_INPUT_TAGS =new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 export interface AppShellOptions {
   /** 要素の探索起点（Electron では document、テストでは差し込んだ DOM）。 */
@@ -90,6 +92,8 @@ export class AppShell {
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
+  private readonly statusMessage: HTMLElement;
+  private statusMessageTimer: number | undefined;
   private readonly exportDialog: HTMLElement;
   private readonly exportFormat: HTMLSelectElement;
   private readonly exportRange: HTMLSelectElement;
@@ -144,6 +148,7 @@ export class AppShell {
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
+    this.statusMessage = requireEl<HTMLElement>(root, "#status-message");
     this.exportDialog = requireEl<HTMLElement>(root, "#export-dialog");
     this.exportFormat = requireEl<HTMLSelectElement>(root, "#export-format");
     this.exportRange = requireEl<HTMLSelectElement>(root, "#export-range");
@@ -156,9 +161,7 @@ export class AppShell {
       this.store,
       () => this.render(),
       (p) => this.updateStatusPos(p),
-      (msg) => {
-        this.statusPos.textContent = msg;
-      },
+      (msg) => this.showMessage(msg),
     );
     this.gesture = new GestureController(this.renderer, host);
 
@@ -169,7 +172,10 @@ export class AppShell {
     });
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
-    this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
+    this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"),
+      this.store,
+      (msg) => this.showMessage(msg),
+    );
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
     this.diagnosticsPanel = new DiagnosticsPanelView(
@@ -556,6 +562,16 @@ export class AppShell {
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
+  }
+
+  /** 操作の拒否理由や案内をステータスバーに出す。マウス移動では消えず、一定時間後に消える。 */
+  private showMessage(message: string): void {
+    this.statusMessage.textContent = message;
+    if (this.statusMessageTimer !== undefined) this.win.clearTimeout(this.statusMessageTimer);
+    this.statusMessageTimer = this.win.setTimeout(() => {
+      this.statusMessage.textContent = "";
+      this.statusMessageTimer = undefined;
+    }, STATUS_MESSAGE_MS);
   }
 
   private updateStatusPos(p: Point | undefined): void {

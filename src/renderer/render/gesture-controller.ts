@@ -155,6 +155,10 @@ export class GestureController {
 
     if (this.host.getMode() === "newCell") {
       const celltypeName = this.host.getActiveCelltypeName();
+      if (hit.kind === "none" && !celltypeName) {
+        this.host.postMessage?.("パレットでセルタイプを選択してください");
+        return;
+      }
       if (hit.kind === "none" && celltypeName) {
         const selectedIds = [...this.host.getSelection().cellIds];
         const selectedCell = selectedIds.length === 1 ? doc.getCell(selectedIds[0]!) : undefined;
@@ -184,7 +188,10 @@ export class GestureController {
       const cport = hit.kind === "cport"
         ? cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript) : undefined;
       // 結合済み呼び口の通常操作は結合を開始しない。修飾クリックで参照選択できる。
-      if (cport?.joinId != null && !mods.shift && !mods.ctrl && !mods.meta) return;
+      if (cport?.joinId != null && !mods.shift && !mods.ctrl && !mods.meta) {
+        this.host.postMessage?.("この呼び口は結合済みです。Shift+クリックで選択、結合を削除するには結合を選択して Delete");
+        return;
+      }
       const current = this.host.getSelection();
       const next = mods.ctrl || mods.meta ? current.withPortToggled(hit)
         : mods.shift ? current.withPortAdded(hit)

@@ -10,6 +10,7 @@ import {
   ChangeRegionCommand,
   ChangeCellsRegionCommand,
 } from "../commands";
+import { isIdentifier } from "../model/identifier";
 import type { Cell } from "../model/cell";
 import type { Join } from "../model/join";
 import type { TecscdeDocument } from "../model/document";
@@ -76,6 +77,8 @@ export class PropertyPanelView {
   constructor(
     private readonly root: HTMLElement,
     private readonly store: AppStore,
+    /** 操作の拒否理由を利用者へ伝える（ステータスバー）。 */
+    private readonly onMessage?: (message: string) => void,
   ) {}
 
   render(): void {
@@ -234,7 +237,17 @@ export class PropertyPanelView {
     nameField.input.readOnly = !cell.editable;
     nameField.input.addEventListener("change", () => {
       if (nameField.input.value !== cell.name) {
-        this.store.dispatch(new RenameCellCommand(cell.id, nameField.input.value));
+        const newName = nameField.input.value;
+        // RenameCellCommand は不正名・重複名を静かに取り消すので、拒否の理由はここで伝える。
+        if (!isIdentifier(newName)) {
+          this.onMessage?.(`セル名「${newName}」は使えません（英字または _ で始まる英数字と _ のみ）`);
+        } else if (doc.cellValues().some((c) => c.id !== cell.id && c.name === newName)) {
+          this.onMessage?.(`セル名「${newName}」は既に使われています`);
+        } else {
+          this.store.dispatch(new RenameCellCommand(cell.id, newName));
+          return;
+        }
+        nameField.input.value = cell.name;
       }
     });
     this.root.appendChild(nameField.wrapper);

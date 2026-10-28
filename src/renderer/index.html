@@ -417,6 +417,9 @@
         font-variant-numeric: tabular-nums;
         flex: none;
       }
+      #status-message {
+        color: #b45309;
+      }
       #status-diag {
         font: inherit;
         font-weight: bold;
@@ -604,6 +607,7 @@
         <span id="status-pos"></span>
         <span id="status-zoom"></span>
         <span id="status-region"></span>
+        <span id="status-message" role="status" aria-live="polite"></span>
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>
         <div id="diagnostics-panel" hidden></div>
         <span id="status-file"></span>
