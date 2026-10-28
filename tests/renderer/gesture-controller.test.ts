@@ -12,12 +12,16 @@ import type { Command } from "../../src/renderer/commands/command";
 import { DeleteJoinCommand } from "../../src/renderer/commands";
 import {
   AddCellCommand,
+  ChangePortEdgeCommand,
   CreateJoinCommand,
   DeleteCommand,
   InsertPortElementCommand,
   MoveCellsCommand,
   MoveJoinBarCommand,
+  MovePortsCommand,
 } from "../../src/renderer/commands";
+import { alignRound } from "../../src/renderer/model/align";
+import { portPosition } from "../../src/renderer/model/geometry";
 import {
   GestureController,
   type GestureHost,
@@ -660,3 +664,67 @@ describe("context-sensitive cursors (#15)", () => {
   });
 });
 
+
+describe("port move and edge change by Alt drag (#8)", () => {
+  const ALT = { ctrl: false, shift: false, meta: false, alt: true };
+  const ALT_SHIFT = { ...ALT, shift: true };
+
+  function cLogOf(h: Harness) {
+    const cell = h.doc().getCell(CONTROLLER)!;
+    const port = cell.findCPort("cLog")!;
+    return { cell, port, at: portPosition(cell, port) };
+  }
+
+  it("slides a joined call port along its edge with one MovePortsCommand and keeps the join", () => {
+    const h = harness();
+    const { cell, port, at } = cLogOf(h);
+    const alongX = port.edgeSide === "TOP" || port.edgeSide === "BOTTOM";
+    const length = alongX ? cell.width : cell.height;
+    const delta = 5;
+
+    h.gesture.pointerDown(at, ALT);
+    expect(h.gesture.stateKind).toBe("movingPorts");
+    expect(h.selection().hasPort({ kind: "cport", cellId: CONTROLLER, portName: "cLog", subscript: null })).toBe(true);
+    // 辺と直交する成分は捨てられる（辺に沿った成分だけが効く）
+    h.gesture.pointerUp(alongX ? { x: at.x + delta, y: at.y + 30 } : { x: at.x + 30, y: at.y + delta });
+
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.dispatched[0]).toBeInstanceOf(MovePortsCommand);
+    const moved = h.doc().getCell(CONTROLLER)!.findCPort("cLog")!;
+    expect(moved.edgeSide).toBe(port.edgeSide);
+    expect(moved.offset).toBe(Math.min(length, alignRound(port.offset + delta)));
+    expect(moved.joinId).toBe(port.joinId);
+    expect(h.gesture.stateKind).toBe("idle");
+  });
+
+  it("changes the owning edge with Alt+Shift to the edge nearest the pointer", () => {
+    const h = harness();
+    const { cell, at } = cLogOf(h);
+
+    h.gesture.pointerDown(at, ALT_SHIFT);
+    h.gesture.pointerUp({ x: cell.x + 10, y: cell.y + cell.height + 1 });
+
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.dispatched[0]).toBeInstanceOf(ChangePortEdgeCommand);
+    const moved = h.doc().getCell(CONTROLLER)!.findCPort("cLog")!;
+    expect(moved.edgeSide).toBe("BOTTOM");
+    expect(moved.offset).toBe(alignRound(10));
+  });
+
+  it("cancels the port drag with Escape and dispatches nothing", () => {
+    const h = harness();
+    const { at } = cLogOf(h);
+    h.gesture.pointerDown(at, ALT);
+    expect(h.gesture.keyDown("Escape")).toBe(true);
+    expect(h.gesture.stateKind).toBe("idle");
+    expect(h.dispatched).toHaveLength(0);
+  });
+
+  it("leaves a plain drag on an unjoined call port as a join gesture", () => {
+    const freed = new DeleteJoinCommand(asJoinId("cController1.cLog")).apply(loadDoc());
+    const h = harness({ doc: freed });
+    const { at } = cLogOf(h);
+    h.gesture.pointerDown(at);
+    expect(h.gesture.stateKind).toBe("joining");
+  });
+});

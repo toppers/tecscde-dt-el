@@ -16,23 +16,26 @@
 // （5.3節の note）。
 
 import { HitTester, type HitResult } from "./hit-tester";
-import { pxPerMm, SelectionState, type CanvasView } from "./view";
+import { pxPerMm, SelectionState, type CanvasView, type SelectedPort } from "./view";
 import type { JoinPreviewLine } from "./svg-renderer";
 import { ALIGN_MM, alignRound } from "../model/align";
 import { moveBarBars, portPosition } from "../model/geometry";
 import type { Point } from "../model/geometry";
 import type { Cell } from "../model/cell";
 import type { Bar, Join } from "../model/join";
+import type { EdgeSide } from "../model/port";
 import type { CellId, JoinId } from "../model/ids";
 import type { TecscdeDocument } from "../model/document";
 import { Command } from "../commands/command";
 import {
   AddCellCommand,
+  ChangePortEdgeCommand,
   CreateJoinCommand,
   DeleteCommand,
   InsertPortElementCommand,
   MoveCellsCommand,
   MoveJoinBarCommand,
+  MovePortsCommand,
 } from "../commands";
 
 /** 修飾キーの状態。DOM `MouseEvent`/`KeyboardEvent` から抜き出した最小集合。 */
@@ -40,6 +43,8 @@ export interface Mods {
   readonly ctrl: boolean;
   readonly shift: boolean;
   readonly meta: boolean;
+  /** Alt+ドラッグでポート移動、Alt+Shift+ドラッグで所属辺の変更（外部仕様4.3.2。操作の割り当ては2026-10-28決定）。 */
+  readonly alt?: boolean;
 }
 
 const NO_MODS: Mods = { ctrl: false, shift: false, meta: false };
@@ -67,6 +72,13 @@ type DragState =
   | { readonly kind: "movingCells"; readonly start: Point; readonly ids: ReadonlySet<CellId> }
   | { readonly kind: "boxSelect"; readonly start: Point }
   | { readonly kind: "joining"; readonly from: PortRef; readonly to?: PortRef }
+  | {
+      readonly kind: "movingPorts";
+      readonly start: Point;
+      /** true なら所属辺の変更（`anchor` 1個のみ）、false なら辺上の移動（選択中の全ポート）。 */
+      readonly edgeChange: boolean;
+      readonly anchor: SelectedPort;
+    }
   | {
       readonly kind: "movingJoinBar";
       readonly joinId: JoinId;
@@ -154,6 +166,20 @@ export class GestureController {
     }
 
     if (hit.kind === "cport" || hit.kind === "eport") {
+      if (mods.alt) {
+        const movable = doc.getCell(hit.cellId);
+        if (!movable?.editable) {
+          this.host.postMessage?.("読み込み専用セルのポートは移動できません");
+          return;
+        }
+        const current = this.host.getSelection();
+        // 辺の変更は1個ずつ。移動は、すでに選択中のポートならその選択ごと動かす。
+        const edgeChange = mods.shift;
+        this.host.setSelection(!edgeChange && current.hasPort(hit) ? current : SelectionState.ofPort(hit));
+        this.transition({ kind: "movingPorts", start: point, edgeChange, anchor: hit });
+        return;
+      }
+
       const cell = doc.getCell(hit.cellId);
       const cport = hit.kind === "cport"
         ? cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript) : undefined;
@@ -302,6 +328,14 @@ export class GestureController {
       return;
     }
 
+    if (s.kind === "movingPorts") {
+      this.transition({ kind: "idle" });
+      const command = s.edgeChange ? this.edgeChangeCommand(s.anchor, point) : this.movePortsCommand(s.start, point);
+      if (command) this.host.dispatch(command);
+      this.host.requestRender();
+      return;
+    }
+
     if (s.kind === "movingJoinBar") {
       const delta = s.axis === "y" ? point.y - s.startPoint.y : point.x - s.startPoint.x;
       this.sink.clearJoinBarPreview();
@@ -436,7 +470,10 @@ export class GestureController {
       return true;
     }
 
-    if (key === "Escape" && (this.state.kind === "joining" || this.state.kind === "movingJoinBar")) {
+    if (
+      key === "Escape" &&
+      (this.state.kind === "joining" || this.state.kind === "movingJoinBar" || this.state.kind === "movingPorts")
+    ) {
       if (this.state.kind === "movingJoinBar") this.sink.clearJoinBarPreview();
       this.transition({ kind: "idle" });
       this.host.requestRender();
@@ -445,6 +482,50 @@ export class GestureController {
 
     void mods;
     return false;
+  }
+
+  /** 選択中のポートを、所属辺に沿ってドラッグ量だけ動かす（外部仕様4.3.2）。辺と直交する成分は捨てる。 */
+  private movePortsCommand(start: Point, end: Point): Command | undefined {
+    const doc = this.host.getDocument();
+    const moves = [];
+    for (const p of this.host.getSelection().ports) {
+      const cell = doc.getCell(p.cellId);
+      const port = p.kind === "cport" ? cell?.findCPort(p.portName, p.subscript) : cell?.findEPort(p.portName, p.subscript);
+      if (!cell || !port) continue;
+      const alongX = port.edgeSide === "TOP" || port.edgeSide === "BOTTOM";
+      const delta = alongX ? end.x - start.x : end.y - start.y;
+      if (delta === 0) continue;
+      moves.push({
+        cellId: p.cellId,
+        kind: p.kind === "cport" ? ("CPort" as const) : ("EPort" as const),
+        name: p.portName,
+        subscript: p.subscript,
+        offset: port.offset + delta,
+      });
+    }
+    return moves.length > 0 ? new MovePortsCommand(moves) : undefined;
+  }
+
+  /** ポートを、ポインタに最も近いセルの辺へ付け替える（外部仕様4.3.2「所属辺の変更」）。 */
+  private edgeChangeCommand(anchor: SelectedPort, end: Point): Command | undefined {
+    const cell = this.host.getDocument().getCell(anchor.cellId);
+    if (!cell) return undefined;
+    const distances: readonly (readonly [EdgeSide, number])[] = [
+      ["TOP", Math.abs(end.y - cell.y)],
+      ["BOTTOM", Math.abs(end.y - (cell.y + cell.height))],
+      ["LEFT", Math.abs(end.x - cell.x)],
+      ["RIGHT", Math.abs(end.x - (cell.x + cell.width))],
+    ];
+    const edge = distances.reduce((best, d) => (d[1] < best[1] ? d : best))[0];
+    const offset = edge === "TOP" || edge === "BOTTOM" ? end.x - cell.x : end.y - cell.y;
+    return new ChangePortEdgeCommand(
+      anchor.cellId,
+      anchor.kind === "cport" ? "CPort" : "EPort",
+      anchor.portName,
+      edge,
+      offset,
+      anchor.subscript,
+    );
   }
 
   /** 結合作成ドラッグ中の仮結線（描画ループが参照する、外部仕様6.4.2）。 */
@@ -490,7 +571,7 @@ export class GestureController {
       return "crosshair";
     }
 
-    if (s.kind === "movingCells") {
+    if (s.kind === "movingCells" || s.kind === "movingPorts") {
       return "move";
     }
 
@@ -555,6 +636,7 @@ export class GestureController {
       ctrl: e.ctrlKey,
       shift: e.shiftKey,
       meta: e.metaKey,
+      alt: e.altKey,
     });
 
     const updateCursor = (p: Point): void => {
