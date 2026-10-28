@@ -1401,6 +1401,31 @@ cell tRegular Regular {};
       expect(paperRect.getAttribute("width")).toBe(String(width));
       expect(paperRect.getAttribute("height")).toBe(String(height));
     });
+
+    it("pans on press and follows the pointer while dragging, clamped to the paper (#20)", () => {
+      const { store } = mountShell();
+      const svg = document.querySelector<SVGSVGElement>("#navigator svg")!;
+      // happy-dom はレイアウトを持たないので、ナビゲータの画面上の矩形(100x50)を与える。
+      svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50, x: 0, y: 0 }) as DOMRect;
+      const { width, height } = store.getDocument().paper.contentSize();
+      const mouse = (type: string, x: number, y: number) =>
+        new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+
+      svg.dispatchEvent(mouse("mousedown", 50, 25));
+      expect(store.view.panCenter).toEqual({ x: width / 2, y: height / 2 });
+
+      window.dispatchEvent(mouse("mousemove", 100, 50));
+      expect(store.view.panCenter).toEqual({ x: width, y: height });
+
+      // 枠の外へ出ても用紙の端で止まる。
+      window.dispatchEvent(mouse("mousemove", 250, -40));
+      expect(store.view.panCenter).toEqual({ x: width, y: 0 });
+
+      // 離したあとは追従しない。
+      window.dispatchEvent(mouse("mouseup", 0, 0));
+      window.dispatchEvent(mouse("mousemove", 0, 0));
+      expect(store.view.panCenter).toEqual({ x: width, y: 0 });
+    });
   });
 
   describe("Generate (第9章9.5節)", () => {

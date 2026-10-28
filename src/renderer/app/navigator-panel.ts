@@ -16,6 +16,7 @@ export class NavigatorView {
   private readonly paperRect: SVGRectElement;
   private readonly viewportRect: SVGRectElement;
   private visible = true;
+  private dragging = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -31,14 +32,33 @@ export class NavigatorView {
     this.viewportRect = this.createRect("navigator-viewport");
     this.svg.append(this.paperRect, this.viewportRect);
 
-    this.svg.addEventListener("click", (e) => {
-      const rect = this.svg.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-      const nx = (e.clientX - rect.left) / rect.width;
-      const ny = (e.clientY - rect.top) / rect.height;
-      const doc = this.store.getDocument();
-      this.store.setView(this.store.view.panTo(navigatorPointToPanCenter(doc.paper, { x: nx, y: ny })));
+    // 外部仕様7.3.2: クリックまたはドラッグで、その位置を表示範囲の中央に移動する。
+    // 押した位置へ移し（クリック）、押している間はポインタに追従させる（ドラッグ）。
+    // 枠の外へ出ても追従が切れないよう、移動と離すのはウィンドウ側で受ける。
+    const win = this.root.ownerDocument.defaultView ?? window;
+    this.svg.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      this.dragging = true;
+      this.panToPointer(e);
+      e.preventDefault();
     });
+    win.addEventListener("mousemove", (e) => {
+      if (this.dragging) this.panToPointer(e);
+    });
+    win.addEventListener("mouseup", () => {
+      this.dragging = false;
+    });
+  }
+
+  /** ポインタ位置（画面座標）を用紙上の正規化座標に直し、その点を表示中心にする。 */
+  private panToPointer(e: MouseEvent): void {
+    const rect = this.svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // 用紙の外へドラッグしても中心が用紙の外へ出ないよう、[0,1]に収める。
+    const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    const doc = this.store.getDocument();
+    this.store.setView(this.store.view.panTo(navigatorPointToPanCenter(doc.paper, { x: nx, y: ny })));
   }
 
   private createRect(className: string): SVGRectElement {
