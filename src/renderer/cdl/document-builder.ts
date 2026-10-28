@@ -9,7 +9,7 @@ import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../mod
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
 import { PaperSpec } from "../model/paper";
-import { CPort, EPort, type EdgeSide } from "../model/port";
+import { CPort, EPort, portLayoutKey, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
 import { Region, RegionTree } from "../model/region";
@@ -22,6 +22,9 @@ import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
 import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import { isUnderAny } from "../../shared/path-under";
+
+/** 配列ポートの隣り合う要素の間隔（mm）。要素の挿入（InsertPortElementCommand）と同じ値。 */
+const ARRAY_ELEMENT_GAP_MM = 3;
 
 export interface CdlSource {
   readonly text: string;
@@ -80,7 +83,7 @@ function autoPlacementPosition(index: number, paperW: number, paperH: number): {
  * （外部仕様4.3.1のCPGap/EPGap=10mmという間隔の趣旨を、ポート数に応じて均等割りする形で踏襲）。
  */
 function assignDefaultPortLayout(
-  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number }[],
+  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number; readonly variableArray?: boolean }[],
   edge: EdgeSide,
   edgeLength: number,
 ): PortTemplate[] {
@@ -92,6 +95,7 @@ function assignDefaultPortLayout(
     offset: alignRound((edgeLength * (i + 1)) / (count + 1)),
     subscript: null,
     arraySize: p.arraySize ?? null,
+    ...(p.variableArray ? { variableArray: true } : {}),
   }));
 }
 
@@ -365,7 +369,7 @@ export class CdlDocumentLoader {
     }
     const portTypes = new Map<string, ResolvedPortType>();
     const qualifiedCelltypes = new Map<string, CelltypeRef>();
-    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number } => {
+    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number; variableArray?: boolean } => {
       const id = resolveSignatureInScope(port.signature, port.scopePath, signatures);
       const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
       portTypes.set(portTypeKey(celltypeName, port.kind, port.name), { signatureId: id, valid });
@@ -375,7 +379,12 @@ export class CdlDocumentLoader {
         location: { file: fileName, line: port.line, column: port.column },
         relatedPortName: port.name,
       });
-      return { name: port.name, signature: id ? `::${id}` : port.signature, arraySize: port.arraySize };
+      return {
+        name: port.name,
+        signature: id ? `::${id}` : port.signature,
+        arraySize: port.arraySize,
+        ...(port.isArray && port.arraySize === undefined ? { variableArray: true } : {}),
+      };
     };
     // 名前つき`require`（`require 名前 = 要求先.受け口;`）の呼び口は、要求先の受け口のシグニチャを持つ
     // （第4B章4B.5節）。要求先は、セルタイプ名、またはセル名（そのセルのセルタイプ）で指定される。
@@ -515,11 +524,26 @@ export class CdlDocumentLoader {
         }
 
         const applyPortLayout = (p: PortTemplate): PortTemplate => {
-          const saved = layout?.ports?.[p.name];
+          // 配列の要素は `名前[添字]` の鍵を先に引き、無ければ名前の鍵（要素共通の旧形式）を使う。
+          const saved = layout?.ports?.[portLayoutKey(p)] ?? layout?.ports?.[p.name];
           return saved ? { ...p, edgeSide: saved.edge, offset: saved.offset } : p;
         };
+        // 配列の呼び口を要素へ展開する。固定長 `[N]` はN個、可変長 `[]` は結合で使われた添字の最大値+1個（最低1個）。
+        const expandArrayPort = (p: PortTemplate): PortTemplate[] => {
+          const count = p.arraySize
+            ?? (p.variableArray
+              ? Math.max(1, ...decl.joins.filter((j) => j.cport === p.name && j.cportIndex !== undefined).map((j) => j.cportIndex! + 1))
+              : null);
+          if (count === null) return [p];
+          const edgeLength = p.edgeSide === "TOP" || p.edgeSide === "BOTTOM" ? width : height;
+          return Array.from({ length: count }, (_, i) => ({
+            ...p,
+            subscript: i,
+            offset: Math.min(edgeLength, alignRound(p.offset + i * ARRAY_ELEMENT_GAP_MM)),
+          }));
+        };
 
-        const cports = celltype.cportTemplates.map((p) => {
+        const cports = celltype.cportTemplates.flatMap(expandArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return CPort.create({
             name: t.name,

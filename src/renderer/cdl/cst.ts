@@ -19,6 +19,8 @@ export interface PortDecl {
   readonly signature: string;
   readonly name: string;
   readonly arraySize?: number;
+  /** 配列ポート（`[]` または `[N]`）。`[]`（可変長）は `arraySize` を持たないので、これで非配列と区別する。 */
+  readonly isArray?: boolean;
   /** 名前なしの`require`（図に出ない呼び口）。名前つきの`require`は通常の呼び口として`false`にする。 */
   readonly isRequire: boolean;
   /** 名前つき`require`（`require 名前 = 要求先.受け口;`）の要求先。ローダーがシグニチャを解決する。 */
@@ -300,6 +302,7 @@ export class CdlDocumentBuilder {
       signature: signature.text,
       name: name.text,
       arraySize: Number.isFinite(parsedSize) ? parsedSize : undefined,
+      isArray: portNode.children.some((child) => child?.type === "["),
       // 実際のCDLでは require は独立した celltype_statement であり、ポート宣言の修飾子ではない。
       // `port`文から立てることはない（`require`は`collectRequire`が拾う）。
       isRequire: false,

@@ -3,7 +3,7 @@
 // 新規ドキュメントは既定の3ブロック形式で出力する。
 
 import type { Cell } from "../model/cell";
-import type { EdgeSide } from "../model/port";
+import { portLayoutKey, type EdgeSide } from "../model/port";
 import { CDE_FORMAT_VERSION, TECSCDE_TS_VERSION } from "../model/tool-info-types";
 import type { CdlSourceTemplate, TecscdeDocument } from "../model/document";
 import { ToolInfoValidator, type CellLayout, type JoinLayout } from "./tool-info";
@@ -129,7 +129,7 @@ export class CdlSerializer {
     for (const cell of cells) {
       const ports: Record<string, { edge: EdgeSide; offset: number }> = {};
       for (const port of [...cell.cports, ...cell.eports]) {
-        ports[port.name] = { edge: port.edgeSide, offset: port.offset };
+        ports[portLayoutKey(port)] = { edge: port.edgeSide, offset: port.offset };
       }
       cellList[cell.name] = {
         location: [cell.x, cell.y, cell.width, cell.height], region: cell.regionId,
@@ -186,7 +186,7 @@ export class CdlSerializer {
     for (const cell of editableCells) {
       const ports: Record<string, { edge: EdgeSide; offset: number }> = {};
       for (const p of [...cell.cports, ...cell.eports]) {
-        ports[p.name] = { edge: p.edgeSide, offset: p.offset };
+        ports[portLayoutKey(p)] = { edge: p.edgeSide, offset: p.offset };
       }
       cellList[cell.name] = {
         location: [cell.x, cell.y, cell.width, cell.height],

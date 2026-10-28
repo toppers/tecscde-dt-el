@@ -11,6 +11,8 @@ export interface PortTemplate {
   readonly offset: number;
   readonly subscript: number | null;
   readonly arraySize: number | null;
+  /** 可変長配列（`[]`）。セル生成時に、結合で使われた添字の最大値+1個の要素へ展開する。 */
+  readonly variableArray?: boolean;
 }
 
 export interface CelltypeRefCreateParams {

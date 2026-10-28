@@ -33,6 +33,11 @@ export abstract class Port {
 }
 
 /** 呼び口（Call Port）。結合は最大1本（外部仕様4.3.1、10.3 #3）。 */
+/** 配置ファイル（.tecscde）のポートの鍵。配列の要素は `名前[添字]`、それ以外は名前。 */
+export function portLayoutKey(port: { readonly name: string; readonly subscript: number | null }): string {
+  return port.subscript === null ? port.name : `${port.name}[${port.subscript}]`;
+}
+
 export class CPort extends Port {
   private constructor(
     name: string,
