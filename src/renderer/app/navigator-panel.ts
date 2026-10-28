@@ -15,7 +15,8 @@ export class NavigatorView {
   private readonly svg: SVGSVGElement;
   private readonly paperRect: SVGRectElement;
   private readonly viewportRect: SVGRectElement;
-  private visible = true;
+  /** 利用者の指定。`auto` は用紙全体が収まるときだけ自動で隠す（7.3.2）。`shown`・`hidden` は自動判定に勝つ。 */
+  private override: "auto" | "shown" | "hidden" = "auto";
   private dragging = false;
 
   constructor(
@@ -67,9 +68,12 @@ export class NavigatorView {
     return el;
   }
 
-  /** 外部仕様3.5節: 表示/非表示を切り替えられるものとする。 */
+  /**
+   * 外部仕様3.5節: 表示/非表示を切り替えられるものとする。いま見えていれば隠し、隠れていれば
+   * （自動非表示の最中でも）見せる。以後は自動判定ではなく利用者の指定に従う。
+   */
   toggle(): void {
-    this.visible = !this.visible;
+    this.override = this.root.hidden ? "shown" : "hidden";
     this.render();
   }
 
@@ -77,7 +81,7 @@ export class NavigatorView {
     const doc = this.store.getDocument();
     const viewport: Viewport = { widthPx: this.scrollEl.clientWidth, heightPx: this.scrollEl.clientHeight };
     const model = computeNavigator(this.store.view, doc.paper, viewport);
-    const hidden = !this.visible || model.autoHidden;
+    const hidden = this.override === "hidden" || (this.override === "auto" && model.autoHidden);
     this.root.hidden = hidden;
     if (hidden) return;
 

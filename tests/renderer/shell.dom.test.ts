@@ -1402,6 +1402,26 @@ cell tRegular Regular {};
       expect(paperRect.getAttribute("height")).toBe(String(height));
     });
 
+    it("lets the user show the navigator while the paper fits, and keeps that choice (#21)", () => {
+      const { store } = mountShell();
+      const scroll = document.querySelector<HTMLElement>("#canvas-scroll")!;
+      // 用紙全体が収まる広いビューポート → 自動非表示。
+      Object.defineProperty(scroll, "clientWidth", { value: 100000, configurable: true });
+      Object.defineProperty(scroll, "clientHeight", { value: 100000, configurable: true });
+      store.setView(store.view.panTo({ x: 100, y: 100 }));
+      const nav = document.querySelector<HTMLElement>("#navigator")!;
+      const toggle = () => document.querySelector<HTMLButtonElement>("[data-action='toggleNavigator']")!.click();
+      expect(nav.hidden).toBe(true);
+
+      toggle(); // 自動非表示の最中でも、利用者が見せられる
+      expect(nav.hidden).toBe(false);
+      store.setView(store.view.panTo({ x: 120, y: 90 })); // 再描画しても自動判定に戻らない
+      expect(nav.hidden).toBe(false);
+
+      toggle(); // 隠す
+      expect(nav.hidden).toBe(true);
+    });
+
     it("pans on press and follows the pointer while dragging, clamped to the paper (#20)", () => {
       const { store } = mountShell();
       const svg = document.querySelector<SVGSVGElement>("#navigator svg")!;
