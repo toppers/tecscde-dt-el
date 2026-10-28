@@ -13,6 +13,11 @@ function formatToolInfoBlock(toolName: string, json: string): string {
   return `__tool_info__("${toolName}") ${json}`;
 }
 
+/** 同じ名前空間の同名セルを同一とみなす鍵（異なる名前空間の同名セルは別）。 */
+function cellKey(regionPath: string, name: string): string {
+  return `${regionPath}\0${name}`;
+}
+
 function cellJoinLines(doc: TecscdeDocument, cell: Cell): string[] {
   const lines: string[] = [];
   for (const cport of cell.cports) {
@@ -24,7 +29,12 @@ function cellJoinLines(doc: TecscdeDocument, cell: Cell): string[] {
     const lhs = cport.subscript !== null ? `${cport.name}[${cport.subscript}]` : cport.name;
     // 修飾名で書かれていた結合先は、セル名が変わっていない限りそのまま書き戻す（#26）。
     const target = join.targetRef !== undefined && join.targetRef.split("::").pop() === targetCell.name
-      ? join.targetRef : targetCell.name;
+      ? join.targetRef
+      // 名前が衝突するセルのIDは修飾名（`::N::c1`）。名前空間の部分はIDから取り、名前は現在のセル名を使う
+      // （IDは改名しても変わらない）。衝突しないセルは素のセル名。
+      : targetCell.id.startsWith("::")
+        ? `${targetCell.id.slice(0, targetCell.id.lastIndexOf("::"))}::${targetCell.name}`
+        : targetCell.name;
     lines.push(`  ${lhs} = ${target}.${join.eportName};`);
   }
   return lines;
@@ -65,14 +75,15 @@ function serializeFromTemplate(
       throw new Error(`リージョン所属が不整合です: ${cell.name}`);
     }
   }
-  if (new Set(template.cells.map((cell) => cell.cellName)).size !== template.cells.length) {
+  if (new Set(template.cells.map((cell) => cellKey(cell.regionPath, cell.cellName))).size !== template.cells.length) {
     throw new Error("同名セルが複数あるため、CDLを安全に保存できません。");
   }
   const edits: TextEdit[] = template.cells.map((cell) => ({
     start: cell.startIndex, end: cell.endIndex, text: "",
   }));
   const insertions = new Map<string, string[]>();
-  const originalCells = new Map(template.cells.map((cell) => [cell.cellName, cell]));
+  const originalCells = new Map<string, typeof template.cells>();
+  for (const cell of template.cells) originalCells.set(cell.cellName, [...(originalCells.get(cell.cellName) ?? []), cell]);
   const scopeEnd = new Map<string, number>(template.scopes.map((scope) => [scope.path, scope.bodyEndIndex]));
   for (const cell of cells) {
     const path = doc.regions.findById(cell.regionId)?.namespacePath;
@@ -80,7 +91,9 @@ function serializeFromTemplate(
       throw new Error(`保存先リージョンが編集ファイルにありません: ${cell.name}`);
     }
     const blocks = insertions.get(path) ?? [];
-    const original = originalCells.get(cell.sourceName);
+    // 同名セルが複数あるときは、現在のリージョンと同じ所属のものを元のブロックとする。
+    const sameName = originalCells.get(cell.sourceName) ?? [];
+    const original = sameName.length === 1 ? sameName[0] : sameName.find((c) => c.regionPath === path);
     blocks.push((original?.leadingText ?? "") + serializeCellBlock(doc, cell, original?.joins));
     insertions.set(path, blocks);
   }
@@ -113,10 +126,10 @@ function serializeFromTemplate(
         composite.structure.rawText !== template.composites[index]?.rawText)) {
     throw new Error("複合セルタイプの内部構造を保持できません。");
   }
-  const expected = new Map(cells.map((cell) => [cell.name, doc.regions.findById(cell.regionId)?.namespacePath]));
+  const expected = new Set(cells.map((cell) => cellKey(doc.regions.findById(cell.regionId)?.namespacePath ?? "", cell.name)));
   if (parsed.diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
       parsed.cells.length !== cells.length ||
-      parsed.cells.some((cell) => expected.get(cell.cellName) !== cell.regionPath)) {
+      parsed.cells.some((cell) => !expected.has(cellKey(cell.regionPath, cell.cellName)))) {
     throw new Error("保存後のCDLでセルの所属を復元できません。");
   }
   return result.endsWith("\n") ? result : `${result}\n`;
@@ -134,7 +147,7 @@ export class CdlSerializer {
       for (const port of [...cell.cports, ...cell.eports]) {
         ports[portLayoutKey(port)] = { edge: port.edgeSide, offset: port.offset };
       }
-      cellList[cell.name] = {
+      cellList[cell.id] = {
         location: [cell.x, cell.y, cell.width, cell.height], region: cell.regionId,
         ...(Object.keys(ports).length > 0 ? { ports } : {}),
       };
@@ -191,7 +204,7 @@ export class CdlSerializer {
       for (const p of [...cell.cports, ...cell.eports]) {
         ports[portLayoutKey(p)] = { edge: p.edgeSide, offset: p.offset };
       }
-      cellList[cell.name] = {
+      cellList[cell.id] = {
         location: [cell.x, cell.y, cell.width, cell.height],
         region: cell.regionId,
         ...(Object.keys(ports).length > 0 ? { ports } : {}),

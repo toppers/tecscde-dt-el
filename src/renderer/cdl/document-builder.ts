@@ -457,17 +457,20 @@ export class CdlDocumentLoader {
       }
       return names.length > 0 ? `::${names.join("::")}` : "::";
     };
+    // 同じ名前空間の同名セルだけが重複。異なる名前空間の同名セルは共存し、そのIDは修飾名になる（監査#25）。
+    const duplicateKey = (cell: CellDecl): string => `${namespaceOf(cell.regionPath)}\0${cell.cellName}`;
     const selectedCells = new Map<string, { declaration: CellDecl; source: ParsedSource }>();
     for (const source of parsedSources) {
       for (const declaration of source.cells) {
-        const previous = selectedCells.get(declaration.cellName);
+        const key = duplicateKey(declaration);
+        const previous = selectedCells.get(key);
         if (!previous) {
-          selectedCells.set(declaration.cellName, { declaration, source });
+          selectedCells.set(key, { declaration, source });
         } else if (source.generated && previous.source.generated) {
           // tecsgen may emit a prototype before the populated cell definition.
           const details = (cell: CellDecl): number => cell.joins.length + cell.attrs.length;
           if (details(declaration) > details(previous.declaration)) {
-            selectedCells.set(declaration.cellName, { declaration, source });
+            selectedCells.set(key, { declaration, source });
           }
         } else if (!source.generated) {
           diagnostics.push(duplicateCell(declaration.cellName, {
@@ -479,14 +482,24 @@ export class CdlDocumentLoader {
     const selectedSources: ParsedSource[] = [...selectedCells.values()].map(({ declaration, source }) => ({
       ...source, cells: [declaration],
     }));
+    // 名前が衝突するセルは、名前空間つきの修飾名（`::N::c1`）をIDにする。衝突しないセルのIDは名前のまま。
+    const nameCounts = new Map<string, number>();
+    for (const { declaration } of selectedCells.values()) {
+      nameCounts.set(declaration.cellName, (nameCounts.get(declaration.cellName) ?? 0) + 1);
+    }
+    const idFor = (regionPath: string, name: string): CellId => {
+      if ((nameCounts.get(name) ?? 0) < 2) return asCellId(name);
+      const namespace = namespaceOf(regionPath);
+      return asCellId(namespace === "::" ? `::${name}` : `${namespace}::${name}`);
+    };
     let autoIndex = 0;
 
     for (const src of selectedSources) {
       for (const decl of src.cells) {
-        const id = asCellId(decl.cellName);
+        const id = idFor(decl.regionPath, decl.cellName);
         cellNamespaces.set(id, namespaceOf(decl.regionPath));
         const celltype = resolveCelltypeInScope(celltypeLookup, decl.celltypeName, decl.regionPath);
-        const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[decl.cellName];
+        const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[id];
         const savedRegion = layout?.region;
         const regionPath = decl.regionPath !== "::" ? decl.regionPath :
           savedRegion && (src.editable ? editableRegionPaths : regionPaths).has(savedRegion) ? savedRegion : "::";
@@ -611,27 +624,37 @@ export class CdlDocumentLoader {
 
     // --- 結合（2周目: 全セルが揃ってから解決） ---
     const joins = new Map<JoinId, Join>();
-    // 結合先の解決。`::N::c`（絶対）と `N::c`（相対）は、名前空間が合うセルだけを返す。セル名は全体で一意なので、
-    // 名前で引いてから名前空間を照合する。相対名は呼び元の名前空間から外側へ探す規則までは再現せず、末尾一致で受ける。
-    const resolveTargetCell = (raw: string): Cell | undefined => {
-      if (!raw.includes("::")) return cells.get(asCellId(raw));
+    // 結合先の解決（tecsgen の名前解決に倣う）。`::N::c` は絶対、`N::c` と `c` は呼び元の名前空間から外側へ探す。
+    // 外側で見つからなくても、同名のセルが1つだけで修飾が末尾一致するなら受ける（従来の寛容な挙動を保つ）。
+    const cellsByName = new Map<string, Cell[]>();
+    for (const cell of cells.values()) cellsByName.set(cell.name, [...(cellsByName.get(cell.name) ?? []), cell]);
+    const namespaceOfCell = (cell: Cell): string => cellNamespaces.get(cell.id) ?? "::";
+    const resolveTargetCell = (raw: string, fromNamespace: string): Cell | undefined => {
       const absolute = raw.startsWith("::");
       const parts = raw.replace(/^::/, "").split("::");
-      const candidate = cells.get(asCellId(parts.pop()!));
-      if (!candidate) return undefined;
+      const candidates = cellsByName.get(parts.pop()!) ?? [];
+      if (candidates.length === 0) return undefined;
       const prefix = parts.length > 0 ? `::${parts.join("::")}` : "::";
-      const namespace = cellNamespaces.get(candidate.id) ?? "::";
-      const matches = absolute ? namespace === prefix : namespace === prefix || namespace.endsWith(prefix);
-      return matches ? candidate : undefined;
+      if (absolute) return candidates.find((c) => namespaceOfCell(c) === prefix);
+      const within = (scope: string): string => (scope === "::" ? prefix : prefix === "::" ? scope : `${scope}${prefix}`);
+      for (let scope = fromNamespace; ; ) {
+        const found = candidates.find((c) => namespaceOfCell(c) === within(scope));
+        if (found) return found;
+        if (scope === "::") break;
+        const separator = scope.lastIndexOf("::");
+        scope = separator === 0 ? "::" : scope.slice(0, separator);
+      }
+      const only = candidates.length === 1 ? candidates[0]! : undefined;
+      return only && (prefix === "::" || namespaceOfCell(only).endsWith(prefix)) ? only : undefined;
     };
     for (const src of selectedSources) {
       for (const decl of src.cells) {
-        const sourceCell = cells.get(asCellId(decl.cellName));
+        const sourceCell = cells.get(idFor(decl.regionPath, decl.cellName));
         if (!sourceCell) continue;
         for (const j of decl.joins) {
-          const jid = asJoinId(`${decl.cellName}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
+          const jid = asJoinId(`${sourceCell.id}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
           const cport = sourceCell.cports.find((p) => p.name === j.cport && p.subscript === (j.cportIndex ?? null));
-          const targetCell = resolveTargetCell(j.targetCell);
+          const targetCell = resolveTargetCell(j.targetCell, namespaceOfCell(sourceCell));
           const eport = targetCell?.eports.find((p) => p.name === j.eport);
           if (!cport || !targetCell || !eport) {
             diagnostics.push(missingJoinTarget(decl.cellName, j.cport, sourceCell.id));
@@ -674,7 +697,7 @@ export class CdlDocumentLoader {
         cells: template.cells.map((cell) => ({
           ...cell,
           joins: cell.joins?.filter((join) => !joins.has(asJoinId(
-            `${cell.cellName}.${join.cport}${join.cportIndex !== undefined ? `[${join.cportIndex}]` : ""}`,
+            `${idFor(cell.regionPath, cell.cellName)}.${join.cport}${join.cportIndex !== undefined ? `[${join.cportIndex}]` : ""}`,
           ))),
         })),
       };
