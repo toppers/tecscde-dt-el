@@ -60,7 +60,9 @@ interface Harness {
   setSelection(sel: SelectionState): void;
 }
 
-function harness(opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; celltype?: string } = {}): Harness {
+function harness(
+  opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; celltype?: string; sink?: GesturePreviewSink } = {},
+): Harness {
   let doc = opts.doc ?? loadDoc();
   let selection = SelectionState.empty();
   const dispatched: Command[] = [];
@@ -84,7 +86,7 @@ function harness(opts: { doc?: TecscdeDocument; mode?: "select" | "newCell"; cel
     requestRender: () => {},
   };
   return {
-    gesture: new GestureController(noopSink, host),
+    gesture: new GestureController(opts.sink ?? noopSink, host),
     dispatched,
     messages,
     doc: () => doc,
@@ -736,5 +738,51 @@ describe("port move and edge change by Alt drag (#8)", () => {
     expect(h.gesture.stateKind).toBe("idle");
     expect(h.messages).toHaveLength(1);
     expect(h.messages[0]).toContain("結合済み");
+  });
+
+  it("shows a preview mark at the destination while dragging and clears it on release", () => {
+    const calls: (readonly { x: number; y: number }[] | undefined)[] = [];
+    const sink: GesturePreviewSink = { ...noopSink, setPortDragPreview: (_view, positions) => calls.push(positions) };
+    const h = harness({ sink });
+    const { cell, port, at } = cLogOf(h);
+    const alongX = port.edgeSide === "TOP" || port.edgeSide === "BOTTOM";
+    const moveTo = alongX ? { x: at.x + 5, y: at.y } : { x: at.x, y: at.y + 5 };
+
+    h.gesture.pointerDown(at, ALT);
+    h.gesture.pointerMove(moveTo);
+    const shown = calls.at(-1);
+    expect(shown).toHaveLength(1);
+    // 確定後のポート位置と同じ場所に印が出る。
+    h.gesture.pointerUp(moveTo);
+    const moved = h.doc().getCell(CONTROLLER)!.findCPort("cLog")!;
+    expect(shown![0]).toEqual(portPosition(h.doc().getCell(CONTROLLER)!, moved));
+    expect(calls.at(-1)).toBeUndefined();
+    void cell;
+  });
+
+  it("clears the preview and says the move was canceled when Escape is pressed", () => {
+    const calls: (readonly { x: number; y: number }[] | undefined)[] = [];
+    const sink: GesturePreviewSink = { ...noopSink, setPortDragPreview: (_view, positions) => calls.push(positions) };
+    const h = harness({ sink });
+    const { port, at } = cLogOf(h);
+    const alongX = port.edgeSide === "TOP" || port.edgeSide === "BOTTOM";
+    h.gesture.pointerDown(at, ALT);
+    h.gesture.pointerMove(alongX ? { x: at.x + 5, y: at.y } : { x: at.x, y: at.y + 5 });
+    expect(calls.at(-1)).toHaveLength(1);
+
+    expect(h.gesture.keyDown("Escape")).toBe(true);
+    expect(calls.at(-1)).toBeUndefined();
+    expect(h.messages).toEqual(["ポートの移動を取り消しました"]);
+
+    h.gesture.pointerUp(alongX ? { x: at.x + 5, y: at.y } : { x: at.x, y: at.y + 5 });
+    expect(h.dispatched).toHaveLength(0);
+  });
+
+  it("uses an edge-change wording when the canceled drag was an edge change", () => {
+    const h = harness();
+    const { at } = cLogOf(h);
+    h.gesture.pointerDown(at, ALT_SHIFT);
+    h.gesture.keyDown("Escape");
+    expect(h.messages).toEqual(["ポートの辺の変更を取り消しました"]);
   });
 });

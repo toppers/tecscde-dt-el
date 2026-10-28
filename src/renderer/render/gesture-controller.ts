@@ -115,6 +115,8 @@ export interface GesturePreviewSink {
   setJoinBarPreview(join: Join, bars: readonly Bar[], source: Cell, target: Cell, view: CanvasView): void;
   clearJoinBarPreview(): void;
   renderSelectionBox(view: CanvasView, box: { a: Point; b: Point } | undefined): void;
+  /** ポートのドラッグ中に、移動後のポート位置（モデル座標）を印として描く。`undefined` で消去。 */
+  setPortDragPreview?(view: CanvasView, positions: readonly Point[] | undefined): void;
   screenToModel(px: Point, view: CanvasView): Point;
 }
 
@@ -276,6 +278,11 @@ export class GestureController {
       return;
     }
 
+    if (s.kind === "movingPorts") {
+      this.sink.setPortDragPreview?.(view, this.portDragPositions(s, point));
+      return;
+    }
+
     if (s.kind === "joining") {
       const hit = this.hitTester().hitTest(point);
       const to =
@@ -337,6 +344,7 @@ export class GestureController {
 
     if (s.kind === "movingPorts") {
       this.transition({ kind: "idle" });
+      this.sink.setPortDragPreview?.(view, undefined);
       const command = s.edgeChange ? this.edgeChangeCommand(s.anchor, point) : this.movePortsCommand(s.start, point);
       if (command) this.host.dispatch(command);
       this.host.requestRender();
@@ -482,6 +490,13 @@ export class GestureController {
       (this.state.kind === "joining" || this.state.kind === "movingJoinBar" || this.state.kind === "movingPorts")
     ) {
       if (this.state.kind === "movingJoinBar") this.sink.clearJoinBarPreview();
+      if (this.state.kind === "movingPorts") {
+        // 取り消したことが画面で分かるように、印を消して知らせる。
+        this.sink.setPortDragPreview?.(this.host.getView(), undefined);
+        this.host.postMessage?.(
+          this.state.edgeChange ? "ポートの辺の変更を取り消しました" : "ポートの移動を取り消しました",
+        );
+      }
       this.transition({ kind: "idle" });
       this.host.requestRender();
       return true;
@@ -511,6 +526,24 @@ export class GestureController {
       });
     }
     return moves.length > 0 ? new MovePortsCommand(moves) : undefined;
+  }
+
+  /**
+   * ドラッグ中のプレビュー用に、放した場合にポートが移る位置を返す。確定時と同じコマンドを
+   * 現在のドキュメントへ仮に適用して求めるので、クランプや格子への丸めも確定結果と一致する。
+   */
+  private portDragPositions(s: Extract<DragState, { kind: "movingPorts" }>, end: Point): Point[] {
+    const command = s.edgeChange ? this.edgeChangeCommand(s.anchor, end) : this.movePortsCommand(s.start, end);
+    if (!command) return [];
+    const next = command.apply(this.host.getDocument());
+    const refs = s.edgeChange ? [s.anchor] : this.host.getSelection().ports;
+    const positions: Point[] = [];
+    for (const p of refs) {
+      const cell = next.getCell(p.cellId);
+      const port = p.kind === "cport" ? cell?.findCPort(p.portName, p.subscript) : cell?.findEPort(p.portName, p.subscript);
+      if (cell && port) positions.push(portPosition(cell, port));
+    }
+    return positions;
   }
 
   /** ポートを、ポインタに最も近いセルの辺へ付け替える（外部仕様4.3.2「所属辺の変更」）。 */

@@ -311,6 +311,25 @@ export class SvgRenderer {
     this.joinBarPreviews.clear();
   }
 
+  /** ポートのドラッグ中: 放した場合にポートが移る位置へ印（円）を描く。`undefined` で消去。 */
+  setPortDragPreview(view: CanvasView, positions: readonly Point[] | undefined): void {
+    Array.from(this.selectionLayer.querySelectorAll("circle.port-drag-preview")).forEach((el) => el.remove());
+    if (!positions) return;
+    const k = pxPerMm(view);
+    for (const p of positions) {
+      const dot = svgEl("circle");
+      setAttrs(dot, { cx: p.x * k, cy: p.y * k, r: 5 });
+      dot.setAttribute("class", "port-drag-preview");
+      dot.setAttribute("fill", "#2563eb");
+      dot.setAttribute("fill-opacity", "0.55");
+      dot.setAttribute("stroke", "#1d4ed8");
+      dot.setAttribute("stroke-width", "1.5");
+      // 印がポインタを遮らないようにする。
+      dot.setAttribute("pointer-events", "none");
+      this.selectionLayer.appendChild(dot);
+    }
+  }
+
   /** ラバーバンド選択の矩形（モデル座標）。`undefined` で消去。 */
   renderSelectionBox(view: CanvasView, box: { a: Point; b: Point } | undefined): void {
     // セレクション矩形はオーバーレイ層の一時要素として描く（選択強調とは別要素）。
