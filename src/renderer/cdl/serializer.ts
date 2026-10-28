@@ -22,7 +22,10 @@ function cellJoinLines(doc: TecscdeDocument, cell: Cell): string[] {
     const targetCell = doc.getCell(join.eportCellId);
     if (!targetCell) continue;
     const lhs = cport.subscript !== null ? `${cport.name}[${cport.subscript}]` : cport.name;
-    lines.push(`  ${lhs} = ${targetCell.name}.${join.eportName};`);
+    // 修飾名で書かれていた結合先は、セル名が変わっていない限りそのまま書き戻す（#26）。
+    const target = join.targetRef !== undefined && join.targetRef.split("::").pop() === targetCell.name
+      ? join.targetRef : targetCell.name;
+    lines.push(`  ${lhs} = ${target}.${join.eportName};`);
   }
   return lines;
 }

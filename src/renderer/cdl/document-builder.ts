@@ -272,6 +272,7 @@ export class CdlDocumentLoader {
     const layoutsBySource = new Map<string, ToolInfoTecscdeParsed>();
     let paper: PaperSpec = PaperSpec.default();
     const regionPaths = new Set<string>(["::"]);
+    const namespaceScopePaths = new Set<string>();
     const editableRegionPaths = new Set<string>(["::"]);
     let sourceTemplate: CdlSourceTemplate | undefined;
     const sourceTemplates = new Map<string, CdlSourceTemplate>();
@@ -288,6 +289,7 @@ export class CdlDocumentLoader {
       }
       for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
       for (const scope of parsed.scopes) {
+        if (scope.kind === "namespace") namespaceScopePaths.add(scope.path);
         let path = scope.path;
         while (path !== "::") {
           regionPaths.add(path);
@@ -444,6 +446,17 @@ export class CdlDocumentLoader {
 
     // --- セル（1周目: 本体とポート。全ファイル分をまとめて処理する） ---
     const cells = new Map<CellId, Cell>();
+    // 修飾名（`N::cell`）の解決用。リージョンはセル名の修飾に使われないので、namespace だけの経路を持つ。
+    const cellNamespaces = new Map<CellId, string>();
+    const namespaceOf = (regionPath: string): string => {
+      const names: string[] = [];
+      let path = "";
+      for (const segment of regionPath.split("::").filter(Boolean)) {
+        path += `::${segment}`;
+        if (namespaceScopePaths.has(path)) names.push(segment);
+      }
+      return names.length > 0 ? `::${names.join("::")}` : "::";
+    };
     const selectedCells = new Map<string, { declaration: CellDecl; source: ParsedSource }>();
     for (const source of parsedSources) {
       for (const declaration of source.cells) {
@@ -471,6 +484,7 @@ export class CdlDocumentLoader {
     for (const src of selectedSources) {
       for (const decl of src.cells) {
         const id = asCellId(decl.cellName);
+        cellNamespaces.set(id, namespaceOf(decl.regionPath));
         const celltype = resolveCelltypeInScope(celltypeLookup, decl.celltypeName, decl.regionPath);
         const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[decl.cellName];
         const savedRegion = layout?.region;
@@ -597,6 +611,19 @@ export class CdlDocumentLoader {
 
     // --- 結合（2周目: 全セルが揃ってから解決） ---
     const joins = new Map<JoinId, Join>();
+    // 結合先の解決。`::N::c`（絶対）と `N::c`（相対）は、名前空間が合うセルだけを返す。セル名は全体で一意なので、
+    // 名前で引いてから名前空間を照合する。相対名は呼び元の名前空間から外側へ探す規則までは再現せず、末尾一致で受ける。
+    const resolveTargetCell = (raw: string): Cell | undefined => {
+      if (!raw.includes("::")) return cells.get(asCellId(raw));
+      const absolute = raw.startsWith("::");
+      const parts = raw.replace(/^::/, "").split("::");
+      const candidate = cells.get(asCellId(parts.pop()!));
+      if (!candidate) return undefined;
+      const prefix = parts.length > 0 ? `::${parts.join("::")}` : "::";
+      const namespace = cellNamespaces.get(candidate.id) ?? "::";
+      const matches = absolute ? namespace === prefix : namespace === prefix || namespace.endsWith(prefix);
+      return matches ? candidate : undefined;
+    };
     for (const src of selectedSources) {
       for (const decl of src.cells) {
         const sourceCell = cells.get(asCellId(decl.cellName));
@@ -604,7 +631,7 @@ export class CdlDocumentLoader {
         for (const j of decl.joins) {
           const jid = asJoinId(`${decl.cellName}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
           const cport = sourceCell.cports.find((p) => p.name === j.cport && p.subscript === (j.cportIndex ?? null));
-          const targetCell = cells.get(asCellId(j.targetCell));
+          const targetCell = resolveTargetCell(j.targetCell);
           const eport = targetCell?.eports.find((p) => p.name === j.eport);
           if (!cport || !targetCell || !eport) {
             diagnostics.push(missingJoinTarget(decl.cellName, j.cport, sourceCell.id));
@@ -622,7 +649,10 @@ export class CdlDocumentLoader {
                 [...cells.values()], // 外部仕様7.3.2: 保存済みの経路が無い結合は、他のセルを避ける
               );
 
-          const join = Join.create(jid, sourceCell.id, cport, targetCell.id, eport, bars);
+          const join = Join.create(
+            jid, sourceCell.id, cport, targetCell.id, eport, bars,
+            j.targetCell.includes("::") ? j.targetCell : undefined,
+          );
           joins.set(jid, join);
 
           const updatedSource = cells.get(sourceCell.id);
