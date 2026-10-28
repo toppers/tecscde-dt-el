@@ -12,6 +12,7 @@ import { CdlGrammar } from "./grammar";
 import { syntaxError, unexpectedEof } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import type { CompositeInternalBinding, CompositeStructure } from "../model/composite";
+import { evaluateConstInt } from "./const-expr";
 import { localTypedefs, signatureFunctions, type LocalTypedefDecl, type SignatureFunctionDecl } from "./signature-types";
 
 export interface PortDecl {
@@ -21,6 +22,8 @@ export interface PortDecl {
   readonly arraySize?: number;
   /** 配列ポート（`[]` または `[N]`）。`[]`（可変長）は `arraySize` を持たないので、これで非配列と区別する。 */
   readonly isArray?: boolean;
+  /** 評価できなかった長さの式（原文）。配列としては展開せず、警告の対象にする。 */
+  readonly unresolvedSize?: string;
   /** 名前なしの`require`（図に出ない呼び口）。名前つきの`require`は通常の呼び口として`false`にする。 */
   readonly isRequire: boolean;
   /** 名前つき`require`（`require 名前 = 要求先.受け口;`）の要求先。ローダーがシグニチャを解決する。 */
@@ -296,13 +299,17 @@ export class CdlDocumentBuilder {
     if (!kindNode || !signature || !name) return undefined;
     const kind = kindNode.text === "entry" ? "entry" : "call";
     const sizeNode = portNode.childForFieldName("size");
-    const parsedSize = sizeNode ? Number(sizeNode.text) : Number.NaN;
+    const parsedSize = sizeNode ? evaluateConstInt(sizeNode.text) : undefined;
+    // 長さは1以上。式が評価できない・0以下のときは長さを決めず、呼び出し側が警告にする。
+    const arraySize = parsedSize !== undefined && parsedSize >= 1 ? parsedSize : undefined;
     return {
       kind,
       signature: signature.text,
       name: name.text,
-      arraySize: Number.isFinite(parsedSize) ? parsedSize : undefined,
-      isArray: portNode.children.some((child) => child?.type === "["),
+      arraySize,
+      // `[]`（可変長）だけを配列として扱う。長さの式が評価できないものは、推測せず単一のポートのままにする。
+      isArray: arraySize !== undefined || (sizeNode === null && portNode.children.some((child) => child?.type === "[")),
+      ...(sizeNode && arraySize === undefined ? { unresolvedSize: sizeNode.text } : {}),
       // 実際のCDLでは require は独立した celltype_statement であり、ポート宣言の修飾子ではない。
       // `port`文から立てることはない（`require`は`collectRequire`が拾う）。
       isRequire: false,
@@ -486,8 +493,8 @@ export class CdlDocumentBuilder {
       if (!lhs || !rawValue) continue;
 
       const indexNode = join.childForFieldName("index");
-      const parsedIndex = indexNode ? Number(indexNode.text) : Number.NaN;
-      const cportIndex = Number.isFinite(parsedIndex) ? parsedIndex : undefined;
+      const parsedIndex = indexNode ? evaluateConstInt(indexNode.text) : undefined;
+      const cportIndex = parsedIndex !== undefined && parsedIndex >= 0 ? parsedIndex : undefined;
 
       const value = unwrapInitializer(rawValue);
       if (value.type === "field_expression") {

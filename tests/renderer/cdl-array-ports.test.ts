@@ -53,3 +53,41 @@ describe("array call ports on load (#23)", () => {
     );
   });
 });
+
+describe("array length and subscript expressions (#24)", () => {
+  const sizes = (text: string) => {
+    const r = CdlDocumentLoader.loadSingle(
+      `signature sX { void run(void); };\ncelltype tA { ${text} };\ncell tA a1 {};\n`,
+      "main.cde",
+    );
+    return { cell: r.document.getCell(asCellId("a1"))!, diagnostics: r.diagnostics };
+  };
+
+  it("evaluates integer constant expressions in the array length", () => {
+    expect(sizes("call sX c[2 + 1];").cell.cports.map((p) => p.subscript)).toEqual([0, 1, 2]);
+    expect(sizes("call sX c[(1 + 1) * 2];").cell.cports).toHaveLength(4);
+    expect(sizes("call sX c[0x3];").cell.cports).toHaveLength(3);
+    expect(sizes("call sX c[7 / 2];").cell.cports).toHaveLength(3);
+  });
+
+  it("keeps an unevaluable length as one port and warns instead of guessing a variable-length array", () => {
+    const { cell, diagnostics } = sizes("call sX c[N_MAX];");
+    expect(cell.cports.map((p) => p.subscript)).toEqual([null]);
+    expect(diagnostics.some((d) => d.code === "W-ARRAY-SIZE-UNRESOLVED" && d.message.includes("N_MAX"))).toBe(true);
+  });
+
+  it("treats a zero or negative length as unevaluable", () => {
+    expect(sizes("call sX c[0];").diagnostics.some((d) => d.code === "W-ARRAY-SIZE-UNRESOLVED")).toBe(true);
+    expect(sizes("call sX c[1 - 3];").cell.cports).toHaveLength(1);
+  });
+
+  it("resolves a join subscript written as an expression", () => {
+    const r = CdlDocumentLoader.loadSingle(
+      "signature sX { void run(void); };\ncelltype tA { call sX c[]; };\ncelltype tT { entry sX e; };\ncell tT t1 {};\ncell tA a1 { c[1 + 1] = t1.e; };\n",
+      "main.cde",
+    );
+    const cell = r.document.getCell(asCellId("a1"))!;
+    expect(cell.cports.map((p) => p.subscript)).toEqual([0, 1, 2]);
+    expect(cell.findCPort("c", 2)?.joinId).not.toBeNull();
+  });
+});

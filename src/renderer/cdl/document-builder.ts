@@ -379,6 +379,12 @@ export class CdlDocumentLoader {
         location: { file: fileName, line: port.line, column: port.column },
         relatedPortName: port.name,
       });
+      if (port.unresolvedSize !== undefined) diagnostics.push({
+        severity: "warning", code: W_CODES.ARRAY_SIZE_UNRESOLVED,
+        message: `ポート ${port.name} の配列長 [${port.unresolvedSize}] を評価できません（整数の定数式のみ対応）。配列として展開せず、単一のポートとして扱います。`,
+        location: { file: fileName, line: port.line, column: port.column },
+        relatedPortName: port.name,
+      });
       return {
         name: port.name,
         signature: id ? `::${id}` : port.signature,
