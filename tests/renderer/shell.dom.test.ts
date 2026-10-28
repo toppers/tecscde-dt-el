@@ -167,6 +167,7 @@ const BODY_HTML = `
     <div id="statusbar">
       <span id="status-pos"></span>
       <span id="status-zoom"></span>
+      <span id="status-mode"></span>
       <span id="status-region"></span>
       <span id="status-message"></span>
       <button id="status-diag" type="button"></button>
@@ -823,6 +824,28 @@ cell tRegular Regular {};
     store.markSaved(store.filePath!);
     expect(statusFile().classList.contains("dirty")).toBe(false);
     expect(statusFile().textContent).not.toContain("未保存");
+  });
+
+  it("shows the unsaved state in the window title and clears it on save (#22)", () => {
+    const { store } = mountShell();
+    store.loadDocument(store.getDocument(), "main.cde");
+    expect(document.title).toBe("main.cde - TECSCDE");
+
+    store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+    expect(document.title).toBe("● main.cde - TECSCDE");
+
+    store.markSaved(store.filePath!);
+    expect(document.title).toBe("main.cde - TECSCDE");
+  });
+
+  it("shows the current input mode as text in the status bar (#16)", () => {
+    const { store } = mountShell();
+    const text = () => document.querySelector<HTMLElement>("#status-mode")!.textContent;
+    expect(text()).toBe("モード: 選択");
+    store.setMode("newCell");
+    expect(text()).toContain("セル新規作成");
+    store.setMode("select");
+    expect(text()).toBe("モード: 選択");
   });
 
   it("undo button reverts a committed edit and updates its disabled state", () => {

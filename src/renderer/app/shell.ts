@@ -93,6 +93,7 @@ export class AppShell {
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
   private readonly statusMessage: HTMLElement;
+  private readonly statusMode: HTMLElement;
   private statusMessageTimer: number | undefined;
   private readonly exportDialog: HTMLElement;
   private readonly exportFormat: HTMLSelectElement;
@@ -149,6 +150,7 @@ export class AppShell {
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
     this.statusMessage = requireEl<HTMLElement>(root, "#status-message");
+    this.statusMode = requireEl<HTMLElement>(root, "#status-mode");
     this.exportDialog = requireEl<HTMLElement>(root, "#export-dialog");
     this.exportFormat = requireEl<HTMLSelectElement>(root, "#export-format");
     this.exportRange = requireEl<HTMLSelectElement>(root, "#export-range");
@@ -554,6 +556,10 @@ export class AppShell {
 
   private refreshStatus(): void {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
+    // 外部仕様3.3.2: 現在の入力モードを文字で示す（色やカーソルだけに頼らない）。
+    this.statusMode.textContent = this.store.getMode() === "newCell"
+      ? `モード: セル新規作成${this.store.getActiveCelltypeName() ? `（${this.store.getActiveCelltypeName()}）` : ""}`
+      : "モード: 選択";
     // 外部仕様4.9.2: 選択したセルの所属リージョンをステータス表示に示す。
     this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
     const path = this.store.filePath;
@@ -561,6 +567,8 @@ export class AppShell {
     this.statusFile.textContent = path ? `${baseName(path)}${dirty ? " ● 未保存の変更" : ""}` : "(未保存)";
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
+    // 外部仕様3.1: 未保存の変更をウィンドウタイトルにも示す。
+    this.win.document.title = `${dirty ? "● " : ""}${path ? baseName(path) : "(未保存)"} - TECSCDE`;
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
   }
 
