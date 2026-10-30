@@ -20,3 +20,10 @@ CLAUDE.md
 *.code-workspace
 tecscde-log-*.txt
 .codegraph/
+
+# テストの実行で作られる図の出力（PDF・PNG・SVG）と、tecsgen などの生成物の置き場 gen/ 。
+# すでにコミット済みのファイルには影響しない（追加で入れるときは git add -f）。
+tests/**/*.pdf
+tests/**/*.png
+tests/**/*.svg
+**/gen/
