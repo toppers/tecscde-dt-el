@@ -27,3 +27,7 @@ tests/**/*.pdf
 tests/**/*.png
 tests/**/*.svg
 **/gen/
+
+# 手元の確認で作った配列ポートのCDL（リポジトリに含めない）。
+tests/hr-tecs/workspace/sd/array-ports-Xcde.cde
+tests/hr-tecs/workspace/sd/array-ports-Xcde-X.cde
