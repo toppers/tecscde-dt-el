@@ -155,6 +155,72 @@ describe("array port commands (#9)", () => {
     expect(newPort.joinId).toBeNull();
   });
 
+  // 元の実装(Ruby版 TmCell#adjust_port_position_to_insert)に合わせ、挿入した要素が既存のポートと重ならない。
+  it("InsertPortElementCommand does not leave the inserted element on top of its neighbor (3mm-spaced elements)", () => {
+    const cellId = asCellId("cCell1");
+    const tight = (doc: TecscdeDocument): TecscdeDocument => {
+      const cell = doc.getCell(cellId)!;
+      const ports = cell.cports.map((p) =>
+        p.name === "cArrayPort" ? p.withEdge("RIGHT", p.subscript === 0 ? 3 : 6) : p,
+      );
+      return doc.withCell(cell.withCPorts(ports));
+    };
+    const next = new InsertPortElementCommand(cellId, "CPort", "cArrayPort", 0, false).apply(tight(createTestDoc()));
+
+    const offsets = next
+      .getCell(cellId)!
+      .cports.filter((p) => p.name === "cArrayPort")
+      .sort((x, y) => x.subscript! - y.subscript!)
+      .map((p) => p.offset);
+    expect(offsets).toHaveLength(3);
+    expect(new Set(offsets).size).toBe(3);
+    for (let i = 1; i < offsets.length; i += 1) expect(offsets[i]! - offsets[i - 1]!).toBeGreaterThanOrEqual(4);
+  });
+
+  it("InsertPortElementCommand before=true puts the new element in the target's place and pushes the rest back", () => {
+    const cellId = asCellId("cCell1");
+    const doc = createTestDoc();
+    const before = doc.getCell(cellId)!.cports.find((p) => p.name === "cArrayPort" && p.subscript === 1)!;
+
+    const next = new InsertPortElementCommand(cellId, "CPort", "cArrayPort", 1, true).apply(doc);
+
+    const ports = next.getCell(cellId)!.cports.filter((p) => p.name === "cArrayPort");
+    const created = ports.find((p) => p.subscript === 1)!;
+    const shifted = ports.find((p) => p.subscript === 2)!;
+    expect(created.offset).toBe(before.offset);
+    expect(shifted.offset).toBeGreaterThan(created.offset);
+  });
+
+  it("InsertPortElementCommand keeps the order and the gap when elements are pushed against the end of the edge", () => {
+    const cellId = asCellId("cCell1");
+    let doc = createTestDoc();
+    // 辺(右)に呼び口の配列要素を詰めて、端まで押し込まれるまで後ろへ挿入し続ける。
+    for (let i = 0; i < 3; i += 1) doc = new InsertPortElementCommand(cellId, "CPort", "cArrayPort", 0, false).apply(doc);
+
+    const ports = doc
+      .getCell(cellId)!
+      .cports.filter((p) => p.name === "cArrayPort")
+      .sort((x, y) => x.subscript! - y.subscript!);
+    expect(ports.map((p) => p.subscript)).toEqual([0, 1, 2, 3, 4]);
+    const offsets = ports.map((p) => p.offset);
+    // 添字の順に位置が増え（入れ替わらない）、どれも重ならない。
+    for (let i = 1; i < offsets.length; i += 1) expect(offsets[i]! - offsets[i - 1]!).toBeGreaterThanOrEqual(3);
+  });
+
+  it("InsertPortElementCommand reroutes the joins of ports it moved", () => {
+    const cellId = asCellId("cCell1");
+    const doc = createTestDoc();
+    const joinId = asJoinId("cCell1.cArrayPort[1]");
+    const barsBefore = doc.getJoin(joinId)!.bars;
+
+    const next = new InsertPortElementCommand(cellId, "CPort", "cArrayPort", 0, false).apply(doc);
+
+    // 元の [1] は [2] になり、後ろへずれる場合は結合の経路も再計算される（ずれなければ同じでよい）。
+    const moved = next.getCell(cellId)!.cports.find((p) => p.name === "cArrayPort" && p.subscript === 2)!;
+    const original = doc.getCell(cellId)!.cports.find((p) => p.name === "cArrayPort" && p.subscript === 1)!;
+    if (moved.offset !== original.offset) expect(next.getJoin(joinId)!.bars).not.toEqual(barsBefore);
+  });
+
   it("InsertPortElementCommand rejects fixed array ports and non-array ports", () => {
     const doc = createTestDoc();
     const cellId = asCellId("cCell1");
