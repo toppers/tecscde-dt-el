@@ -287,6 +287,10 @@
       }
       #canvas {
         display: block;
+        /* 親(#canvas-scroll)がflexのため、既定のflex-shrink:1だとSVGが親の幅へ縮められ、
+           はみ出した部分が切れて横スクロールもできなくなる（拡大時に一部のセルしか
+           見えず、ナビゲータでも動かない不具合の原因）。縮めない。 */
+        flex: none;
       }
       #region-legend {
         position: absolute;
