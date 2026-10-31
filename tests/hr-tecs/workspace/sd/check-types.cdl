@@ -1,0 +1,42 @@
+/* 実機確認 #9〜#15 用: シグニチャとセルタイプ（参照専用で読み込む想定）
+ * ポート名は画面に出ないため、セルタイプごとにポートの種類を1つに絞ってある。 */
+signature sX {
+	void run(void);
+};
+
+/* 結合先（受け口 e を持つ） */
+celltype tT {
+	entry sX e;
+};
+
+/* 可変長配列の呼び口だけを持つ（#9: Insert で要素が増える） */
+celltype tVar {
+	call sX cVar[];
+};
+
+/* 固定長配列(3要素)の呼び口だけを持つ（#9: Insert・Delete が拒否される） */
+celltype tFixed {
+	call sX cFixed[3];
+};
+
+/* 通常の呼び口だけを持つ（#9: 「配列ポートではありません」。#10・#15 の結合の有無） */
+celltype tPlain {
+	call sX cPlain;
+};
+
+/* 属性を持つ（#13・#14）。enabled は bool なので true / false のコンボになる */
+celltype tA {
+	attr {
+		bool_t enabled;
+		int32_t level = 1;
+	};
+	call sX cPlain;
+};
+
+/* tA とは別のセルタイプ（#13: 型名が「(複数)」になる） */
+celltype tB {
+	attr {
+		bool_t enabled;
+	};
+	call sX cPlain;
+};
