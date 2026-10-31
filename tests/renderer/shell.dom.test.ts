@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
-import type { TecscdeDocument } from "../../src/renderer/model/document";
+import { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
 import { ChangeCellsRegionCommand, DeleteJoinCommand, MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
@@ -888,6 +888,18 @@ cell tRegular Regular {};
 
     expect(store.getActiveCelltypeName()).toBe(other.dataset["celltype"]);
     expect(store.getMode()).toBe("newCell");
+  });
+
+  it("clears the active celltype when a document with no celltypes replaces one that had celltypes (audit #17)", () => {
+    const { shell, store } = mountShell();
+    expect(store.getActiveCelltypeName()).toBeDefined();
+
+    store.loadDocument(TecscdeDocument.empty(), null);
+
+    expect(store.getActiveCelltypeName()).toBeUndefined();
+    store.setMode("newCell");
+    shell.gesture.pointerDown({ x: 50, y: 50 });
+    expect(document.querySelector("#status-message")!.textContent).toBe("パレットでセルタイプを選択してください");
   });
 
   it("GestureController pointer sequence moves a cell via one command", () => {

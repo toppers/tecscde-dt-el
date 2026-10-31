@@ -71,6 +71,11 @@ export class PaletteView {
       this.store.setActiveCelltype(names[0]);
       return;
     }
+    // セルタイプが0件なら、前の文書のアクティブ名を残さない（残ると新規作成の案内が出ず、追加も無反応になる）。
+    if (names.length === 0 && active) {
+      this.store.setActiveCelltype(undefined);
+      return;
+    }
 
     const signature = `${names.join(",")}|${active ?? ""}`;
     if (signature === this.lastCelltypeSignature) return;
