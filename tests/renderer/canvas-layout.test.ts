@@ -8,9 +8,9 @@ import { resolve } from "node:path";
 const html = readFileSync(resolve(__dirname, "../../src/renderer/index.html"), "utf-8");
 
 function ruleBody(selector: string): string {
-  const match = new RegExp(`${selector}\s*\{([^}]*)\}`).exec(html);
+  const match = new RegExp(String.raw`${selector}\s*\{([^}]*)\}`).exec(html);
   expect(match, `${selector} のルールが見つかりません`).not.toBeNull();
-  return match![1]!;
+  return match![1]!.replace(/\/\*[\s\S]*?\*\//g, ""); // コメント内の文字列に誤って一致しない
 }
 
 describe("canvas layout", () => {
