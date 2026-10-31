@@ -24,6 +24,65 @@ function clampOffset(cell: Cell, edge: EdgeSide, offset: number): number {
   return Math.max(0, Math.min(edgeLength(cell, edge), alignRound(offset)));
 }
 
+/** 配列ポートの要素を挿入するとき、隣り合うポートの間に空ける間隔（mm）。元の実装(Ruby版)の `DIST_PORT`。 */
+const INSERT_PORT_GAP_MM = 4;
+/** 辺の端まで押し込まれても、これより近づけない間隔（mm）。辺に収まる範囲でのみ守る。 */
+const MIN_PORT_GAP_MM = 3;
+
+/**
+ * 挿入する要素の位置と、場所を空けるための同じ辺のポートの移動先を決める。
+ * 元の実装(Ruby版 `TmCell#adjust_port_position_to_insert`)に合わせる:
+ * 後ろへの挿入では新しい要素を基準の `GAP` 先に置き、次のポートまでが `GAP*2` に満たなければ、
+ * それより後ろのポートを同じ辺で後ろへずらして間隔を確保する。前への挿入は基準の位置に
+ * 新しい要素を置き、基準以降のポートを `GAP` ずつ後ろへずらす。
+ * 辺の端を超える分は、端から `MIN_PORT_GAP_MM` 間隔で詰める（辺に収まらない数のときは重なる）。
+ */
+function planInsertPosition(
+  cell: Cell,
+  edge: EdgeSide,
+  anchor: number,
+  before: boolean,
+): { newOffset: number; offsets: ReadonlyMap<CPort | EPort, number> } {
+  const onEdge = [...cell.cports, ...cell.eports].filter((p) => p.edgeSide === edge);
+  let newProposed: number;
+  let push: number;
+  if (before) {
+    newProposed = anchor;
+    push = INSERT_PORT_GAP_MM;
+  } else {
+    const next = Math.min(...onEdge.map((p) => p.offset).filter((offset) => offset > anchor));
+    newProposed = anchor + INSERT_PORT_GAP_MM;
+    push = Number.isFinite(next) ? Math.max(0, INSERT_PORT_GAP_MM * 2 - (next - anchor)) : 0;
+  }
+  // 端に詰める順序が入れ替わらないよう、同じ位置に押し込まれたものは元の位置と添字で順序を決める。
+  const items = [
+    { port: null as CPort | EPort | null, offset: clampOffset(cell, edge, newProposed), origin: before ? anchor - 0.5 : anchor + 0.5, subscript: -2, moves: true },
+    ...onEdge.map((port) => {
+      const moves = before ? port.offset >= anchor : port.offset > anchor;
+      return {
+        port: port as CPort | EPort | null,
+        offset: moves ? clampOffset(cell, edge, port.offset + push) : port.offset,
+        origin: port.offset,
+        subscript: port.subscript ?? -1,
+        moves,
+      };
+    }),
+  ];
+  items.sort((x, y) => y.offset - x.offset || y.origin - x.origin || y.subscript - x.subscript);
+  // 端側から順に、動かしたもの（と、それに詰められたもの）が MIN_PORT_GAP_MM 以内に近づかないよう押し戻す。
+  let limit = edgeLength(cell, edge);
+  for (const item of items) {
+    const bounded = Math.max(0, Math.min(item.offset, limit));
+    const squeezed = bounded < item.offset;
+    item.offset = bounded;
+    limit = item.moves || squeezed ? bounded - MIN_PORT_GAP_MM : Number.POSITIVE_INFINITY;
+  }
+  const created = items.find((item) => item.port === null)!;
+  const offsets = new Map<CPort | EPort, number>();
+  for (const item of items) if (item.port && item.offset !== item.port.offset) offsets.set(item.port, item.offset);
+  return { newOffset: created.offset, offsets };
+}
+
 function joinIdsOfCPort(port: CPort): readonly JoinId[] {
   return port.joinId ? [port.joinId] : [];
 }
@@ -164,13 +223,43 @@ export class InsertPortElementCommand extends Command {
     if (!cell || !cell.editable) return doc;
 
     const insertIndex = this.before ? this.subscript : this.subscript + 1;
+    const target =
+      this.portKind === "CPort"
+        ? cell.findCPort(this.portName, this.subscript)
+        : cell.findEPort(this.portName, this.subscript);
+    if (!target || target.subscript === null || target.arraySize !== null) return doc;
 
+    const plan = planInsertPosition(cell, target.edgeSide, target.offset, this.before);
+    const movedJoinIds: JoinId[] = [];
+
+    // 添字の繰り上げと、場所を空けるための同じ辺のポートの移動を一度に行う。
+    const adjust = <P extends CPort | EPort>(port: P): P => {
+      let next: P = port;
+      if (port.name === this.portName && port.subscript !== null && port.subscript >= insertIndex) {
+        next = next.withSubscript(port.subscript + 1) as P;
+      }
+      if (port.edgeSide === target.edgeSide) {
+        const offset = plan.offsets.get(port) ?? port.offset;
+        if (offset !== port.offset) {
+          next = next.withEdge(port.edgeSide, offset) as P;
+          movedJoinIds.push(...(port instanceof CPort ? joinIdsOfCPort(port) : port.joinIds));
+        }
+      }
+      return next;
+    };
+    const insertAt = <P extends CPort | EPort>(list: P[], created: P): P[] => {
+      const pos = list.findIndex(
+        (p) => p.name === this.portName && p.subscript !== null && p.subscript > insertIndex,
+      );
+      if (pos >= 0) list.splice(pos, 0, created);
+      else list.push(created);
+      return list;
+    };
+    const newOffset = plan.newOffset;
+
+    let next: TecscdeDocument;
     if (this.portKind === "CPort") {
-      const target = cell.findCPort(this.portName, this.subscript);
-      if (!target || target.subscript === null || target.arraySize !== null) return doc;
-
-      const newOffset = clampOffset(cell, target.edgeSide, target.offset + (this.before ? -3 : 3));
-      const newPort = CPort.create({
+      const created = CPort.create({
         name: target.name,
         signature: target.signature,
         edgeSide: target.edgeSide,
@@ -178,66 +267,19 @@ export class InsertPortElementCommand extends Command {
         subscript: insertIndex,
         arraySize: null,
       });
-
-      const updatedCPorts: CPort[] = [];
-      for (const p of cell.cports) {
-        if (p.name === this.portName && p.subscript !== null) {
-          if (p.subscript >= insertIndex) {
-            updatedCPorts.push(p.withSubscript(p.subscript + 1));
-          } else {
-            updatedCPorts.push(p);
-          }
-        } else {
-          updatedCPorts.push(p);
-        }
-      }
-      const insertPos = updatedCPorts.findIndex(
-        (p) => p.name === this.portName && p.subscript !== null && p.subscript > insertIndex,
-      );
-      if (insertPos >= 0) {
-        updatedCPorts.splice(insertPos, 0, newPort);
-      } else {
-        updatedCPorts.push(newPort);
-      }
-
-      return doc.withCell(cell.withCPorts(updatedCPorts));
-    }
-
-    const target = cell.findEPort(this.portName, this.subscript);
-    if (!target || target.subscript === null || target.arraySize !== null) return doc;
-
-    const newOffset = clampOffset(cell, target.edgeSide, target.offset + (this.before ? -3 : 3));
-    const newPort = EPort.create({
-      name: target.name,
-      signature: target.signature,
-      edgeSide: target.edgeSide,
-      offset: newOffset,
-      subscript: insertIndex,
-      arraySize: null,
-    });
-
-    const updatedEPorts: EPort[] = [];
-    for (const p of cell.eports) {
-      if (p.name === this.portName && p.subscript !== null) {
-        if (p.subscript >= insertIndex) {
-          updatedEPorts.push(p.withSubscript(p.subscript + 1));
-        } else {
-          updatedEPorts.push(p);
-        }
-      } else {
-        updatedEPorts.push(p);
-      }
-    }
-    const insertPos = updatedEPorts.findIndex(
-      (p) => p.name === this.portName && p.subscript !== null && p.subscript > insertIndex,
-    );
-    if (insertPos >= 0) {
-      updatedEPorts.splice(insertPos, 0, newPort);
+      next = doc.withCell(cell.withEPorts(cell.eports.map(adjust)).withCPorts(insertAt(cell.cports.map(adjust), created)));
     } else {
-      updatedEPorts.push(newPort);
+      const created = EPort.create({
+        name: target.name,
+        signature: target.signature,
+        edgeSide: target.edgeSide,
+        offset: newOffset,
+        subscript: insertIndex,
+        arraySize: null,
+      });
+      next = doc.withCell(cell.withCPorts(cell.cports.map(adjust)).withEPorts(insertAt(cell.eports.map(adjust), created)));
     }
-
-    return doc.withCell(cell.withEPorts(updatedEPorts));
+    return reroutePortJoins(next, movedJoinIds);
   }
 }
 
