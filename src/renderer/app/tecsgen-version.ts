@@ -77,7 +77,7 @@ function unknown(reason: string): Diagnostic {
  * 警告を出したときは`onWarning`を呼ぶ（診断一覧を自動で開くため。外部仕様8.4.2）。
  */
 export async function checkTecsgenVersion(
-  store: Pick<AppStore, "setEnvironmentDiagnostics">,
+  store: Pick<AppStore, "setEnvironmentDiagnostics" | "setTecsgenInfo">,
   tecsgen: Pick<TecsgenGateway, "version">,
   log: Pick<LogGateway, "append">,
   onWarning?: () => void,
@@ -88,6 +88,12 @@ export async function checkTecsgenVersion(
   } catch (error) {
     result = { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
   }
+  // 外部仕様3.8: 版（読み取れたとき）と使われた起動コマンドを、バージョン情報ダイアログ用に保持する。
+  const version = result.kind === "ok" ? parseTecsgenVersion(result.text) : undefined;
+  store.setTecsgenInfo({
+    ...(version ? { version } : {}),
+    ...(result.command !== undefined ? { command: result.command } : {}),
+  });
   const { diagnostics, logLine } = evaluateTecsgenVersion(result);
   if (diagnostics.length > 0) {
     store.setEnvironmentDiagnostics(diagnostics);

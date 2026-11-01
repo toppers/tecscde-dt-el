@@ -19,6 +19,7 @@ import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
 import type { TecsgenResult } from "../../src/shared/ipc-types";
+import { APP_COMMIT, APP_VERSION } from "../../src/renderer/app-info";
 import { AppStore } from "../../src/renderer/app/store";
 import { AppShell } from "../../src/renderer/app/shell";
 import { PngExporter, PngExportTooLargeError } from "../../src/renderer/export/png-exporter";
@@ -116,6 +117,7 @@ const BODY_HTML = `
       <button data-action="toggleNavigator" type="button">ナビゲータ</button>
       <button data-action="generate" type="button">実行</button>
       <button data-action="copyTecsgenCommand" type="button">コマンドをコピー</button>
+      <button data-action="about" type="button">情報</button>
       <div id="search-box">
         <input type="search" id="search-input" />
         <span id="search-count"></span>
@@ -181,6 +183,12 @@ const BODY_HTML = `
       <button id="export-cancel" type="button">キャンセル</button>
       <button id="export-confirm" type="button">保存先を選ぶ</button>
     </div>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <h2 id="about-title">バージョン情報</h2>
+      <div class="about-content"></div>
+      <button class="about-copy" type="button">コピー</button>
+      <button class="about-close" type="button">閉じる</button>
+    </dialog>
     <dialog id="celltype-details-dialog" aria-labelledby="celltype-details-title">
       <h2 id="celltype-details-title">セルタイプの詳細</h2>
       <div class="celltype-details-content"></div>
@@ -200,10 +208,11 @@ function mountShell(
   gateway: FileGateway = noopGateway,
   tecsgen: TecsgenGateway = fakeTecsgen().gateway,
   windowGateway?: { setDirty(dirty: boolean): void },
+  runtimeVersions?: { electron: string; chrome: string; node: string; platform: string },
 ): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
   const store = new AppStore(doc);
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway, win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway, runtimeVersions, win: window });
   shell.start();
   mounted = shell;
   return { shell, store, clipboard };
@@ -1820,6 +1829,57 @@ cell tRegular Regular {};
       expect(store.filePath).toBe("/root/main.cde");
       expect(store.getReferenceFilePaths()).toContain("/root/celltypes.cdl"); // 残りがreferences
     });
+  });
+});
+
+describe("AppShell — version dialog (3.8)", () => {
+  afterEach(() => {
+    mounted?.dispose();
+    mounted = undefined;
+    document.body.innerHTML = "";
+  });
+  const runtime = { electron: "44.2.0", chrome: "140.0.1", node: "22.10.0", platform: "win32" };
+  const dialog = (): HTMLDialogElement => document.querySelector<HTMLDialogElement>("#about-dialog")!;
+  const open = (): void => document.querySelector<HTMLButtonElement>("[data-action='about']")!.click();
+
+  it("opens from the toolbar button and lists the app version, build, format and runtime", () => {
+    mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    expect(dialog().open).toBe(true);
+    const text = dialog().querySelector(".about-content")!.textContent ?? "";
+    expect(text).toContain(APP_VERSION);
+    expect(text).toContain(APP_COMMIT);
+    expect(text).toContain("0.1.0.0");
+    expect(text).toContain("Electron 44.2.0");
+  });
+
+  it("shows tecsgen as unconfirmed until the startup check has told the store", () => {
+    const { store } = mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    expect(dialog().textContent).toContain("未確認");
+    dialog().close();
+    store.setTecsgenInfo({ version: [1, 9, 1], command: "tecsgen" });
+    open();
+    expect(dialog().textContent).toContain("1.9.1（tecsgen）");
+  });
+
+  it("copies the rows as label: value lines", async () => {
+    const clipboard = fakeClipboard();
+    mountShell(clipboard, undefined, undefined, undefined, undefined, runtime);
+    open();
+    dialog().querySelector<HTMLButtonElement>(".about-copy")!.click();
+    await flush();
+    const copied = await clipboard.readText();
+    expect(copied).toContain(`アプリケーションの版: ${APP_VERSION}`);
+    expect(copied).toContain("実行環境: Electron 44.2.0 / Chromium 140.0.1 / Node 22.10.0 / win32");
+    expect(copied.split("\n").length).toBe(5);
+  });
+
+  it("closes with the close button", () => {
+    mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    dialog().querySelector<HTMLButtonElement>(".about-close")!.click();
+    expect(dialog().open).toBe(false);
   });
 });
 

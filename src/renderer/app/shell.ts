@@ -29,6 +29,10 @@ import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { APP_COMMIT, APP_VERSION } from "../app-info";
+import { CDE_FORMAT_VERSION } from "../model/tool-info-types";
+import type { RuntimeVersions } from "../../shared/ipc-types.js";
+import { AboutDialogView } from "./about-dialog";
 import { CelltypeDetailsView } from "./celltype-details";
 import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
@@ -61,6 +65,8 @@ export interface AppShellOptions {
   readonly tecsgen: TecsgenGateway;
   /** 第7章7.9節: 未保存かどうかをmain（CloseGuard）へ知らせる。省略時は通知しない（テスト用）。 */
   readonly windowGateway?: Pick<WindowGateway, "setDirty">;
+  /** 外部仕様3.8: バージョン情報ダイアログに出す実行環境の版。省略時は「不明」と表示する（テスト用）。 */
+  readonly runtimeVersions?: RuntimeVersions;
   /** window 相当（キーボード・スクロールの結線先）。既定は globalThis の window。 */
   readonly win?: Window;
 }
@@ -109,6 +115,7 @@ export class AppShell {
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
   private readonly celltypeDetails: CelltypeDetailsView;
+  private readonly aboutDialog: AboutDialogView;
   private readonly panelVisibility: PanelVisibilityView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
@@ -167,6 +174,18 @@ export class AppShell {
     );
     this.gesture = new GestureController(this.renderer, host);
 
+    this.aboutDialog = new AboutDialogView(
+      requireEl<HTMLDialogElement>(root, "#about-dialog"),
+      () => ({
+        appVersion: APP_VERSION,
+        commit: APP_COMMIT,
+        formatVersion: CDE_FORMAT_VERSION,
+        ...(this.store.getTecsgenInfo() ? { tecsgen: this.store.getTecsgenInfo()! } : {}),
+        ...(opts.runtimeVersions ? { runtime: opts.runtimeVersions } : {}),
+      }),
+      (text) => this.clipboard.writeText(text),
+      (err) => this.reportActionError("about", err),
+    );
     this.celltypeDetails = new CelltypeDetailsView(requireEl<HTMLDialogElement>(root, "#celltype-details-dialog"));
     this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store, (name, trigger) => {
       const celltype = this.store.getDocument().getCelltype(name);
@@ -357,6 +376,9 @@ export class AppShell {
         break;
       case "copyTecsgenCommand":
         this.copyTecsgenCommand();
+        break;
+      case "about":
+        this.aboutDialog.open(this.toolbar.querySelector<HTMLElement>("[data-action='about']") ?? this.toolbar);
         break;
       default:
         break;

@@ -20,6 +20,13 @@ import type {
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
+  // 外部仕様3.8: バージョン情報ダイアログ用。値を渡すだけで、操作の経路は持たない。
+  versions: {
+    electron: process.versions.electron ?? "",
+    chrome: process.versions.chrome ?? "",
+    node: process.versions.node,
+    platform: process.platform,
+  },
   cdl: {
     loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
   },

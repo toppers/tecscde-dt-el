@@ -197,13 +197,15 @@ export class TecsgenRunner {
    * 標準出力が空なら標準エラー出力から読む。
    */
   async version(): Promise<TecsgenVersionResult> {
+    // 外部仕様3.8: バージョン情報ダイアログに、使われた起動コマンドも出す。
+    const command = process.env.TECSGEN_COMMAND || "tecsgen";
     const result = await this.run(["--version"]);
-    if (result.launchFailure?.kind === "not-found") return { kind: "not-found" };
+    if (result.launchFailure?.kind === "not-found") return { kind: "not-found", command };
     if (result.launchFailure) {
       const { kind, detail } = result.launchFailure;
-      return { kind: "failed", detail: `${kind}: ${detail}` };
+      return { kind: "failed", detail: `${kind}: ${detail}`, command };
     }
-    if (result.exitCode !== 0) return { kind: "failed", detail: `終了コード ${result.exitCode}` };
-    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim() };
+    if (result.exitCode !== 0) return { kind: "failed", detail: `終了コード ${result.exitCode}`, command };
+    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim(), command };
   }
 }

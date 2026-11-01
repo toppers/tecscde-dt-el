@@ -40,10 +40,22 @@ export interface TecsgenLaunchFailure {
  * [[TECSCDE-DT-EL内部仕様]] 第9C章9C.2節: `tecsgen --version`の結果。tecsgenは版を標準エラー出力へ出す
  * ため、`text`は標準出力、空なら標準エラー出力（trim済み）。
  */
+/**
+ * 起動に使われたコマンド（環境変数 TECSGEN_COMMAND、無ければ既定の tecsgen）。バージョン情報
+ * ダイアログ（外部仕様3.8）に出す。mainは常に付けるが、型は省略可（呼び出し側の既存の値のため）。
+ */
 export type TecsgenVersionResult =
-  | { readonly kind: "ok"; readonly text: string }
-  | { readonly kind: "not-found" }
-  | { readonly kind: "failed"; readonly detail: string };
+  | { readonly kind: "ok"; readonly text: string; readonly command?: string }
+  | { readonly kind: "not-found"; readonly command?: string }
+  | { readonly kind: "failed"; readonly detail: string; readonly command?: string };
+
+/** 外部仕様3.8: バージョン情報ダイアログに出す実行環境の版。preload が読み取り専用で公開する。 */
+export interface RuntimeVersions {
+  readonly electron: string;
+  readonly chrome: string;
+  readonly node: string;
+  readonly platform: string;
+}
 
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
@@ -134,6 +146,8 @@ export type PdfPage =
 
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
+  /** 外部仕様3.8: 実行環境の版（Electron・Chromium・Node・OS）。 */
+  readonly versions: RuntimeVersions;
   readonly cdl: {
     loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
   };
