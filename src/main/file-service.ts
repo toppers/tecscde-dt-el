@@ -178,9 +178,10 @@ export class FileService {
    * 7.5.3節）の順に候補ディレクトリとし、各ディレクトリで`importPaths`を順に試す。
    * `kind:"manual"`は絶対パスが直接指定されているため探索を経由しない（第7C章7.7.2節）。
    *
-   * `systemDirs`（`-S`）のうち`_CDL_FILES.txt`を持つディレクトリは、`import`（CDL）に限り、
-   * ディレクトリを直接調べずに、その一覧から探す（外部仕様5.3節）。`import_C`（ヘッダ）は従来どおり
-   * ディレクトリを調べる（一覧はCDLのファイル名を並べたものであるため）。
+   * `-S`のディレクトリ（`systemDirs`）の配下で、参照先が入っているディレクトリに`_CDL_FILES.txt`が
+   * あるときは、`import`（CDL）に限り、ディレクトリを直接調べずに、その一覧から探す（外部仕様5.3節。
+   * `sub/x.cdl`なら`sub`の一覧に`x.cdl`があるか）。`import_C`（ヘッダ）は従来どおりディレクトリを調べる
+   * （一覧はCDLのファイル名を並べたものであるため）。
    */
   async resolveImports(
     editablePath: string,
@@ -193,7 +194,6 @@ export class FileService {
       ...(options.extraSearchDirs ?? []),
     ];
     const lists = new CdlFileLists((options.systemDirs ?? []).map((d) => resolve(d)));
-    await lists.load();
     return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths, lists)));
   }
 
@@ -206,7 +206,7 @@ export class FileService {
     const candidates =
       request.kind === "manual"
         ? [request.specifier]
-        : this.candidatesFor(request, searchDirs, importPaths, lists);
+        : await this.candidatesFor(request, searchDirs, importPaths, lists);
 
     for (const candidate of candidates) {
       let buf: Buffer;
@@ -229,34 +229,33 @@ export class FileService {
   }
 
   /**
-   * 探索する候補のパスを、探索の順に並べる。`-S`のディレクトリで`_CDL_FILES.txt`を持つものは、
-   * `import`に限り、一覧に載っているときだけ候補にする（載っていなければ、そのディレクトリの候補は無し）。
+   * 探索する候補のパスを、探索の順に並べる。候補ごとに、そのファイルが入っているディレクトリが
+   * `-S`の配下で`_CDL_FILES.txt`を持つなら、`import`に限り、一覧に載っているときだけ候補にする
+   * （載っていなければ、その候補は無し）。一覧が無ければ、従来どおり候補にする。
    * `importPaths`の相対パスで`-S`を指していても、`-S`の絶対パスの一覧は最後に必ず見る
-   * （編集対象のディレクトリが`.tecsgen-opts`のものと違うと、相対パスから`-S`を割り出せないため）。
+   * （編集対象のディレクトリが`.tecsgen-opts`のものと違うと、相対パスから`-S`を割り出せないため。
+   * こちらは、一覧に載っているときだけ候補にする）。
    */
-  private candidatesFor(
+  private async candidatesFor(
     request: ImportRequest,
     searchDirs: readonly string[],
     importPaths: readonly string[],
     lists: CdlFileLists,
-  ): string[] {
+  ): Promise<string[]> {
     const useList = request.kind === "import";
     const candidates = new Set<string>();
-    const addFromList = (absDir: string): void => {
-      const entry = lists.find(absDir, request.specifier);
-      if (entry !== undefined) candidates.add(join(absDir, entry));
+    const consider = async (path: string, probeWhenNoList: boolean): Promise<void> => {
+      const found = useList ? await lists.lookup(path) : ({ kind: "probe" } as const);
+      if (found.kind === "listed") candidates.add(found.path);
+      else if (found.kind === "probe" && probeWhenNoList) candidates.add(path);
     };
     for (const dir of searchDirs) {
       for (const p of importPaths) {
-        const absDir = resolve(dir, p); // 絶対パスの`p`はそのまま、相対パスは`dir`を基点にする
-        if (useList && lists.hasList(absDir)) addFromList(absDir);
-        else candidates.add(join(absDir, request.specifier));
+        await consider(join(resolve(dir, p), request.specifier), true); // 絶対パスの`p`はそのまま、相対パスは`dir`が基点
       }
     }
     if (useList) {
-      for (const systemDir of lists.systemDirs) {
-        if (lists.hasList(systemDir)) addFromList(systemDir);
-      }
+      for (const systemDir of lists.systemDirs) await consider(join(systemDir, request.specifier), false);
     }
     return [...candidates];
   }

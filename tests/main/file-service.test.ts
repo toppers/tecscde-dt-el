@@ -390,7 +390,7 @@ describe("FileService", () => {
     expect(result.editable.path).toBe(cleanPath);
   });
 
-  describe("resolveImports - _CDL_FILES.txt in a -S directory (DT spec 5.3)", () => {
+  describe("resolveImports - _CDL_FILES.txt in a -S directory and its subdirectories (DT spec 5.3)", () => {
     let editablePath: string;
     let sysDir: string;
 
@@ -398,7 +398,7 @@ describe("FileService", () => {
       mkdirSync(join(dir, "editable"), { recursive: true });
       editablePath = join(dir, "editable", "main.cde");
       sysDir = join(dir, "sys");
-      mkdirSync(join(sysDir, "kernel"), { recursive: true });
+      mkdirSync(join(sysDir, "kernel", "deep"), { recursive: true });
     });
 
     const resolveInSys = (service: FileService, specifier: string, kind: "import" | "import_C" = "import") =>
@@ -407,9 +407,19 @@ describe("FileService", () => {
         systemDirs: [sysDir],
       });
 
-    it("finds a file that is listed, relative to the -S directory (exact match)", async () => {
+    it("finds a file listed in the -S directory's own list", async () => {
+      writeFileSync(join(sysDir, "top.cdl"), "top-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "top.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "top.cdl"));
+      expect(resolved?.content).toBe("top-content");
+    });
+
+    it("for sub/x.cdl, reads sub's own _CDL_FILES.txt and looks for x.cdl in it", async () => {
       writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "k.cdl\n");
 
       const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
 
@@ -417,16 +427,44 @@ describe("FileService", () => {
       expect(resolved?.content).toBe("k-content");
     });
 
+    it("works for nested subdirectories (a/b/x.cdl uses a/b/_CDL_FILES.txt)", async () => {
+      writeFileSync(join(sysDir, "kernel", "deep", "d.cdl"), "d-content");
+      writeFileSync(join(sysDir, "kernel", "deep", "_CDL_FILES.txt"), "d.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/deep/d.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "deep", "d.cdl"));
+    });
+
+    it("does not use the parent's list for a subdirectory file (the subdirectory's list is the one that counts)", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "other.cdl\n"); // k.cdl は載っていない
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n"); // 親の一覧に相対パスで載せても使わない
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
+
+      expect(resolved).toEqual({ request: { kind: "import", specifier: "kernel/k.cdl" }, error: "not-found" });
+    });
+
     it("does not look in the directory when the list exists but the file is not listed", async () => {
       writeFileSync(join(sysDir, "other.cdl"), "other-content"); // 実在するが、リストに無い
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
 
       const [resolved] = await resolveInSys(new FileService({} as never), "other.cdl");
 
       expect(resolved).toEqual({ request: { kind: "import", specifier: "other.cdl" }, error: "not-found" });
     });
 
-    it("keeps probing the directory when there is no list (existing behaviour)", async () => {
+    it("probes a subdirectory that has no list of its own, even when the -S directory has one", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n"); // kernel/ には一覧が無い
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
+    });
+
+    it("keeps probing the directory when there is no list at all (existing behaviour)", async () => {
       writeFileSync(join(sysDir, "plain.cdl"), "plain-content");
 
       const [resolved] = await resolveInSys(new FileService({} as never), "plain.cdl");
@@ -434,11 +472,11 @@ describe("FileService", () => {
       expect(resolved?.canonicalPath).toBe(join(sysDir, "plain.cdl"));
     });
 
-    it("normalizes separators and a leading ./ on both the list and the specifier; ignores blank lines and CRLF", async () => {
+    it("normalizes separators, a leading ./ and CRLF in the list; ignores blank lines", async () => {
       writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "\r\n.\\kernel\\k.cdl\r\n\r\n");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "\r\n.\\k.cdl\r\n\r\n");
 
-      const [resolved] = await resolveInSys(new FileService({} as never), "./kernel/k.cdl");
+      const [resolved] = await resolveInSys(new FileService({} as never), "./kernel\\k.cdl");
 
       expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
     });
@@ -453,16 +491,16 @@ describe("FileService", () => {
 
     it("keeps probing the directory for import_C (the list names CDL files only)", async () => {
       writeFileSync(join(sysDir, "tecs.h"), "header-content");
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
 
       const [resolved] = await resolveInSys(new FileService({} as never), "tecs.h", "import_C");
 
       expect(resolved?.canonicalPath).toBe(join(sysDir, "tecs.h"));
     });
 
-    it("uses the list only for -S directories; a -I directory without systemDirs is still probed", async () => {
+    it("uses lists only under -S directories; a -I directory without systemDirs is still probed", async () => {
       writeFileSync(join(sysDir, "other.cdl"), "other-content");
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
       const service = new FileService({} as never);
 
       const [resolved] = await service.resolveImports(
@@ -474,9 +512,24 @@ describe("FileService", () => {
       expect(resolved?.canonicalPath).toBe(join(sysDir, "other.cdl"));
     });
 
-    it("resolves a relative -S entry in importPaths against the editable file's directory, and also finds -S directories outside the search directories", async () => {
+    it("does not apply a list to a file that a specifier like ../x.cdl places outside the -S directories", async () => {
+      writeFileSync(join(dir, "outside.cdl"), "outside-content");
+      writeFileSync(join(dir, "_CDL_FILES.txt"), "nothing.cdl\n"); // -S の外の一覧は使わない
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "../outside.cdl" }],
+        { importPaths: [sysDir], systemDirs: [sysDir], baseDir: sysDir },
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(dir, "outside.cdl"));
+    });
+
+    it("also finds -S directories that a relative importPaths entry cannot reach from the search directories", async () => {
       writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
-      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "k.cdl\n");
       const service = new FileService({} as never);
 
       // 相対指定は editable のディレクトリを基点にすると sysDir に一致しない。それでも systemDirs（絶対）から見つかる。
