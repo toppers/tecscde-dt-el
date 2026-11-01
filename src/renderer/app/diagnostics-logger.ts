@@ -3,6 +3,7 @@
 // 編集対象のファイルが変わったときは区切り行を入れ、そのファイルの診断を最初から記録する。
 
 import { formatDiagnostic } from "../diagnostics/format";
+import { LOG_WRITE_FAILED_CODE } from "./log-warning";
 import type { AppStore } from "./store";
 
 export class DiagnosticsLogger {
@@ -15,7 +16,11 @@ export class DiagnosticsLogger {
   ) {}
 
   sync(): void {
-    const lines = this.store.getReport().items.map(formatDiagnostic);
+    // ログを書けない警告は、ログへ書かない（書けないため。外部仕様9.5.2の規定13）。
+    const lines = this.store
+      .getReport()
+      .items.filter((d) => d.code !== LOG_WRITE_FAILED_CODE)
+      .map(formatDiagnostic);
     const out: string[] = [];
 
     const filePath = this.store.filePath;

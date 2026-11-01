@@ -149,6 +149,11 @@ export type PdfPage =
   | { readonly kind: "paper"; readonly size: "A4" | "A3" | "A2"; readonly orientation: "LANDSCAPE" | "PORTRAIT" }
   | { readonly kind: "custom"; readonly widthMm: number; readonly heightMm: number };
 
+/** `log.append` の結果。`newFailure` は、ログを書けなくなった最初の一度だけ入る理由。 */
+export interface LogAppendResult {
+  readonly newFailure?: string;
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   /** 外部仕様3.8: 実行環境の版（Electron・Chromium・Node・OS）。 */
@@ -208,9 +213,12 @@ export interface TecscdeApi {
   readonly settings: {
     get(): Promise<AppSettingsView>;
   };
-  /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
+  /**
+   * 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。
+   * 結果の `newFailure` は、書けなくなった最初の一度だけ入る理由（外部仕様9.5.2の規定13）。
+   */
   readonly log: {
-    append(lines: readonly string[]): Promise<void>;
+    append(lines: readonly string[]): Promise<LogAppendResult>;
   };
   /**
    * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・

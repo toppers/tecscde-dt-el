@@ -7,7 +7,6 @@ import type { TecsgenVersionResult } from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
-import type { LogGateway } from "../gateways/log-gateway";
 
 /** 本アプリが対象とするtecsgenの最低版（外部仕様2.2節: V1.3.1.0以降）。定義はここ1か所。 */
 export const MIN_TECSGEN_VERSION: readonly number[] = [1, 3, 1, 0];
@@ -79,7 +78,7 @@ function unknown(reason: string): Diagnostic {
 export async function checkTecsgenVersion(
   store: Pick<AppStore, "setEnvironmentDiagnostics" | "setTecsgenInfo">,
   tecsgen: Pick<TecsgenGateway, "version">,
-  log: Pick<LogGateway, "append">,
+  log: { append(lines: readonly string[]): Promise<unknown> },
   onWarning?: () => void,
 ): Promise<void> {
   let result: TecsgenVersionResult;

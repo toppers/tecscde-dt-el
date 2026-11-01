@@ -152,6 +152,8 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("log:append")!({}, ["[W-X] a"]);
     expect(logService.append).toHaveBeenCalledWith(["[W-X] a"]);
+    logService.append.mockResolvedValueOnce({ newFailure: "EACCES" });
+    await expect(handlers.get("log:append")!({}, ["[W-Y] b"])).resolves.toEqual({ newFailure: "EACCES" });
 
     handlers.get("clipboard:writeText")!({}, "hello");
     expect(clipboardMock.writeText).toHaveBeenCalledWith("hello");
