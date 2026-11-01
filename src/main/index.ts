@@ -39,7 +39,7 @@ if (require("electron-squirrel-startup")) {
 updateElectronApp({ repo: "toppers/tecscde-dt-el" });
 
 // 診断ログ: 起動時のカレントディレクトリを第一候補に、書き込めなければuserData配下へ。
-const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")]);
+const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")], app.getVersion());
 
 let pendingOpenPath: string | null = null;
 
