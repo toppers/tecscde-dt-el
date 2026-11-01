@@ -13,6 +13,7 @@ import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
   return {
+    versions: { electron: "0.0.0", chrome: "0.0.0", node: "0.0.0", platform: "test" },
     cdl: {
       loadGrammarAssets: vi.fn().mockResolvedValue({ runtimeWasm: new Uint8Array(), cdlWasm: new Uint8Array() }),
     },

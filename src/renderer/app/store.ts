@@ -7,6 +7,7 @@
 // 更新は差し替え＋購読者通知。このモジュールは renderer プロセスで完結し、`electron` へは
 // 触れない（gateways 経由のみ）。
 
+import type { TecsgenInfo } from "./about-info";
 import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
@@ -77,6 +78,8 @@ export class AppStore {
    * Generateの結果の差し替えでは消えない（`tecsgenDiagnostics`とは別に持つ）。
    */
   private environmentDiagnostics: readonly Diagnostic[] = [];
+  /** 外部仕様3.8: 起動時の tecsgen の確認で分かったこと。確認が終わるまでは未設定。 */
+  private tecsgenInfo: TecsgenInfo | undefined;
   private exportDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
@@ -361,6 +364,15 @@ export class AppStore {
   setTecsgenDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.tecsgenDiagnostics = diagnostics;
     this.notify();
+  }
+
+  /** 外部仕様3.8: バージョン情報ダイアログ用に、tecsgen の版と使われた起動コマンドを保持する。 */
+  setTecsgenInfo(info: TecsgenInfo): void {
+    this.tecsgenInfo = info;
+  }
+
+  getTecsgenInfo(): TecsgenInfo | undefined {
+    return this.tecsgenInfo;
   }
 
   /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */

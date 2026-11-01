@@ -496,6 +496,22 @@
         overflow-wrap: anywhere;
       }
       #celltype-details-dialog .celltype-details-close { display: block; margin: 16px 0 0 auto; font: inherit; }
+      #about-dialog {
+        width: 520px;
+        max-width: calc(100vw - 32px);
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      #about-dialog:not([open]) { display: none; }
+      #about-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+      #about-dialog h2 { margin: 0 0 12px; font-size: 17px; }
+      #about-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+      #about-dialog dd { margin: 0; overflow-wrap: anywhere; }
+      #about-dialog .about-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      #about-dialog .about-actions button { font: inherit; }
       #diagnostics-panel {
         position: absolute;
         bottom: 100%;
@@ -549,6 +565,7 @@
         <span class="sep"></span>
         <button data-action="generate" type="button" title="tecsgenを実行する（第9章9.5節）">実行</button>
         <button data-action="copyTecsgenCommand" type="button" title="tecsgenのコマンドラインをコピーする（外部仕様8.4.2）">コマンドをコピー</button>
+        <button data-action="about" type="button" title="バージョン情報を表示する（外部仕様3.8）">情報</button>
         <span class="sep"></span>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
@@ -651,6 +668,14 @@
       <h2 id="celltype-details-title">セルタイプの詳細</h2>
       <div class="celltype-details-content"></div>
       <button class="celltype-details-close" type="button">閉じる</button>
+    </dialog>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <h2 id="about-title">バージョン情報</h2>
+      <div class="about-content"></div>
+      <div class="about-actions">
+        <button class="about-copy" type="button">コピー</button>
+        <button class="about-close" type="button">閉じる</button>
+      </div>
     </dialog>
     <script type="module" src="./renderer.js"></script>
   </body>

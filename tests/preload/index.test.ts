@@ -35,6 +35,16 @@ function exposedApi(): TecscdeApi {
   return exposedApiObject;
 }
 
+describe("preload - runtime versions (for the version dialog, 3.8)", () => {
+  it("exposes read-only Electron, Chromium, Node versions and the platform", () => {
+    const v = exposedApi().versions;
+    expect(v.node).toBe(process.versions.node);
+    expect(v.platform).toBe(process.platform);
+    expect(typeof v.electron).toBe("string");
+    expect(typeof v.chrome).toBe("string");
+  });
+});
+
 describe("preload", () => {
   it("file.save invokes file:save with path and content", () => {
     exposedApi().file.save("/a.cde", "content");

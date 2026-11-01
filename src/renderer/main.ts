@@ -47,7 +47,7 @@ function main(): void {
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
   const tecsgen = new TecsgenGateway();
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway: new WindowGateway(), win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway: new WindowGateway(), runtimeVersions: window.tecscde.versions, win: window });
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。

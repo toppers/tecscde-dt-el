@@ -184,7 +184,7 @@ describe("TecsgenRunner", () => {
     execFileMock.mockResolvedValue({ stdout: "1.9.1\n", stderr: "" });
     const runner = new TecsgenRunner();
 
-    await expect(runner.version()).resolves.toEqual({ kind: "ok", text: "1.9.1" });
+    await expect(runner.version()).resolves.toEqual({ kind: "ok", text: "1.9.1", command: "tecsgen" });
   });
 
   it("preprocess() runs preprocessor with default or custom command", async () => {
@@ -262,33 +262,40 @@ describe("TecsgenRunner", () => {
   describe("version() (9C.2節)", () => {
     it("reads the version from stderr when stdout is empty (tecsgen prints its banner to stderr)", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "tecsgen  version 1.9.1  \n" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1", command: "tecsgen" });
       expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["--version"], { timeout: 30_000 });
     });
 
     it("prefers stdout when it has text", async () => {
       execFileMock.mockResolvedValue({ stdout: "tecsgen 2.0.0\n", stderr: "warning" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 2.0.0" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 2.0.0", command: "tecsgen" });
     });
 
     it("returns an empty text when both streams are empty", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "", command: "tecsgen" });
     });
 
     it("reports not-found on ENOENT", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("nf"), { code: "ENOENT" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "not-found" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "not-found", command: "tecsgen" });
     });
 
     it("reports a launch failure other than ENOENT as failed", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "permission: EACCES" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "permission: EACCES", command: "tecsgen" });
     });
 
     it("reports a non-zero exit as failed", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("bad"), { code: 2, stdout: "", stderr: "x" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2", command: "tecsgen" });
+    });
+
+    it("reports the command that was used (TECSGEN_COMMAND), for the version dialog (3.8)", async () => {
+      process.env.TECSGEN_COMMAND = "ruby /opt/tecsgen.rb";
+      execFileMock.mockResolvedValue({ stdout: "tecsgen 1.9.1\n", stderr: "" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 1.9.1", command: "ruby /opt/tecsgen.rb" });
+      expect(execFileMock).toHaveBeenCalledWith("ruby", ["/opt/tecsgen.rb", "--version"], { timeout: 30_000 });
     });
   });
 });
