@@ -2,6 +2,8 @@
 // パース・直列化ロジック自体はモジュールB（cdl/tool-info.ts の ToolInfoValidator）が持つ。
 // モデル(C)はモジュールB(cdl)に依存しない（2.1節の依存方向）ため、型定義はここに置く。
 
+import { APP_VERSION } from "../app-info";
+
 export interface ToolInfoTecsgen {
   readonly tecscdeVersion?: string;
   readonly cdeFormatVersion?: string;
@@ -15,7 +17,8 @@ export interface ToolInfoTecsgen {
 }
 
 export const CDE_FORMAT_VERSION = "0.1.0.0";
-export const TECSCDE_TS_VERSION = "0.1.0";
+/** 保存する .cde の tecscde_version。アプリケーションの版と同じ（外部仕様2.5.5）。形式の版は別立て。 */
+export const TECSCDE_TS_VERSION = APP_VERSION;
 
 export function emptyToolInfoTecsgen(): ToolInfoTecsgen {
   return { unknownFields: {} };
