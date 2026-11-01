@@ -17,6 +17,7 @@ import type {
 } from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
 import { PdfExporter } from "./pdf-exporter.js";
+import { CdlFileLists } from "./cdl-file-list.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
 // `.tecsgen-opts`は拡張子すべて小文字・大文字小文字を区別する（外部仕様5.3）。`.cde`/`.cdl`は区別しない。
@@ -176,6 +177,11 @@ export class FileService {
    * ディレクトリ・`baseDir`・`extraSearchDirs`（renderer側が解決の進行に応じて蓄積する、
    * 7.5.3節）の順に候補ディレクトリとし、各ディレクトリで`importPaths`を順に試す。
    * `kind:"manual"`は絶対パスが直接指定されているため探索を経由しない（第7C章7.7.2節）。
+   *
+   * `-S`のディレクトリ（`systemDirs`）の配下で、参照先が入っているディレクトリに`_CDL_FILES.txt`が
+   * あるときは、`import`（CDL）に限り、ディレクトリを直接調べずに、その一覧から探す（外部仕様5.3節。
+   * `sub/x.cdl`なら`sub`の一覧に`x.cdl`があるか）。`import_C`（ヘッダ）は従来どおりディレクトリを調べる
+   * （一覧はCDLのファイル名を並べたものであるため）。
    */
   async resolveImports(
     editablePath: string,
@@ -187,20 +193,20 @@ export class FileService {
       ...(options.baseDir ? [options.baseDir] : []),
       ...(options.extraSearchDirs ?? []),
     ];
-    return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths)));
+    const lists = new CdlFileLists((options.systemDirs ?? []).map((d) => resolve(d)));
+    return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths, lists)));
   }
 
   private async resolveOne(
     request: ImportRequest,
     searchDirs: readonly string[],
     importPaths: readonly string[],
+    lists: CdlFileLists,
   ): Promise<ResolvedImport> {
     const candidates =
       request.kind === "manual"
         ? [request.specifier]
-        : searchDirs.flatMap((dir) =>
-            importPaths.map((p) => (p === "." ? join(dir, request.specifier) : join(dir, p, request.specifier))),
-          );
+        : await this.candidatesFor(request, searchDirs, importPaths, lists);
 
     for (const candidate of candidates) {
       let buf: Buffer;
@@ -220,6 +226,38 @@ export class FileService {
       }
     }
     return { request, error: "not-found" };
+  }
+
+  /**
+   * 探索する候補のパスを、探索の順に並べる。候補ごとに、そのファイルが入っているディレクトリが
+   * `-S`の配下で`_CDL_FILES.txt`を持つなら、`import`に限り、一覧に載っているときだけ候補にする
+   * （載っていなければ、その候補は無し）。一覧が無ければ、従来どおり候補にする。
+   * `importPaths`の相対パスで`-S`を指していても、`-S`の絶対パスの一覧は最後に必ず見る
+   * （編集対象のディレクトリが`.tecsgen-opts`のものと違うと、相対パスから`-S`を割り出せないため。
+   * こちらは、一覧に載っているときだけ候補にする）。
+   */
+  private async candidatesFor(
+    request: ImportRequest,
+    searchDirs: readonly string[],
+    importPaths: readonly string[],
+    lists: CdlFileLists,
+  ): Promise<string[]> {
+    const useList = request.kind === "import";
+    const candidates = new Set<string>();
+    const consider = async (path: string, probeWhenNoList: boolean): Promise<void> => {
+      const found = useList ? await lists.lookup(path) : ({ kind: "probe" } as const);
+      if (found.kind === "listed") candidates.add(found.path);
+      else if (found.kind === "probe" && probeWhenNoList) candidates.add(path);
+    };
+    for (const dir of searchDirs) {
+      for (const p of importPaths) {
+        await consider(join(resolve(dir, p), request.specifier), true); // 絶対パスの`p`はそのまま、相対パスは`dir`が基点
+      }
+    }
+    if (useList) {
+      for (const systemDir of lists.systemDirs) await consider(join(systemDir, request.specifier), false);
+    }
+    return [...candidates];
   }
 
   /**

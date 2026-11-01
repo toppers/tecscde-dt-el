@@ -111,6 +111,11 @@ export interface ImportResolutionOptions {
   readonly cpp?: string;
   /** 第7D章7.5.3節: 解決が進むごとにrendererが蓄積する追加の探索ディレクトリ。 */
   readonly extraSearchDirs?: readonly string[];
+  /**
+   * `.tecsgen-opts`の`-S`で指定されたディレクトリ（絶対パス、外部仕様5.3節）。このうち`_CDL_FILES.txt`を
+   * 持つものは、ディレクトリを直接調べる代わりに、その一覧から`import`の参照先を探す。
+   */
+  readonly systemDirs?: readonly string[];
 }
 
 /** 第7D章7.5.2節: `resolveImports()`の1件あたりの結果。 */

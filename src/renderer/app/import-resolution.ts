@@ -98,8 +98,14 @@ async function resolveImportClosure(
   initialFrontier: readonly ImportRequest[],
   seedResolvedPaths: ReadonlySet<string>,
   existingReferences: readonly OpenFileEntry[] = [],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
-  const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."] };
+  // 外部仕様5.3節: `-S`のディレクトリ（絶対パス）も渡す。mainが`_CDL_FILES.txt`の有無を調べて探索に使う。
+  const options: ImportResolutionOptions = {
+    baseDir: toolInfo.baseDir,
+    importPaths: toolInfo.importPath ?? ["."],
+    ...(systemDirs.length > 0 ? { systemDirs } : {}),
+  };
   const includeDirs = includeDirsFor(editablePath, options);
   const resolvedPaths = new Set(seedResolvedPaths);
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
@@ -191,6 +197,7 @@ export async function resolveAllImports(
   toolInfo: ToolInfoTecsgen,
   extraImportPaths: readonly string[] = [],
   existingReferences: readonly OpenFileEntry[] = [],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
@@ -205,6 +212,7 @@ export async function resolveAllImports(
     ],
     new Set([editablePath]),
     existingReferences,
+    systemDirs,
   );
 }
 
@@ -221,7 +229,10 @@ export async function resolveAddedReference(
   toolInfo: ToolInfoTecsgen,
   path: string,
   alreadyLoadedPaths: readonly string[],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const seed = new Set([editablePath, ...alreadyLoadedPaths]);
-  return resolveImportClosure(gateway, tecsgenGateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed);
+  return resolveImportClosure(
+    gateway, tecsgenGateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs,
+  );
 }
