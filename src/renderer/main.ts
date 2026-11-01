@@ -10,6 +10,7 @@ import { ClipboardGateway } from "./gateways/clipboard-gateway";
 import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
+import { createLogAppender } from "./app/log-warning";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
 import { SettingsGateway } from "./gateways/settings-gateway";
@@ -51,11 +52,12 @@ function main(): void {
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
-  const logger = new DiagnosticsLogger(store, (lines) => new LogGateway().append(lines));
+  const appendLog = createLogAppender(new LogGateway(), store);
+  const logger = new DiagnosticsLogger(store, appendLog);
   store.subscribe(() => logger.sync());
 
   // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
-  void checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics());
+  void checkTecsgenVersion(store, tecsgen, { append: appendLog }, () => shell.openDiagnostics());
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {

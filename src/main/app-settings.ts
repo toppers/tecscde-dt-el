@@ -40,6 +40,11 @@ function settingsDir(): string {
   return app.getPath("userData");
 }
 
+/** 外部仕様9.5.2の規定2: 診断ログは、設定ファイルと同じフォルダの `logs/` に置く。 */
+export function logsDirectory(): string {
+  return join(settingsDir(), "logs");
+}
+
 function settingsPath(): string {
   return join(settingsDir(), "settings.json");
 }

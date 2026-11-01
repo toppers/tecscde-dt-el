@@ -14,7 +14,7 @@ vi.mock("electron", () => ({
   app: { getPath: (...args: unknown[]) => getPath(...args) },
 }));
 
-const { loadAppSettings, saveAppSettings } = await import("../../src/main/app-settings.js");
+const { loadAppSettings, saveAppSettings, logsDirectory } = await import("../../src/main/app-settings.js");
 
 describe("app-settings", () => {
   let userDataDir: string;
@@ -32,6 +32,11 @@ describe("app-settings", () => {
     vi.unstubAllEnvs();
     rmSync(userDataDir, { recursive: true, force: true });
     rmSync(localAppDataDir, { recursive: true, force: true });
+  });
+
+  it("logsDirectory is logs/ in the same folder as settings.json: LOCALAPPDATA/tecscde-dt-el/logs (spec 9.5.2 rule 2)", () => {
+    expect(logsDirectory()).toBe(join(localAppDataDir, "tecscde-dt-el", "logs"));
+    expect(getPath).not.toHaveBeenCalled(); // Roaming の userData には置かない
   });
 
   it("loadAppSettings returns {} when no settings file exists yet (初回起動)", async () => {

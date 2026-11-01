@@ -52,6 +52,18 @@ describe("DiagnosticsLogger", () => {
     expect(write).toHaveBeenCalledWith(["[W-C] three"]);
   });
 
+  it("never writes the log-write-failed warning into the log (spec 9.5.2 rule 13)", () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const { store } = fakeStore({
+      filePath: "/p/main.cdl",
+      items: [diag("W-A", "one"), diag("W-LOG-WRITE-FAILED", "cannot write the log")],
+    });
+
+    new DiagnosticsLogger(store, write).sync();
+
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one"]);
+  });
+
   it("starts over with a separator line when the edited file changes", () => {
     const write = vi.fn().mockResolvedValue(undefined);
     const { store, state } = fakeStore({ filePath: "/p/a.cdl", items: [diag("W-A", "one")] });

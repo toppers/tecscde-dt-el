@@ -13,10 +13,10 @@ import { createRequire } from "node:module";
 import { updateElectronApp } from "update-electron-app";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
-import { LogService } from "./log-service.js";
+import { LogService, pruneOldLogs } from "./log-service.js";
 import { registerIpcHandlers } from "./ipc.js";
 import { CloseGuard } from "./close-guard.js";
-import { loadAppSettings, saveAppSettings } from "./app-settings.js";
+import { loadAppSettings, logsDirectory, saveAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,8 +38,9 @@ if (require("electron-squirrel-startup")) {
 // （実機確認、2026-09-26）。forge.config.jsのpublisher-github設定と同じrepoを渡す。
 updateElectronApp({ repo: "toppers/tecscde-dt-el" });
 
-// 診断ログ: 起動時のカレントディレクトリを第一候補に、書き込めなければuserData配下へ。
-const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")], app.getVersion());
+// 診断ログ（外部仕様9.5.2）: 設定ファイルと同じフォルダの logs/ へ。起動時に古いものを間引く。
+const logService = new LogService(logsDirectory(), app.getVersion());
+void pruneOldLogs(logsDirectory());
 
 let pendingOpenPath: string | null = null;
 

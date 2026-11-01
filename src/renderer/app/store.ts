@@ -81,6 +81,7 @@ export class AppStore {
   /** 外部仕様3.8: 起動時の tecsgen の確認で分かったこと。確認が終わるまでは未設定。 */
   private tecsgenInfo: TecsgenInfo | undefined;
   private exportDiagnostics: readonly Diagnostic[] = [];
+  private logWriteWarning: Diagnostic | undefined;
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
   private readonly listeners = new Set<StoreListener>();
@@ -223,6 +224,7 @@ export class AppStore {
     collector.reportAll(this.tecsgenDiagnostics);
     collector.reportAll(this.environmentDiagnostics);
     collector.reportAll(this.exportDiagnostics);
+    if (this.logWriteWarning) collector.report(this.logWriteWarning);
     return collector.toReport();
   }
 
@@ -378,6 +380,12 @@ export class AppStore {
   /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */
   setEnvironmentDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.environmentDiagnostics = diagnostics;
+    this.notify();
+  }
+
+  /** 外部仕様9.5.2の規定13: ログを書けないときの警告。ドキュメントを読み込み直しても残る。 */
+  setLogWriteWarning(diagnostic: Diagnostic): void {
+    this.logWriteWarning = diagnostic;
     this.notify();
   }
 

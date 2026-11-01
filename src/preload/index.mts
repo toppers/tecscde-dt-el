@@ -17,6 +17,7 @@ import type {
   ImportResolutionOptions,
   ResolvedImport,
   TecsgenOptionsFile,
+  LogAppendResult,
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
@@ -84,7 +85,7 @@ const api: TecscdeApi = {
     setDirty: (dirty: boolean): void => ipcRenderer.send("window:setDirty", dirty),
   },
   log: {
-    append: (lines: readonly string[]): Promise<void> => ipcRenderer.invoke("log:append", lines),
+    append: (lines: readonly string[]): Promise<LogAppendResult> => ipcRenderer.invoke("log:append", lines),
   },
   // 第7章7.4節: main が did-finish-load 後に一度だけ送る起動ドキュメント。
   onBootstrap: (listener: (data: OpenResult | null) => void): void => {
