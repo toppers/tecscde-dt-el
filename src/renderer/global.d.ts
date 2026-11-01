@@ -8,6 +8,10 @@ declare global {
   interface Window {
     readonly tecscde: TecscdeApi;
   }
+
+  /** ビルド時に埋め込まれる値（scripts/app-info.mjs。esbuild と vitest の define）。 */
+  const __APP_VERSION__: string;
+  const __APP_COMMIT__: string;
 }
 
 export {};
