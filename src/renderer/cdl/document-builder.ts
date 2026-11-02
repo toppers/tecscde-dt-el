@@ -433,6 +433,7 @@ export class CdlDocumentLoader {
         attributeOptions: ct.attributeOptions,
         hiddenRequirePortCount,
         locale: source.fileName,
+        ...(source.generated || source.sourcePath === undefined ? {} : { definitionPath: source.sourcePath }),
         composite,
         hasUnsupportedSyntax: isOrdinaryCelltype(ct) ? false : ct.hasUnsupportedSyntax,
       });

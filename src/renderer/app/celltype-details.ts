@@ -30,6 +30,16 @@ function portSection(title: string, ports: readonly PortTemplate[]): HTMLElement
   return section;
 }
 
+/** 一番下に出す、このセルタイプを定義している CDL ファイルのフルパス。 */
+function definitionFileSection(path: string | undefined): HTMLElement {
+  const section = element("section");
+  section.append(element("h3", "定義ファイル"));
+  const text = element("p", path ?? "パスなし（Plugin 生成の型、または保存前の新規作成）");
+  text.className = "celltype-details-path";
+  section.append(text);
+  return section;
+}
+
 export class CelltypeDetailsView {
   private readonly content: HTMLElement;
   private readonly heading: HTMLHeadingElement;
@@ -91,6 +101,7 @@ export class CelltypeDetailsView {
       portSection("呼び口", celltype.cportTemplates),
       portSection("受け口", celltype.eportTemplates),
       attrs,
+      definitionFileSection(celltype.definitionPath),
     );
     if (!this.dialog.open) this.dialog.showModal();
     this.heading.focus();

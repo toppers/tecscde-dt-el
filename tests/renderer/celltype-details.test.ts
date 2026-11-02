@@ -42,7 +42,7 @@ describe("CelltypeDetailsView", () => {
   it("shows empty sections and closes an open modal when disposed", () => {
     const { dialog, trigger, details } = mount();
     details.open(CelltypeRef.create({ name: "tEmpty", cportTemplates: [], eportTemplates: [], attributeNames: [], hiddenRequirePortCount: 0 }), trigger);
-    expect(dialog.querySelectorAll("section p")).toHaveLength(3);
+    expect(dialog.querySelectorAll("section p:not(.celltype-details-path)")).toHaveLength(3);
     details.dispose();
     expect(dialog.open).toBe(false);
   });

@@ -25,6 +25,8 @@ export interface CelltypeRefCreateParams {
   readonly hiddenRequirePortCount: number;
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
+  /** 定義している CDL ファイルのフルパス。詳細ダイアログに出す。パスを持たない型（Plugin 生成、新規作成）は無い。 */
+  readonly definitionPath?: string;
   readonly composite?: CompositeStructure;
   readonly hasUnsupportedSyntax?: boolean;
 }
@@ -40,6 +42,7 @@ export class CelltypeRef {
     readonly composite: CompositeStructure | undefined,
     readonly hasUnsupportedSyntax: boolean,
     readonly attributeOptions: ReadonlyMap<string, readonly string[]> = new Map(),
+    readonly definitionPath: string | undefined = undefined,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -53,6 +56,7 @@ export class CelltypeRef {
       params.composite,
       params.hasUnsupportedSyntax ?? false,
       params.attributeOptions ?? new Map(),
+      params.definitionPath,
     );
   }
 
