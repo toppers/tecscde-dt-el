@@ -19,7 +19,7 @@ import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDec
 import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
 import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
-import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
+import { duplicateCell, joinIndexInconsistent, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import { isUnderAny } from "../../shared/path-under";
 
@@ -307,6 +307,7 @@ export class CdlDocumentLoader {
               cellName: cell.cellName, regionPath: cell.regionPath, startIndex, endIndex: cell.endIndex,
               leadingText: source.text.slice(startIndex, cell.startIndex),
               joins: cell.joins,
+              sourceJoins: cell.joins,
             };
           }),
           composites: parsed.composites.map((composite) => ({ name: composite.name, rawText: composite.structure.rawText })),
@@ -555,6 +556,9 @@ export class CdlDocumentLoader {
         if (celltype.hiddenRequirePortCount > 0) {
           diagnostics.push(requirePortHidden(decl.cellName, celltype.hiddenRequirePortCount, id));
         }
+        for (const portName of decl.inconsistentJoinPorts ?? []) {
+          diagnostics.push(joinIndexInconsistent(decl.cellName, portName, id));
+        }
 
         const applyPortLayout = (p: PortTemplate): PortTemplate => {
           // 配列の要素は `名前[添字]` の鍵を先に引き、無ければ名前の鍵（要素共通の旧形式）を使う。
@@ -652,6 +656,8 @@ export class CdlDocumentLoader {
         const sourceCell = cells.get(idFor(decl.regionPath, decl.cellName));
         if (!sourceCell) continue;
         for (const j of decl.joins) {
+          // 添字の形が揃わず添字を持たない結合は、`W-JOIN-INDEX-INCONSISTENT`で知らせ済み。解決は試みない。
+          if (j.subscriptOmitted && j.cportIndex === undefined) continue;
           const jid = asJoinId(`${sourceCell.id}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
           const cport = sourceCell.cports.find((p) => p.name === j.cport && p.subscript === (j.cportIndex ?? null));
           const targetCell = resolveTargetCell(j.targetCell, namespaceOfCell(sourceCell));

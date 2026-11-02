@@ -18,7 +18,33 @@ function cellKey(regionPath: string, name: string): string {
   return `${regionPath}\0${name}`;
 }
 
-function cellJoinLines(doc: TecscdeDocument, cell: Cell): string[] {
+type SourceJoin = NonNullable<CdlSourceTemplate["cells"][number]["joins"]>[number];
+
+/**
+ * 外部仕様4.6.x: 読み込んだとき添字を省いて書かれていた呼び口のうち、結合が読み込んだ内容のまま
+ * （要素0, 1, 2…が同じ順で同じ結合先に結ばれている）のものの名前。これらは`name[] = …`で書き戻す。
+ * 結合を付け替えた、削除した、または一部が未解決の呼び口は含めず、全要素を添字つきで書く。
+ */
+function omittedFormPorts(doc: TecscdeDocument, cell: Cell, sourceJoins: readonly SourceJoin[]): ReadonlySet<string> {
+  const result = new Set<string>();
+  for (const name of new Set(sourceJoins.map((join) => join.cport))) {
+    const originals = sourceJoins.filter((join) => join.cport === name);
+    if (!originals.every((join) => join.subscriptOmitted === true && join.cportIndex !== undefined)) continue;
+    const elements = cell.cports.filter((port) => port.name === name);
+    const joinedCount = elements.filter((port) => port.joinId !== null).length;
+    const same = joinedCount === originals.length && originals.every((original) => {
+      const joinId = elements.find((port) => port.subscript === original.cportIndex)?.joinId;
+      const join = joinId ? doc.getJoin(joinId) : undefined;
+      const target = join ? doc.getCell(join.eportCellId) : undefined;
+      return join !== undefined && target !== undefined && join.eportName === original.eport &&
+        target.name === original.targetCell.split("::").pop();
+    });
+    if (same) result.add(name);
+  }
+  return result;
+}
+
+function cellJoinLines(doc: TecscdeDocument, cell: Cell, omittedForm: ReadonlySet<string> = new Set()): string[] {
   const lines: string[] = [];
   for (const cport of cell.cports) {
     if (cport.joinId === null) continue;
@@ -26,7 +52,8 @@ function cellJoinLines(doc: TecscdeDocument, cell: Cell): string[] {
     if (!join) continue;
     const targetCell = doc.getCell(join.eportCellId);
     if (!targetCell) continue;
-    const lhs = cport.subscript !== null ? `${cport.name}[${cport.subscript}]` : cport.name;
+    const lhs = omittedForm.has(cport.name) ? `${cport.name}[]`
+      : cport.subscript !== null ? `${cport.name}[${cport.subscript}]` : cport.name;
     // 修飾名で書かれていた結合先は、セル名が変わっていない限りそのまま書き戻す（#26）。
     const target = join.targetRef !== undefined && join.targetRef.split("::").pop() === targetCell.name
       ? join.targetRef
@@ -48,14 +75,16 @@ function serializeCellBlock(
   doc: TecscdeDocument,
   cell: Cell,
   originalJoins: CdlSourceTemplate["cells"][number]["joins"] = [],
+  sourceJoins: CdlSourceTemplate["cells"][number]["sourceJoins"] = [],
 ): string {
   const unresolvedJoins = (originalJoins ?? []).flatMap((join) => {
     const cport = cell.cports.find((port) => port.name === join.cport && port.subscript === (join.cportIndex ?? null));
     if (cport?.joinId) return [];
-    const name = join.cportIndex === undefined ? join.cport : `${join.cport}[${join.cportIndex}]`;
+    const name = join.cportIndex !== undefined ? `${join.cport}[${join.cportIndex}]`
+      : join.subscriptOmitted ? `${join.cport}[]` : join.cport;
     return [`  ${name} = ${join.targetCell}.${join.eport};`];
   });
-  const body = [...cellJoinLines(doc, cell), ...unresolvedJoins, ...cellAttrLines(cell)];
+  const body = [...cellJoinLines(doc, cell, omittedFormPorts(doc, cell, sourceJoins ?? [])), ...unresolvedJoins, ...cellAttrLines(cell)];
   // 末尾の `;` はCDL文法上必須（tecsgen の bnf.y.rb が cell 定義の終端として要求する）。
   return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `};`].join("\n");
 }
@@ -94,7 +123,7 @@ function serializeFromTemplate(
     // 同名セルが複数あるときは、現在のリージョンと同じ所属のものを元のブロックとする。
     const sameName = originalCells.get(cell.sourceName) ?? [];
     const original = sameName.length === 1 ? sameName[0] : sameName.find((c) => c.regionPath === path);
-    blocks.push((original?.leadingText ?? "") + serializeCellBlock(doc, cell, original?.joins));
+    blocks.push((original?.leadingText ?? "") + serializeCellBlock(doc, cell, original?.joins, original?.sourceJoins));
     insertions.set(path, blocks);
   }
   for (const [path, blocks] of insertions) {

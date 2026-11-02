@@ -15,6 +15,7 @@ export const W_CODES = {
   DUP_CELL: "W-DUP-CELL",
   UNRESOLVED_CELLTYPE: "W-UNRESOLVED-CELLTYPE",
   MISSING_JOIN_TARGET: "W-MISSING-JOIN-TARGET",
+  JOIN_INDEX_INCONSISTENT: "W-JOIN-INDEX-INCONSISTENT",
   /** DT-ELでは出さない（複合セルタイプの存在は警告にしない）。「出ない」ことを確かめるテストが参照する。 */
   COMPOSITE_UNSUPPORTED: "W-COMPOSITE-UNSUPPORTED",
   LAYOUT_DISCARDED: "W-LAYOUT-DISCARDED",
@@ -61,6 +62,17 @@ export function missingJoinTarget(cellName: string, portName: string, cellId: Ce
     severity: "warning",
     code: W_CODES.MISSING_JOIN_TARGET,
     message: `結合 \`${cellName}.${portName}\` は結合先のセルが見つかりません`,
+    relatedCellId: cellId,
+    relatedPortName: portName,
+  };
+}
+
+/** 外部仕様4.6.x: 同じ呼び口の結合で、添字を書いた形と省いた形が混ざっている。 */
+export function joinIndexInconsistent(cellName: string, portName: string, cellId: CellId): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.JOIN_INDEX_INCONSISTENT,
+    message: `セル \`${cellName}\` の呼び口 \`${portName}\` の結合で、添字を書いた形と省いた形が混ざっています`,
     relatedCellId: cellId,
     relatedPortName: portName,
   };

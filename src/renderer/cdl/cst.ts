@@ -43,9 +43,41 @@ export interface CelltypeDecl {
 
 export interface JoinAssignDecl {
   readonly cport: string;
+  /** 添字。省いた結合（`cPort[] = c.e;`）は、`assignOmittedSubscripts`が書かれた順に0, 1, 2…を割り当てる（外部仕様4.6.x）。 */
   readonly cportIndex?: number;
+  /** `cPort[] = c.e;` のように添字を省いて書かれていた。保存時に、元の書き方へ戻すために保つ。 */
+  readonly subscriptOmitted?: boolean;
   readonly targetCell: string;
   readonly eport: string;
+}
+
+/**
+ * 外部仕様4.6.x: 同じ呼び口の結合は、最初に現れた形（添字を書く／省く）に揃える。
+ * 省く形なら、省いた結合に書かれた順で0, 1, 2…を割り当てる（tecsgenの`add_array_member`と同じ）。
+ * 形が揃わない呼び口は名前を返す（診断`W-JOIN-INDEX-INCONSISTENT`用）。揃わない結合は、
+ * 省く形の呼び口では書かれた添字のまま、書く形の呼び口では添字なしのまま残し、結合としては解決しない。
+ */
+export function assignOmittedSubscripts(
+  joins: readonly JoinAssignDecl[],
+): { readonly joins: readonly JoinAssignDecl[]; readonly inconsistentPorts: readonly string[] } {
+  const omittedMode = new Map<string, boolean>();
+  for (const join of joins) {
+    if (!omittedMode.has(join.cport)) omittedMode.set(join.cport, join.subscriptOmitted === true);
+  }
+  const counters = new Map<string, number>();
+  const inconsistent = new Set<string>();
+  const out = joins.map((join): JoinAssignDecl => {
+    const omitted = join.subscriptOmitted === true;
+    if (omitted !== omittedMode.get(join.cport)) {
+      inconsistent.add(join.cport);
+      return join;
+    }
+    if (!omitted) return join;
+    const next = counters.get(join.cport) ?? 0;
+    counters.set(join.cport, next + 1);
+    return { ...join, cportIndex: next };
+  });
+  return { joins: out, inconsistentPorts: [...inconsistent] };
 }
 
 export interface AttrAssignDecl {
@@ -57,6 +89,8 @@ export interface CellDecl {
   readonly celltypeName: string;
   readonly cellName: string;
   readonly joins: readonly JoinAssignDecl[];
+  /** 添字を書いた結合と省いた結合が混ざっている呼び口の名前（外部仕様4.6.x）。 */
+  readonly inconsistentJoinPorts?: readonly string[];
   readonly attrs: readonly AttrAssignDecl[];
   readonly line: number;
   readonly column: number;
@@ -502,7 +536,11 @@ export class CdlDocumentBuilder {
         const argument = value.childForFieldName("argument");
         const field = value.childForFieldName("field");
         if (argument && field) {
-          joins.push({ cport: lhs.text, cportIndex, targetCell: argument.text, eport: field.text });
+          const subscriptOmitted = !indexNode && /^[^=]*\[\s*\]/.test(join.text);
+          joins.push({
+            cport: lhs.text, cportIndex, ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+            targetCell: argument.text, eport: field.text,
+          });
           continue;
         }
       }
@@ -510,10 +548,12 @@ export class CdlDocumentBuilder {
       attrs.push({ name: lhs.text, expr: value.text });
     }
 
+    const { joins: numberedJoins, inconsistentPorts } = assignOmittedSubscripts(joins);
     return {
       celltypeName: type.text,
       cellName: name.text,
-      joins,
+      joins: numberedJoins,
+      ...(inconsistentPorts.length > 0 ? { inconsistentJoinPorts: inconsistentPorts } : {}),
       attrs,
       line: cellNode.startPosition.row + 1,
       column: cellNode.startPosition.column + 1,
