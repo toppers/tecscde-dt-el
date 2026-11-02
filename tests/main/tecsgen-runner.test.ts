@@ -80,6 +80,31 @@ describe("TecsgenRunner", () => {
     }
   });
 
+  // tecsgen本体は`-S`を持たない（アプリ独自。外部仕様5.3・8.x）。そのまま渡すと`-S`をファイル名と取り違えて
+  // 失敗し、Plugin生成型が読み込まれない。`-I`に置き換えて、記述順を保つ。
+  it.each([
+    ["-S <dir>", "-S ./sys -I ./inc -S ./lib main.cdl", ["-I", "./sys", "-I", "./inc", "-I", "./lib", "main.cdl"]],
+    ["-S<dir> (attached)", "-S./sys -I./inc main.cdl", ["-I", "./sys", "-I./inc", "main.cdl"]],
+    ["--system-dir <dir>", "--system-dir ./sys main.cdl", ["-I", "./sys", "main.cdl"]],
+    ["--system-dir=<dir>", "--system-dir=./sys main.cdl", ["-I", "./sys", "main.cdl"]],
+  ])("generatedTypes() passes %s to tecsgen as -I, keeping the order", async (_label, text, expected) => {
+    const optionsDir = await mkdtemp(join(tmpdir(), "tecscde-options-s-"));
+    const optionsFilePath = join(optionsDir, "s.tecsgen-opts");
+    try {
+      await writeFile(optionsFilePath, text, "utf8");
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      await new TecsgenRunner().generatedTypes(["ignored.cdl"], join(optionsDir, "main.cdl"), optionsFilePath);
+      const [, args] = execFileMock.mock.calls[0]!;
+      expect(args.slice(4)).toEqual(expected); // ["-g", dir, "-k", "utf8", ...]
+      expect(args).not.toContain("-S");
+      expect(args).not.toContain("--system-dir");
+      expect(args.some((arg: string) => arg.startsWith("-S") || arg.startsWith("--system-dir"))).toBe(false);
+    } finally {
+      await rm(optionsFilePath, { force: true });
+      await rmdir(optionsDir);
+    }
+  });
+
   describe.each([
     ["-k euc", ["-k", "euc"]],
     ["--kcode sjis", ["--kcode", "sjis"]],

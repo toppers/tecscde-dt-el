@@ -57,6 +57,30 @@ function withoutOutputOption(args: readonly string[]): string[] {
   return filtered;
 }
 
+/**
+ * `-S`/`--system-dir`（システム定義ディレクトリ）をtecsgen向けの`-I`に置き換える（記述順を保つ）。
+ * tecsgen本体は`-S`を持たない（アプリ独自。外部仕様5.3・8.x）。そのまま渡すと、`-S`をCDLのファイル名と
+ * 取り違えて失敗し、Plugin生成型が読み込まれない。`-S<dir>`・`--system-dir=<dir>`の形も扱う。
+ */
+function systemDirsAsImportPaths(args: readonly string[]): string[] {
+  const converted: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "-S" || arg === "--system-dir") {
+      const value = args[i + 1];
+      if (value !== undefined) converted.push("-I", value);
+      i += 1;
+    } else if (arg.startsWith("--system-dir=")) {
+      converted.push("-I", arg.slice("--system-dir=".length));
+    } else if (arg.startsWith("-S") && !arg.startsWith("--")) {
+      converted.push("-I", arg.slice(2));
+    } else {
+      converted.push(arg);
+    }
+  }
+  return converted;
+}
+
 /** `-k`/`--kcode`（CDLの文字コード指定）が書かれているか。`-k <code>`、`-k<code>`、`--kcode <code>`、`--kcode=<code>`の各形を見る。 */
 function hasKcodeOption(args: readonly string[]): boolean {
   return args.some((arg) => arg === "-k" || arg === "--kcode" || arg.startsWith("--kcode=") || (arg.startsWith("-k") && !arg.startsWith("--")));
@@ -160,7 +184,7 @@ export class TecsgenRunner {
       // UTF-8のCDLをeucとして読むのを避ける。`-k`が書かれていれば、その値を尊重する。
       const kcodeArgs = optionsFilePath && !hasKcodeOption(invocationArgs) ? ["-k", "utf8"] : [];
       const result = await this.run(
-        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(invocationArgs)],
+        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(systemDirsAsImportPaths(invocationArgs))],
         dirname(optionsFilePath ?? editingFilePath),
       );
       return { result, sources: await generatedCdlSources(outputDir) };
