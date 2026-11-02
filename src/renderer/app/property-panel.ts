@@ -56,6 +56,24 @@ function note(text: string, className = "prop-note"): HTMLDivElement {
   return el;
 }
 
+/** OS の絶対パス（`E:\…`、`\\server\…`、`/…`）か。セルの定義元は、パスを持たないとファイル名だけになる。 */
+function isFullPath(location: string): boolean {
+  return /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(location);
+}
+
+/** 一番下に出す、選択したセルを定義している CDL ファイルのフルパス（パスを持たないセルは「パスなし」）。 */
+function definitionFileField(cell: Cell): HTMLDivElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "prop-field prop-path";
+  const label = document.createElement("label");
+  label.textContent = "定義ファイル";
+  const value = document.createElement("div");
+  value.className = "prop-path-value";
+  value.textContent = cell.locale && isFullPath(cell.locale) ? cell.locale : "パスなし（Plugin 生成のセル、または保存前の新規作成）";
+  wrapper.append(label, value);
+  return wrapper;
+}
+
 function selectedPort(doc: TecscdeDocument, selected: SelectedPort) {
   const cell = doc.getCell(selected.cellId);
   const ports = selected.kind === "cport" ? cell?.cports : cell?.eports;
@@ -181,6 +199,7 @@ export class PropertyPanelView {
       region,
       regionOptions,
       attrsSig,
+      cell.locale ?? "",
     ].join("|");
   }
 
@@ -313,6 +332,7 @@ export class PropertyPanelView {
         this.root.appendChild(attrField.wrapper);
       }
     }
+    this.root.appendChild(definitionFileField(cell));
   }
 
   private renderMultipleCells(doc: TecscdeDocument, cells: readonly Cell[]): void {
