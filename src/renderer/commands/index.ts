@@ -18,6 +18,7 @@ export {
 } from "./cell-commands";
 export { CreateJoinCommand, DeleteJoinCommand, MoveJoinBarCommand } from "./join-commands";
 export { ChangePaperCommand } from "./paper-commands";
+export { AutoPlaceCellsCommand, planAutoPlacement, type AutoPlacementPlan } from "./layout-commands";
 export {
   ChangePortEdgeCommand,
   DeletePortElementCommand,

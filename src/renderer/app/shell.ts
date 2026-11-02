@@ -36,6 +36,7 @@ import { AboutDialogView } from "./about-dialog";
 import { CelltypeDetailsView } from "./celltype-details";
 import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
+import { autoPlace, canAutoPlace } from "./auto-place-actions";
 import { regionStatusText } from "./status-region";
 import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
@@ -348,6 +349,12 @@ export class AppShell {
       case "alignLeft":
         alignSelection(this.store, "left");
         break;
+      case "autoPlace":
+        autoPlace(this.store, "selection");
+        break;
+      case "autoPlaceAll":
+        autoPlace(this.store, "all");
+        break;
       case "undo":
         this.store.undo();
         break;
@@ -554,6 +561,9 @@ export class AppShell {
     // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
     this.setDisabled("[data-action='alignTop']", !canAlign(this.store, "top"));
     this.setDisabled("[data-action='alignLeft']", !canAlign(this.store, "left"));
+    // 外部仕様7.3.x: 自動配置は、動かせる（編集できる）対象のセルがあるときだけ有効。
+    this.setDisabled("[data-action='autoPlace']", !canAutoPlace(this.store, "selection"));
+    this.setDisabled("[data-action='autoPlaceAll']", !canAutoPlace(this.store, "all"));
     const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
     this.setDisabled("[data-action='generate']", !canGenerate);
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);

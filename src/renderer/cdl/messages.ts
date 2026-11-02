@@ -73,7 +73,7 @@ export function autoLayoutOverflow(count: number): Diagnostic {
   return {
     severity: "warning",
     code: W_CODES.AUTO_LAYOUT_OVERFLOW,
-    message: `自動配置したセルのうち ${count} 個が用紙に収まらず、位置をずらして重ねて置きました。用紙を大きくしてください`,
+    message: `自動配置したセルのうち ${count} 個が用紙に収まらず、位置をずらして重ねて置きました。用紙を大きくしたあと、「全体を自動配置」を実行してください`,
   };
 }
 

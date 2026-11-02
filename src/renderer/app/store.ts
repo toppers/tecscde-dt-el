@@ -82,6 +82,8 @@ export class AppStore {
   private tecsgenInfo: TecsgenInfo | undefined;
   private exportDiagnostics: readonly Diagnostic[] = [];
   private logWriteWarning: Diagnostic | undefined;
+  /** 自動配置し直したときに収まらなかったセルの警告（外部仕様7.3.x）。別のファイルを読み込むと消える。 */
+  private autoLayoutDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
   private readonly listeners = new Set<StoreListener>();
@@ -225,6 +227,7 @@ export class AppStore {
     collector.reportAll(this.environmentDiagnostics);
     collector.reportAll(this.exportDiagnostics);
     if (this.logWriteWarning) collector.report(this.logWriteWarning);
+    collector.reportAll(this.autoLayoutDiagnostics);
     return collector.toReport();
   }
 
@@ -349,6 +352,7 @@ export class AppStore {
     this.portTypeIndex = portTypeIndex;
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
+    this.autoLayoutDiagnostics = [];
     // 第6B章6B.7: 非表示にしたリージョンのIDは前のドキュメントのものなので、別のファイルを開くときは
     // 戻す（参照ファイルの追加＝keepDirtyでは保つ）。色分け・シグニチャ名の切り替えは保つ。
     if (!keepDirty) this.viewState = this.viewState.withFilters(this.viewState.filters.withAllRegionsShown());
@@ -386,6 +390,14 @@ export class AppStore {
   /** 外部仕様9.5.2の規定13: ログを書けないときの警告。ドキュメントを読み込み直しても残る。 */
   setLogWriteWarning(diagnostic: Diagnostic): void {
     this.logWriteWarning = diagnostic;
+    this.notify();
+  }
+
+  /** 外部仕様7.3.x: 自動配置し直した結果の警告（用紙に収まらなかったセル）。空を渡すと消す。 */
+  setAutoLayoutDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.autoLayoutDiagnostics = diagnostics;
+    // 読み込み時に出した同じ警告は、今回の結果で置き換える（古い件数を残さない）。
+    this.loadDiagnostics = this.loadDiagnostics.filter((d) => d.code !== "W-AUTO-LAYOUT-OVERFLOW");
     this.notify();
   }
 
