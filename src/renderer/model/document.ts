@@ -19,7 +19,9 @@ export interface CdlSourceTemplate {
     readonly endIndex: number;
     readonly leadingText: string;
     /** Joins unresolved on load; keep their source declarations when saving other edits. */
-    readonly joins?: readonly { readonly cport: string; readonly cportIndex?: number; readonly targetCell: string; readonly eport: string }[];
+    readonly joins?: readonly { readonly cport: string; readonly cportIndex?: number; readonly subscriptOmitted?: boolean; readonly targetCell: string; readonly eport: string }[];
+    /** 読み込んだときの全結合（解決済みも含む）。添字を省いた呼び口を、変更が無ければ元の書き方で書き戻すために使う（外部仕様4.6.x）。 */
+    readonly sourceJoins?: readonly { readonly cport: string; readonly cportIndex?: number; readonly subscriptOmitted?: boolean; readonly targetCell: string; readonly eport: string }[];
   }[];
   readonly composites: readonly { readonly name: string; readonly rawText: string }[];
   readonly scopes: readonly { readonly path: string; readonly bodyEndIndex: number }[];
