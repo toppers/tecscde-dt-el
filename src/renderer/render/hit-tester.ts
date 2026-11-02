@@ -99,8 +99,16 @@ export class HitTester {
     return result;
   }
 
+  /**
+   * 描画（SvgRenderer）は`cellValues()`の順に重ねるので、並びの後ろのセルが上に見える。
+   * ヒットテストは、見えているセルを選ぶよう、後ろから探す。
+   */
+  private topmostFirst(): Cell[] {
+    return this.visibleCells().reverse();
+  }
+
   private hitPort(point: Point): HitResult | undefined {
-    for (const cell of this.visibleCells()) {
+    for (const cell of this.topmostFirst()) {
       for (const p of cell.cports) {
         if (distance(point, portPosition(cell, p)) <= PORT_HIT_RADIUS_MM) {
           return { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript };
@@ -116,7 +124,7 @@ export class HitTester {
   }
 
   private hitCell(point: Point): HitResult | undefined {
-    for (const cell of this.visibleCells()) {
+    for (const cell of this.topmostFirst()) {
       if (pointInCell(point, cell)) return { kind: "cell", cellId: cell.id };
     }
     return undefined;
