@@ -4,6 +4,8 @@
 // 格子を先頭から走査し直し、横 8 mm・縦 6 mm ずつずらして置く（重なるが、下のセルがはみ出して見える）。
 // 用紙の外には置かない。
 
+import { PaperSpec, type PaperSize } from "../model/paper";
+
 export interface Rect {
   readonly x: number;
   readonly y: number;
@@ -39,6 +41,23 @@ function gridPositions(paperW: number, paperH: number): { x: number; y: number }
     for (let x = START; x <= paperW - 30; x += COLUMN_STEP) result.push({ x, y });
   }
   return result;
+}
+
+/** 自動選択の候補。向きは横のみ（外部仕様5.3.x）。小さい順。 */
+const AUTO_PAPER_SIZES: readonly PaperSize[] = ["A4", "A3", "A2"];
+
+/**
+ * 用紙の指定がないファイルの用紙を選ぶ（外部仕様5.3.x）。自動配置するセル `count` 個が、`occupied`
+ * （すでに位置を持つセル）と合わせて、重ならず用紙の内に収まる最小の用紙（A4横 → A3横 → A2横）。
+ * A2横でも収まらないときは A2 を返す（収まらなかったセルは、読み込み時の警告で知らせる）。
+ */
+export function chooseAutoPaperSize(count: number, occupied: readonly Rect[]): PaperSize {
+  for (const size of AUTO_PAPER_SIZES) {
+    const { width, height } = PaperSpec.create(size, "LANDSCAPE").contentSize();
+    const containsAll = occupied.every((r) => r.x + r.width <= width && r.y + r.height <= height);
+    if (containsAll && placeAutoCells(count, occupied, width, height).overflow === 0) return size;
+  }
+  return "A2";
 }
 
 export function placeAutoCells(count: number, occupied: readonly Rect[], paperW: number, paperH: number): AutoPlacement {

@@ -107,9 +107,11 @@ describe("auto placement on load", () => {
     expect(diagnostics.filter((d) => d.code === "W-AUTO-LAYOUT-OVERFLOW")).toEqual([]);
   });
 
-  it("reports how many cells did not fit on the paper", () => {
+  it("reports how many cells did not fit on the paper written in the file", () => {
     const names = Array.from({ length: 34 }, (_, i) => `c${i}`);
-    const text = HEAD + names.map((n) => `cell tT ${n} {};`).join("\n") + "\n";
+    // 用紙の指定がなければ、収まる用紙が選ばれる（auto-paper.test.ts）。指定があるときだけ、収まらずに警告する。
+    const text = HEAD + names.map((n) => `cell tT ${n} {};`).join("\n") + "\n" +
+      `__tool_info__("tecscde") {"paper":{"size":"A4","orientation":"LANDSCAPE"},"cell_list":{},"join_list":{}}\n`;
 
     const { diagnostics } = CdlDocumentLoader.loadSingle(text, "main.cde");
 
