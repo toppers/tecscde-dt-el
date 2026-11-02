@@ -103,6 +103,12 @@ npm run forge:make    # electron-forge make（Squirrel .exe インストーラ�
 
 新規セルの追加と貼り付けは、編集可能なセルを1つ選択していればそのセルが属する CDL に保存します。それ以外は主ファイルに保存します。結合先が未解決の記述も、別の編集内容を保存する際に保持します。
 
+### サンプル（`public/samples/`）の開き方
+
+`tEV3Sample.cdl` は、`import` する CDL（`EV3_common.cdl` など）を `tests/hr-tecs/` 配下から探します。この探索パス（`-I`）は `.tecsgen-opts` にだけ書かれていて、`.cdl` を直接開いても使われません。**`tEV3Sample.cdl` は直接開かず、`tEV3Sample.tecsgen-opts` を開いてください。** 直接開くと、参照ファイルが見つからず、`W-UNRESOLVED-REF-FILE`・`W-UNRESOLVED-CELLTYPE` などの警告が出ます（`tecsgen` を `-I` なしで実行したときと同じ結果です）。
+
+`a.tecsgen-opts` と `b.tecsgen-opts` は、`-I` が別のフォルダ配置を前提にしているため、このリポジトリで開くと同じ警告が出ます。
+
 ## TECS CDL の組込型
 
 署名の戻り値・引数では、次の17種類を `import_C` や `typedef` なしで解決します。型名の幅・符号は区別して保持します。
