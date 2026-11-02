@@ -16,6 +16,7 @@ export const W_CODES = {
   UNRESOLVED_CELLTYPE: "W-UNRESOLVED-CELLTYPE",
   MISSING_JOIN_TARGET: "W-MISSING-JOIN-TARGET",
   JOIN_INDEX_INCONSISTENT: "W-JOIN-INDEX-INCONSISTENT",
+  AUTO_LAYOUT_OVERFLOW: "W-AUTO-LAYOUT-OVERFLOW",
   /** DT-ELでは出さない（複合セルタイプの存在は警告にしない）。「出ない」ことを確かめるテストが参照する。 */
   COMPOSITE_UNSUPPORTED: "W-COMPOSITE-UNSUPPORTED",
   LAYOUT_DISCARDED: "W-LAYOUT-DISCARDED",
@@ -64,6 +65,15 @@ export function missingJoinTarget(cellName: string, portName: string, cellId: Ce
     message: `結合 \`${cellName}.${portName}\` は結合先のセルが見つかりません`,
     relatedCellId: cellId,
     relatedPortName: portName,
+  };
+}
+
+/** 外部仕様5.3.x: 自動配置したセルのうち、用紙の内に収まらず、ずらして重ねて置いたものがある。 */
+export function autoLayoutOverflow(count: number): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.AUTO_LAYOUT_OVERFLOW,
+    message: `自動配置したセルのうち ${count} 個が用紙に収まらず、位置をずらして重ねて置きました。用紙を大きくしたあと、「全体再配置」を実行してください`,
   };
 }
 

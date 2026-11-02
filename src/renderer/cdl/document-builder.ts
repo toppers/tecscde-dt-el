@@ -19,8 +19,9 @@ import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDec
 import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
 import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
-import { duplicateCell, joinIndexInconsistent, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
+import { autoLayoutOverflow, duplicateCell, joinIndexInconsistent, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
+import { AUTO_CELL_HEIGHT, AUTO_CELL_WIDTH, chooseAutoPaperSize, placeAutoCells, type Rect } from "./auto-placement";
 import { isUnderAny } from "../../shared/path-under";
 
 /** 配列ポートの隣り合う要素の間隔（mm）。要素の挿入（InsertPortElementCommand）と同じ値。 */
@@ -58,23 +59,6 @@ export interface LoadOptions {
 
 function withLocation(d: Diagnostic, file: string): Diagnostic {
   return d.location ? { ...d, location: { ...d.location, file } } : d;
-}
-
-/** 外部仕様5.3.1の自動配置アルゴリズムをそのまま踏襲する（重なりを許して巻き戻す）。 */
-function autoPlacementPosition(index: number, paperW: number, paperH: number): { x: number; y: number } {
-  let x = 10;
-  let y = 10;
-  for (let i = 0; i < index; i += 1) {
-    x += 55;
-    if (x > paperW - 30) {
-      x = 10;
-      y += 30;
-    }
-    if (y > paperH - 15) {
-      y = 10;
-    }
-  }
-  return { x, y };
 }
 
 /**
@@ -271,6 +255,7 @@ export class CdlDocumentLoader {
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
     const layoutsBySource = new Map<string, ToolInfoTecscdeParsed>();
     let paper: PaperSpec = PaperSpec.default();
+    let paperSpecified = false; // ファイルに用紙の指定があるか（無ければ、収まる用紙を選ぶ。外部仕様5.3.x）
     const regionPaths = new Set<string>(["::"]);
     const namespaceScopePaths = new Set<string>();
     const editableRegionPaths = new Set<string>(["::"]);
@@ -332,6 +317,7 @@ export class CdlDocumentLoader {
           diagnostics.push(...d);
           if (p.paper) {
             paper = PaperSpec.create(p.paper.size, p.paper.orientation ?? "LANDSCAPE");
+            paperSpecified = true;
           }
         }
         // 5.1.1: 自分に向けられていないツール名のブロックは読み飛ばす。
@@ -444,7 +430,6 @@ export class CdlDocumentLoader {
     registerMrubyBridgeCelltypes(celltypes, signatures, generates);
     const celltypeLookup = new Map([...celltypes, ...qualifiedCelltypes]);
 
-    const { width: paperW, height: paperH } = paper.contentSize();
 
     // --- セル（1周目: 本体とポート。全ファイル分をまとめて処理する） ---
     const cells = new Map<CellId, Cell>();
@@ -494,7 +479,28 @@ export class CdlDocumentLoader {
       const namespace = namespaceOf(regionPath);
       return asCellId(namespace === "::" ? `::${name}` : `${namespace}::${name}`);
     };
-    let autoIndex = 0;
+    // 外部仕様5.3.x: 位置を持たないセルは、保存済みの位置を持つセルと重ならない位置へ置く。
+    // 先に全セルのレイアウトを調べ、位置を持つセルの矩形を埋まっている場所として渡す。
+    const occupied: Rect[] = [];
+    const autoCellIds: CellId[] = [];
+    for (const src of selectedSources) {
+      for (const decl of src.cells) {
+        const id = idFor(decl.regionPath, decl.cellName);
+        const saved = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[id];
+        if (saved) {
+          const [sx, sy, sw, sh] = saved.location;
+          occupied.push({ x: sx, y: sy, width: sw, height: sh });
+        } else {
+          autoCellIds.push(id);
+        }
+      }
+    }
+    // 外部仕様5.3.x: 用紙の指定がなければ、自動配置したセルがすべて収まる最小の用紙（横）を選ぶ。指定があれば尊重する。
+    if (!paperSpecified) paper = PaperSpec.create(chooseAutoPaperSize(autoCellIds.length, occupied), "LANDSCAPE");
+    const { width: paperW, height: paperH } = paper.contentSize();
+    const autoPlacement = placeAutoCells(autoCellIds.length, occupied, paperW, paperH);
+    const autoPositions = new Map(autoCellIds.map((id, index) => [id, autoPlacement.positions[index]!]));
+    if (autoPlacement.overflow > 0) diagnostics.push(autoLayoutOverflow(autoPlacement.overflow));
 
     for (const src of selectedSources) {
       for (const decl of src.cells) {
@@ -518,12 +524,11 @@ export class CdlDocumentLoader {
         if (layout) {
           [x, y, width, height] = layout.location;
         } else {
-          const pos = autoPlacementPosition(autoIndex, paperW, paperH);
-          autoIndex += 1;
+          const pos = autoPositions.get(id)!;
           x = pos.x;
           y = pos.y;
-          width = 25;
-          height = 15;
+          width = AUTO_CELL_WIDTH;
+          height = AUTO_CELL_HEIGHT;
         }
 
         const attrs: Record<string, string> = {};
