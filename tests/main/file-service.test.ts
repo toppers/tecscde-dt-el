@@ -187,7 +187,14 @@ describe("FileService", () => {
     showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [chosen] });
     const service = new FileService({} as never);
 
-    await service.chooseFolder();
+    // LOCALAPPDATA分岐はWindows限定のため、実行OSに関わらずwin32として扱う。
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      await service.chooseFolder();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
 
     const saved = JSON.parse(
       readFileSync(join(localAppDataDir, "tecscde-dt-el", "settings.json"), "utf-8"),
@@ -472,7 +479,8 @@ describe("FileService", () => {
       expect(resolved?.canonicalPath).toBe(join(sysDir, "plain.cdl"));
     });
 
-    it("normalizes separators, a leading ./ and CRLF in the list; ignores blank lines", async () => {
+    // 仕様の入力は`\`区切りのパス。`\`が区切りになるのはWindowsだけなので、他のOSではスキップする。
+    it.skipIf(process.platform !== "win32")("normalizes separators, a leading ./ and CRLF in the list; ignores blank lines", async () => {
       writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
       writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "\r\n.\\k.cdl\r\n\r\n");
 

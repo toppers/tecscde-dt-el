@@ -13,7 +13,12 @@ const clipboardMock = {
 
 vi.mock("electron", () => ({
   ipcMain: {
-    handle: (channel: string, fn: (...args: unknown[]) => unknown) => handlers.set(channel, fn),
+    handle: (channel: string, fn: (...args: unknown[]) => unknown) => {
+      // 実Electronと同様、同じチャネルの二重登録は例外にする。
+      if (handlers.has(channel)) throw new Error(`Attempted to register a second handler for \`${channel}\``);
+      handlers.set(channel, fn);
+    },
+    removeHandler: (channel: string) => handlers.delete(channel),
   },
   clipboard: clipboardMock,
 }));
@@ -160,5 +165,22 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("clipboard:readText")!({});
     expect(clipboardMock.readText).toHaveBeenCalled();
+  });
+  // macOSでウィンドウを閉じてDockから開き直すと createWindow() → registerIpcHandlers() が
+  // 2回目に呼ばれる。二重登録で例外にならず、新しいサービスに置き換わること。
+  it("can be called again (macOS re-activate) and routes to the newest services", async () => {
+    const mk = (tag: string) => ({
+      fileService: { save: vi.fn().mockResolvedValue(tag) },
+      tecsgenRunner: {},
+      logService: {},
+    });
+    const first = mk("first");
+    const second = mk("second");
+    registerIpcHandlers(first.fileService as never, first.tecsgenRunner as never, first.logService as never);
+    expect(() =>
+      registerIpcHandlers(second.fileService as never, second.tecsgenRunner as never, second.logService as never),
+    ).not.toThrow();
+    await expect(handlers.get("file:save")!({}, "p", "c")).resolves.toBe("second");
+    expect(first.fileService.save).not.toHaveBeenCalled();
   });
 });

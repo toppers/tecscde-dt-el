@@ -1,7 +1,7 @@
 // [[TECSCDE-DT-EL内部仕様]] 第7章7.2節・第9章9.2節: ipcMain.handle の登録一式。
 // FileService/TecsgenRunner をIPC越しに公開する薄い配線層。
 
-import { app, clipboard, ipcMain } from "electron";
+import { app, clipboard, ipcMain as electronIpcMain } from "electron";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileService } from "./file-service.js";
@@ -9,6 +9,19 @@ import type { TecsgenRunner } from "./tecsgen-runner.js";
 import type { LogService } from "./log-service.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import type { ExportFormat, ImportRequest, ImportResolutionOptions, PdfPage } from "../shared/ipc-types.js";
+
+/**
+ * macOSでは全ウィンドウを閉じてもアプリは終了せず、Dockから再度開くと`createWindow()`が
+ * 再び呼ばれ、この関数も2回目が呼ばれる。`ipcMain.handle`は同じチャネルの二重登録で
+ * 例外を投げるため、登録前に既存ハンドラを外す。以前のウィンドウは閉じ済みなので、
+ * 最新ウィンドウの`FileService`等で置き換えるのが正しい動作。
+ */
+const ipcMain = {
+  handle: (channel: string, listener: Parameters<typeof electronIpcMain.handle>[1]): void => {
+    electronIpcMain.removeHandler(channel);
+    electronIpcMain.handle(channel, listener);
+  },
+};
 
 export function registerIpcHandlers(
   fileService: FileService,

@@ -19,16 +19,21 @@ const { loadAppSettings, saveAppSettings, logsDirectory } = await import("../../
 describe("app-settings", () => {
   let userDataDir: string;
   let localAppDataDir: string;
+  let originalPlatform: PropertyDescriptor;
 
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-userdata-"));
     localAppDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-localappdata-"));
     getPath.mockReturnValue(userDataDir);
-    // このマシン自体がWindowsのため、LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    // LOCALAPPDATA分岐はWindows限定のため、実行OSに関わらずwin32として扱い、
+    // LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
     vi.stubEnv("LOCALAPPDATA", localAppDataDir);
   });
 
   afterEach(() => {
+    Object.defineProperty(process, "platform", originalPlatform);
     vi.unstubAllEnvs();
     rmSync(userDataDir, { recursive: true, force: true });
     rmSync(localAppDataDir, { recursive: true, force: true });
