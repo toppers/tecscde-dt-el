@@ -131,9 +131,15 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 ## Diagnostics log
 
-診断パネルに表示される内容は、`tecscde-log-YYYYMMDD-HHMMSS.txt` にも追記されます。カレントディレクトリを優先し、書き込めない場合は他のディレクトリにフォールバックします。書き込みに失敗してもアプリは停止しません。ログファイルは `.gitignore` 対象です。
+診断パネルに表示される内容は、起動ごとに `tecscde-log-YYYYMMDD-HHMMSS.txt` へ追記されます（外部仕様 9.5）。
 
-ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下に保存されます。
+- **置き場所**: 設定ファイル（`settings.json`）と同じフォルダの `logs/` です。Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外では Electron の `userData` フォルダ配下の `logs/` です。カレントディレクトリには作りません。
+- **先頭行**: `# TECSCDE 診断ログ（起動: <日時>、版: <アプリの版>）` です。診断が1件も出ない起動では、ファイルを作りません。
+- **古いログ**: 起動時に、`tecscde-log-*.txt` のうちファイル名の新しい30個を残し、古いものを削除します（他のファイルには触れません）。
+- **書けないとき**: アプリは停止せず、警告 `W-LOG-WRITE-FAILED` を診断パネルに一度だけ出します（この警告はログには書きません）。
+- ログにはファイルのパスがそのまま入るため、不具合の報告に添えるときは、ユーザー名などを含まないか確認してください。
+
+ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下（`%LOCALAPPDATA%\tecscde-dt-el\settings.json`）、それ以外では Electron の `userData` フォルダ配下に保存されます。
 
 ## What's verified vs. not
 
@@ -147,13 +153,16 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
   （ファイルI/O：ファイルブラウザ含む。7B/7C/7D/7E）、第8章（診断）、第9章
   （tecsgen統合：`TecsgenResultParser`、`CdeclExtractor` 含む）、およびUIシェル（モジュールG）が実装済み。
   詳細な進捗ログは `[[work/active/TECSCDE-DT-EL実装]]` を参照。
-- ❌ 未実装：コード署名（インストーラーは未署名のため Windows SmartScreen の警告が出ます）、および macOS/Linux 向けパッケージング。
+- ❌ 未実装：コード署名・公証（インストーラーは未署名のため、Windows では SmartScreen の警告が、macOS では「壊れている」という拒否が出ます）。
+  macOS 向けは Apple Silicon（arm64）のみ、Linux 向け（`.deb`・`.rpm`）はビルドされますがインストールの確認は未実施です。
   いずれも仕様 11.2 #2 に基づき未決のままです。
   `[[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 11 未決事項と実装単位案]]` を参照。
 
 ## Installing / Updating
 
-現時点ではWindowsのみ対応しています（上記「What's verified vs. not」を参照）。
+Windows と macOS（Apple Silicon）の成果物を [Releases](https://github.com/toppers/tecscde-dt-el/releases) で配布します。Linux（`.deb`・`.rpm`）もビルドされますが、インストールの確認は未実施です（上記「What's verified vs. not」を参照）。
+
+### Windows
 
 以下は計画中の手順です（一部まだ実装されていません）。
 
@@ -163,3 +172,17 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 リリース自動化（`.github/workflows/release.yml`）は、`v*` タグがプッシュされるたびに新しいリリースをビルドして公開します（Node 22 固定。新しい Node では `@electron/packager` がハングするため）。
 設計は `[[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]` を参照。
+
+### macOS（Apple Silicon）
+
+macOS 向けは **Apple Silicon（M1 以降の arm64）の Mac 用だけ**を作ります。Intel Mac 用はありません。
+
+1. [Releases](https://github.com/toppers/tecscde-dt-el/releases) から `tecscde-dt-el-<版>-arm64.dmg` をダウンロードして開き、アプリを `Applications` にコピーします（`.dmg` の中から直接は起動しないでください）。
+2. アプリは署名・公証をしていないため、そのまま起動すると、「壊れている」として実行できないことがあります。その場合は、ターミナルでダウンロードの印（隔離属性）を外してから、起動してください。
+
+   ```sh
+   xattr -cr /Applications/tecscde-dt-el.app
+   ```
+
+   アプリ名が違う場合は、`ls /Applications | grep -i tecs` で確かめてください。この操作で起動できたことを、Apple M4 の MacBook Pro で確認しています（起動後の動作は未確認）。
+3. 未署名のため、macOS での自動更新が動くかは未確認です。動かないときは、新しい `.dmg` を手動でダウンロードして入れ直してください。
