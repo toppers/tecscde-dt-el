@@ -131,9 +131,15 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 ## Diagnostics log
 
-診断パネルに表示される内容は、`tecscde-log-YYYYMMDD-HHMMSS.txt` にも追記されます。カレントディレクトリを優先し、書き込めない場合は他のディレクトリにフォールバックします。書き込みに失敗してもアプリは停止しません。ログファイルは `.gitignore` 対象です。
+診断パネルに表示される内容は、起動ごとに `tecscde-log-YYYYMMDD-HHMMSS.txt` へ追記されます（外部仕様 9.5）。
 
-ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下に保存されます。
+- **置き場所**: 設定ファイル（`settings.json`）と同じフォルダの `logs/` です。Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外では Electron の `userData` フォルダ配下の `logs/` です。カレントディレクトリには作りません。
+- **先頭行**: `# TECSCDE 診断ログ（起動: <日時>、版: <アプリの版>）` です。診断が1件も出ない起動では、ファイルを作りません。
+- **古いログ**: 起動時に、`tecscde-log-*.txt` のうちファイル名の新しい30個を残し、古いものを削除します（他のファイルには触れません）。
+- **書けないとき**: アプリは停止せず、警告 `W-LOG-WRITE-FAILED` を診断パネルに一度だけ出します（この警告はログには書きません）。
+- ログにはファイルのパスがそのまま入るため、不具合の報告に添えるときは、ユーザー名などを含まないか確認してください。
+
+ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下（`%LOCALAPPDATA%\tecscde-dt-el\settings.json`）、それ以外では Electron の `userData` フォルダ配下に保存されます。
 
 ## What's verified vs. not
 
