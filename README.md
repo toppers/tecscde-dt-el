@@ -154,13 +154,13 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
   （tecsgen統合：`TecsgenResultParser`、`CdeclExtractor` 含む）、およびUIシェル（モジュールG）が実装済み。
   詳細な進捗ログは `[[work/active/TECSCDE-DT-EL実装]]` を参照。
 - ❌ 未実装：コード署名・公証（インストーラーは未署名のため、Windows では SmartScreen の警告が、macOS では「壊れている」という拒否が出ます）。
-  macOS 向けは Apple Silicon（arm64）のみ、Linux 向け（`.deb`・`.rpm`）はビルドされますがインストールの確認は未実施です。
+  macOS 向けは Apple Silicon（arm64）のみです。Linux 向け（`.deb`・`.rpm`）は、Ubuntu 24.04 での `.deb` のインストールと、`.rpm` を確認しています（起動後の動作は期待どおり）。
   いずれも仕様 11.2 #2 に基づき未決のままです。
   `[[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 11 未決事項と実装単位案]]` を参照。
 
 ## Installing / Updating
 
-Windows と macOS（Apple Silicon）の成果物を [Releases](https://github.com/toppers/tecscde-dt-el/releases) で配布します。Linux（`.deb`・`.rpm`）もビルドされますが、インストールの確認は未実施です（上記「What's verified vs. not」を参照）。
+Windows と macOS（Apple Silicon）の成果物を [Releases](https://github.com/toppers/tecscde-dt-el/releases) で配布します。Linux（`.deb`・`.rpm`）も配布します。Ubuntu 24.04 の `.deb` のインストールと、`.rpm` を確認しています（上記「What's verified vs. not」を参照）。
 
 ### Windows
 
@@ -184,5 +184,5 @@ macOS 向けは **Apple Silicon（M1 以降の arm64）の Mac 用だけ**を作
    xattr -cr /Applications/tecscde-dt-el.app
    ```
 
-   アプリ名が違う場合は、`ls /Applications | grep -i tecs` で確かめてください。この操作で起動できたことを、Apple M4 の MacBook Pro で確認しています（起動後の動作は未確認）。
+   アプリ名が違う場合は、`ls /Applications | grep -i tecs` で確かめてください。この操作で起動できたことを Apple M4 の MacBook Pro で、起動後の動作が期待どおりであることを macOS で確認しています。
 3. 未署名のため、macOS での自動更新が動くかは未確認です。動かないときは、新しい `.dmg` を手動でダウンロードして入れ直してください。
