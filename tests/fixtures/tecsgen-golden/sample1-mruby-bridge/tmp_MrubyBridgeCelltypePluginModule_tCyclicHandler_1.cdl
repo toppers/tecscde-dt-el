@@ -1,0 +1,2 @@
+/* MrubyBridgeCelltypePluginModule: celltype=tCyclicHandler */
+generate( MrubyBridgeCellPlugin, ::rDomainEV3::CyclicHandler, "ignoreUnsigned=false, auto_exclude=true" );

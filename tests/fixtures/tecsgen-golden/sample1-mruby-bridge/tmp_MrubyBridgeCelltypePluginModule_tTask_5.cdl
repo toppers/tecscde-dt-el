@@ -1,0 +1,2 @@
+/* MrubyBridgeCelltypePluginModule: celltype=tTask */
+generate( MrubyBridgeCellPlugin, ::rDomainEV3::MrubySubTask2, "ignoreUnsigned=false, auto_exclude=true" );

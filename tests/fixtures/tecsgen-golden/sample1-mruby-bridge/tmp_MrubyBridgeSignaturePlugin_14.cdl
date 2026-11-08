@@ -1,0 +1,50 @@
+/*
+ * MrubyBridgeSignaturePlugin:
+ *     signature=::sTask
+ *
+ *   => celltype=nMruby::tsTask
+ *      (bridge cell's celltype; generated in this file)
+ *      cell nMruby::tsTask BridgeCellName { cTECS = CellName.eEntry; };
+ *        where eEntry's signature must be ::sTask.
+ *      => class=TECS::TsTask
+ *         (mruby's class; accessible from your script)
+ *          bridge = TECS::TsTask.new("BridgeCellName")
+ */
+import( <mruby.cdl> );
+
+/****  Ruby => TECS Bridge Celltype (MBP500) ****/
+namespace nMruby{
+    // bridge celltype
+    [idx_is_id,active]   // not actually active, to avoid warning W1002, W1007
+    celltype tsTask {
+        call ::sTask cTECS;
+        attr {
+            [omit]
+            char_t *VMname = "VM";
+            [omit]
+            char_t *bridgeName = C_EXP( "$cell$" );
+        };
+    };
+    // bridge initializer celltype
+    celltype tsTask_Initializer {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};
+namespace nMruby{
+    [singleton]
+    celltype t_rtsk {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};
+namespace nMruby{
+    [singleton]
+    celltype t_rtex {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};
+namespace nMruby{
+    [singleton]
+    celltype t_rovr {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};

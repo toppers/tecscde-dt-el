@@ -1,0 +1,7 @@
+/* MrubyBridgeCellPlugin: generate for cell=MrubyWakeupTask */
+region rDomainEV3{
+  /* BridgeCell */
+  cell nMruby::tsTask MrubyWakeupTaskeTaskBridge {
+      cTECS = ::rDomainEV3::MrubyWakeupTask.eTask;
+  };
+};

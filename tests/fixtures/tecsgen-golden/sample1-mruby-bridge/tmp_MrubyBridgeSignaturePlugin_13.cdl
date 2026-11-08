@@ -1,0 +1,38 @@
+/*
+ * MrubyBridgeSignaturePlugin:
+ *     signature=::sCyclic
+ *
+ *   => celltype=nMruby::tsCyclic
+ *      (bridge cell's celltype; generated in this file)
+ *      cell nMruby::tsCyclic BridgeCellName { cTECS = CellName.eEntry; };
+ *        where eEntry's signature must be ::sCyclic.
+ *      => class=TECS::TsCyclic
+ *         (mruby's class; accessible from your script)
+ *          bridge = TECS::TsCyclic.new("BridgeCellName")
+ */
+import( <mruby.cdl> );
+
+/****  Ruby => TECS Bridge Celltype (MBP500) ****/
+namespace nMruby{
+    // bridge celltype
+    [idx_is_id,active]   // not actually active, to avoid warning W1002, W1007
+    celltype tsCyclic {
+        call ::sCyclic cTECS;
+        attr {
+            [omit]
+            char_t *VMname = "VM";
+            [omit]
+            char_t *bridgeName = C_EXP( "$cell$" );
+        };
+    };
+    // bridge initializer celltype
+    celltype tsCyclic_Initializer {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};
+namespace nMruby{
+    [singleton]
+    celltype t_rcyc {
+        entry sInitializeTECSBridge eInitialize;
+    };
+};

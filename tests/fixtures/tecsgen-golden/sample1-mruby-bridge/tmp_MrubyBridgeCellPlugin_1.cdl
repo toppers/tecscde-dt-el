@@ -1,0 +1,7 @@
+/* MrubyBridgeCellPlugin: generate for cell=CyclicHandler */
+region rDomainEV3{
+  /* BridgeCell */
+  cell nMruby::tsCyclic CyclicHandlereCyclicBridge {
+      cTECS = ::rDomainEV3::CyclicHandler.eCyclic;
+  };
+};

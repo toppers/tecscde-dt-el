@@ -1,0 +1,10 @@
+/* MrubyBridgeCellPlugin: generate for cell=TaskCyclicWakeupper */
+
+/* cell.port=TaskCyclicWakeupper.eCyclic */
+generate( MrubyBridgePlugin, ::sCyclic, "ignoreUnsigned=false, auto_exclude=true, " );
+region rDomainEV3{
+  /* BridgeCell */
+  cell nMruby::tsCyclic TaskCyclicWakeuppereCyclicBridge {
+      cTECS = ::rDomainEV3::TaskCyclicWakeupper.eCyclic;
+  };
+};

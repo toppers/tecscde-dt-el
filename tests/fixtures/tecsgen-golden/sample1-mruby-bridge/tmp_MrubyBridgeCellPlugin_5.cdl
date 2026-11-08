@@ -1,0 +1,7 @@
+/* MrubyBridgeCellPlugin: generate for cell=MrubySubTask2 */
+region rDomainEV3{
+  /* BridgeCell */
+  cell nMruby::tsTask MrubySubTask2eTaskBridge {
+      cTECS = ::rDomainEV3::MrubySubTask2.eTask;
+  };
+};

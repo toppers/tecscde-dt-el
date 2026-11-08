@@ -1,0 +1,10 @@
+/* MrubyBridgeCellPlugin: generate for cell=EV3Task */
+
+/* cell.port=EV3Task.eTask */
+generate( MrubyBridgePlugin, ::sTask, "ignoreUnsigned=false, auto_exclude=true, " );
+region rDomainEV3{
+  /* BridgeCell */
+  cell nMruby::tsTask EV3TaskeTaskBridge {
+      cTECS = ::rDomainEV3::EV3Task.eTask;
+  };
+};
