@@ -1,0 +1,441 @@
+{
+  "date": "2026-11-10T13:35:31.681Z",
+  "isolation": "<isolated-temp>",
+  "checks": [
+    {
+      "name": "old display bar is absent, display filters are inside toolbar and sidebars no longer shrink the canvas",
+      "passed": true
+    },
+    {
+      "name": "initial status and palette show exactly one selected mode",
+      "passed": true
+    },
+    {
+      "name": "real BrowserWindow begins with a clean filename title",
+      "passed": true,
+      "detail": {
+        "title": "stage2-main.cdl — TECSCDE"
+      }
+    },
+    {
+      "name": "both lists open simultaneously as real nonmodal dialogs",
+      "passed": true
+    },
+    {
+      "name": "native folder selection is exposed inside the file dialog only",
+      "passed": true,
+      "detail": {
+        "calls": 1
+      }
+    },
+    {
+      "name": "closing and reopening preserves the expanded tree",
+      "passed": true
+    },
+    {
+      "name": "dragged dialog position survives close and reopen",
+      "passed": true,
+      "detail": {
+        "before": {
+          "x": 700,
+          "y": 150
+        },
+        "after": {
+          "x": 700,
+          "y": 150
+        }
+      }
+    },
+    {
+      "name": "reopening existing dialogs does not duplicate their DOM instances",
+      "passed": true
+    },
+    {
+      "name": "returning from a modeless control to a canvas selection does not move or dirty the cell",
+      "passed": true
+    },
+    {
+      "name": "canvas editing with both dialogs open updates real window title and shared dirty status",
+      "passed": true,
+      "detail": {
+        "title": "* stage2-main.cdl — TECSCDE"
+      }
+    },
+    {
+      "name": "Undo back to checkpoint clears title dirty prefix",
+      "passed": true
+    },
+    {
+      "name": "Redo and real file save update the title only after checkpoint success",
+      "passed": true
+    },
+    {
+      "name": "Space plus pointer drag pans the canvas while both lists remain open without editing the document",
+      "passed": true,
+      "detail": {
+        "before": {
+          "x": 0,
+          "y": 0
+        },
+        "after": {
+          "x": 0,
+          "y": 58
+        }
+      }
+    },
+    {
+      "name": "type selection updates the Japanese status mode and both exclusive mode buttons",
+      "passed": true
+    },
+    {
+      "name": "a chosen celltype can be placed by a real canvas pointer while its modeless list stays open",
+      "passed": true
+    },
+    {
+      "name": "IME-composing Escape does not close the modeless dialog or clear search",
+      "passed": true
+    },
+    {
+      "name": "Escape in the modeless dialog closes that dialog and preserves canvas search",
+      "passed": true
+    },
+    {
+      "name": "hidden palette stays synchronized when the loaded source changes",
+      "passed": true
+    },
+    {
+      "name": "new untitled empty document is clean rather than dirty merely because its path is null",
+      "passed": true
+    },
+    {
+      "name": "cancelled native Save As retains the real title dirty marker",
+      "passed": true
+    },
+    {
+      "name": "failed real atomic file write retains the title dirty marker",
+      "passed": true
+    },
+    {
+      "name": "the existing information modal continues to block canvas Delete and Undo",
+      "passed": true
+    },
+    {
+      "name": "window shrinking keeps both modeless dialog headers reachable",
+      "passed": true
+    }
+  ],
+  "success": true,
+  "beforeSelect": {
+    "title": "stage2-main.cdl — TECSCDE",
+    "rect": "<rect x=\"37.795275590551185\" y=\"37.795275590551185\" width=\"94.48818897637796\" height=\"56.69291338582678\" class=\"cell-rect\"></rect>"
+  },
+  "afterSelect": {
+    "title": "stage2-main.cdl — TECSCDE",
+    "rect": "<rect x=\"37.795275590551185\" y=\"37.795275590551185\" width=\"94.48818897637796\" height=\"56.69291338582678\" class=\"cell-rect\"></rect>"
+  },
+  "pointerTrace": [
+    {
+      "type": "mousedown",
+      "x": 86,
+      "y": 138,
+      "svgY": 72.1875,
+      "scrollTop": 0,
+      "viewport": 660
+    },
+    {
+      "type": "mousedown",
+      "x": 86,
+      "y": 138,
+      "svgY": 72.1875,
+      "scrollTop": 0,
+      "viewport": 660,
+      "after": true
+    },
+    {
+      "type": "mouseup",
+      "x": 86,
+      "y": 138,
+      "svgY": 72.1875,
+      "scrollTop": 0,
+      "viewport": 660
+    },
+    {
+      "type": "mouseup",
+      "x": 86,
+      "y": 138,
+      "svgY": 72.1875,
+      "scrollTop": 0,
+      "viewport": 660,
+      "after": true
+    }
+  ],
+  "undoState": {
+    "title": "stage2-main.cdl — TECSCDE",
+    "dirty": false,
+    "renderer": {
+      "title": "stage2-main.cdl — TECSCDE",
+      "status": "stage2-main.cdl",
+      "cells": [
+        {
+          "id": "Smoke",
+          "html": "<g data-cell-id=\"Smoke\"><rect x=\"37.795275590551185\" y=\"37.795275590551185\" width=\"94.48818897637796\" height=\"56.69291338582678\" class=\"cell-rect\"></rect><text x=\"85.03937007874016\" y=\"63.14173228346458\" text-anchor=\"middle\" class=\"cell-label\">Smoke</text><text x=\"85.03937007874016\" y=\"75.14173228346458\" text-anchor=\"middle\" class=\"celltype-label\">tSmoke</text><g transform=\"translate(132.28346456692915, 68.03149606299213)\" data-cell-id=\"Smoke\" data-port-kind=\"eport\" data-port-name=\"e\"><polygon points=\"0,-4 -4.8,0 0,4\" class=\"port-symbol port-symbol-eport\"></polygon></g></g>"
+        },
+        {
+          "id": "Smoke",
+          "html": "<g transform=\"translate(132.28346456692915, 68.03149606299213)\" data-cell-id=\"Smoke\" data-port-kind=\"eport\" data-port-name=\"e\"><polygon points=\"0,-4 -4.8,0 0,4\" class=\"port-symbol port-symbol-eport\"></polygon></g>"
+        }
+      ],
+      "undo": true,
+      "redo": false
+    }
+  },
+  "placementProbe": {
+    "point": {
+      "x": 301.03125,
+      "y": 234.1875
+    },
+    "target": "<svg id=\"canvas\" xmlns=\"http://www.w3.org/2000/svg\" width=\"1046.9291338582677\" height=\"718.1102362204725\" tabindex=\"0\" style=\"\"><g id=\"joins\"></g><g id=\"cells\"><g data-cell-id=\"Smoke\"><rect x=\"37.795275590551185\" y=\"37.795275590551185\" width=\"94.48818897637796\" height=\"56.69291338582678\" class=\"cell-rect\"></rect><text x=\"85.03937007874016\" y=\"63.14173228346458\" text-anchor=\"middle\" class=\"cell-label\">Edited</text><text x=\"85.03937007874016\" y=\"75.14173228346458\" text-anchor=\"middle\" class=\"celltype-label\">tSmoke</text><g transform=\"translate(132.28346456692915, 68.03149606299213)\" data-cell-id=\"Smoke\" data-port-kind=\"eport\" data-port-name=\"e\"><polygon points=\"0,-4 -4.8,0 0,4\" class=\"port-sym",
+    "svg": {
+      "x": 1.03125,
+      "y": 14.1875,
+      "width": 1046.921875,
+      "height": 718.109375,
+      "top": 14.1875,
+      "right": 1047.953125,
+      "bottom": 732.296875,
+      "left": 1.03125
+    },
+    "viewport": {
+      "x": 0,
+      "y": 72.1875,
+      "width": 1064,
+      "height": 659.625,
+      "top": 72.1875,
+      "right": 1064,
+      "bottom": 731.8125,
+      "left": 0
+    },
+    "mode": "セル新規作成",
+    "trace": [
+      {
+        "type": "mousedown",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mousedown",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mouseup",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mouseup",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mousedown",
+        "x": 570,
+        "y": 450,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mousedown",
+        "x": 570,
+        "y": 450,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mouseup",
+        "x": 510,
+        "y": 390,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660
+      },
+      {
+        "type": "mouseup",
+        "x": 510,
+        "y": 390,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660,
+        "after": true
+      }
+    ]
+  },
+  "afterPlacement": {
+    "count": 2,
+    "labels": [
+      "Edited",
+      "Smoke1"
+    ],
+    "mode": "セル新規作成",
+    "trace": [
+      {
+        "type": "mousedown",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mousedown",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mouseup",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mouseup",
+        "x": 86,
+        "y": 138,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mousedown",
+        "x": 570,
+        "y": 450,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660
+      },
+      {
+        "type": "mousedown",
+        "x": 570,
+        "y": 450,
+        "svgY": 72.1875,
+        "scrollTop": 0,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mouseup",
+        "x": 510,
+        "y": 390,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660
+      },
+      {
+        "type": "mouseup",
+        "x": 510,
+        "y": 390,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mousedown",
+        "x": 301,
+        "y": 234,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660
+      },
+      {
+        "type": "mousedown",
+        "x": 301,
+        "y": 234,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660,
+        "after": true
+      },
+      {
+        "type": "mouseup",
+        "x": 301,
+        "y": 234,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660
+      },
+      {
+        "type": "mouseup",
+        "x": 301,
+        "y": 234,
+        "svgY": 14.1875,
+        "scrollTop": 58,
+        "viewport": 660,
+        "after": true
+      }
+    ],
+    "title": "* stage2-main.cdl — TECSCDE",
+    "active": [
+      "tSmoke"
+    ]
+  },
+  "ui": {
+    "title": "* changed.cdl — TECSCDE",
+    "status": "選択\nx:208.7 y:25.9 mm\n100%\nリージョン: ルート\n⚠ 0 エラー / 1 警告\nchanged.cdl ● 未保存の変更",
+    "buttons": [
+      "ファイル",
+      "セルタイプ一覧",
+      "保存",
+      "名前を付けて保存",
+      "消去",
+      "元に戻す",
+      "やり直し",
+      "上端をそろえる",
+      "左端をそろえる",
+      "Reset Rate",
+      "グリッド",
+      "ナビゲータ",
+      "実行",
+      "情報"
+    ],
+    "dialogs": [
+      {
+        "title": "ファイル",
+        "open": true,
+        "modal": false,
+        "text": "ファイル\n閉じる\nフォルダを開く\n▾ project\n▾ nested\nchanged.cdl"
+      },
+      {
+        "title": "セルタイプ一覧",
+        "open": true,
+        "modal": false,
+        "text": "セルタイプ一覧\n閉じる\n選択\nセル新規作成\ntChanged"
+      }
+    ]
+  },
+  "scope": "Real Electron/BrowserWindow/DOM/CDP keyboard+pointer/IPC/filesystem. Native folder/save/discard responses and one atomic rename failure are stubbed in isolated main only. Production app/core/DOM are real; user settings and clipboard are untouched. No external TECS compatibility claim."
+}

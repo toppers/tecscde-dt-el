@@ -122,7 +122,9 @@ export function nextJoinId(doc: TecscdeDocument): JoinId {
  */
 export function deriveCellName(doc: TecscdeDocument, celltypeName: string): string {
   const base = celltypeName.startsWith("t") ? celltypeName.slice(1) : celltypeName;
-  const existing = new Set(doc.cellValues().map((c) => c.name));
+  // Renaming preserves the cell ID. New cells use the derived name as their ID,
+  // so an old ID remains reserved even when its display name has changed.
+  const existing = new Set(doc.cellValues().flatMap((cell) => [cell.name, cell.id]));
   if (!existing.has(base)) return base;
   let i = 1;
   while (existing.has(`${base}${i}`)) i += 1;

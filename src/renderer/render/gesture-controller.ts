@@ -354,6 +354,8 @@ export class GestureController {
    * 返り値は解除関数。
    */
   attach(svg: SVGSVGElement): () => void {
+    const originalTabIndex = svg.getAttribute("tabindex");
+    if (originalTabIndex === null) svg.setAttribute("tabindex", "0");
     const toModel = (e: MouseEvent): Point => {
       const rect = svg.getBoundingClientRect();
       return this.sink.screenToModel(
@@ -369,6 +371,10 @@ export class GestureController {
 
     const onDown = (e: MouseEvent): void => {
       if (e.button !== 0) return;
+      // Own focus and selection in the editor. Browser default focus scrolling
+      // between down/up would turn an unchanged screen click into a model drag.
+      e.preventDefault();
+      svg.focus({ preventScroll: true });
       this.pointerDown(toModel(e), modsOf(e));
     };
     const onMove = (e: MouseEvent): void => this.pointerMove(toModel(e));
@@ -388,6 +394,7 @@ export class GestureController {
     svg.addEventListener("contextmenu", onContextMenu);
 
     return () => {
+      if (originalTabIndex === null) svg.removeAttribute("tabindex");
       svg.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);

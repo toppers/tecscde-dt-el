@@ -40,6 +40,18 @@ const CONTROLLER = asCellId("cController1");
 const JOIN_CLOG = asJoinId("cController1.cLog");
 
 describe("cell commands", () => {
+  it("never replaces a renamed cell when adding another cell of its original type", () => {
+    const doc = CdlDocumentLoader.loadSingle(
+      "signature sSmoke { void run(void); };\ncelltype tSmoke { entry sSmoke e; };\ncell tSmoke Smoke {};\n", "main.cdl").document;
+    const renamed = History.begin(doc).commit(new RenameCellCommand(asCellId("Smoke"), "Edited"));
+    const added = renamed.commit(new AddCellCommand("tSmoke", 80, 60));
+    expect(added.current.cellCount).toBe(2);
+    expect(added.current.getCell(asCellId("Smoke"))?.name).toBe("Edited");
+    expect(added.current.cellValues().map((cell) => cell.name)).toEqual(["Edited", "Smoke1"]);
+    expect(() => assertInvariants(added.current)).not.toThrow();
+    expect(added.undo().current.cellCount).toBe(1);
+    expect(added.undo().redo().current.cellCount).toBe(2);
+  });
   it("AddCellCommand adds one cell with a derived name, or no-ops on an unknown celltype", () => {
     const doc = loadDoc();
     const added = new AddCellCommand("tController", 30, 30).apply(doc);

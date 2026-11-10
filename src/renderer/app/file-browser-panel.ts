@@ -1,5 +1,5 @@
 // [[TECSCDE-DT-EL内部仕様]] 第7章7.6.3節・[[TECSCDE-DT外部仕様]]3.5.1節（2026-09-21採用）—
-// ファイルブラウザ（サイドパネル、モジュールG次段）。ルートフォルダ配下を階層ツリーとして
+// ファイルブラウザ（モードレスな一覧ビュー）。ルートフォルダ配下を階層ツリーとして
 // 表示し、`.cde`/`.cdl`ファイルのクリックで開く。ディレクトリはクリックのたびに1階層ずつ
 // 遅延展開する（`FileGateway.listDirectory`、7.6.1節の設計判断——tecsgenプロジェクトは
 // 本アプリに関係のない大きなサブディレクトリを含みうるため、全体を先読みしない）。
@@ -25,27 +25,34 @@ export class FileBrowserView {
     /** 第7C章7.7.4節（#10）: `.tecsgen-opts`ファイルのクリックで一括読み込みする。 */
     private readonly onLoadOptionsFile: (path: string) => void,
   ) {
-    this.el.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement | null;
-      const node = target?.closest<HTMLElement>("[data-path]");
-      if (!node) return;
-      const path = node.dataset["path"]!;
-      if (node.dataset["kind"] === "directory") {
-        void this.toggle(path);
-        return;
-      }
-      const event = e as MouseEvent;
-      if (event.ctrlKey || event.metaKey) {
-        this.onAddReference(path);
-      } else if (/\.tecsgen-opts$/.test(path)) {
-        this.onLoadOptionsFile(path);
-      } else {
-        this.onOpen(path);
-      }
-    });
+    this.el.addEventListener("click", this.onClick);
   }
 
-  /** ツールバーの「フォルダを開く」操作（7.6.5節）から呼ばれる。 */
+  /** Dialog close retains this listener; only the owning shell's disposal removes it. */
+  dispose(): void {
+    this.el.removeEventListener("click", this.onClick);
+  }
+
+  private readonly onClick = (event: Event): void => {
+    const target = event.target as HTMLElement | null;
+    const node = target?.closest<HTMLElement>("[data-path]");
+    if (!node) return;
+    const path = node.dataset["path"]!;
+    if (node.dataset["kind"] === "directory") {
+      void this.toggle(path);
+      return;
+    }
+    const mouseEvent = event as MouseEvent;
+    if (mouseEvent.ctrlKey || mouseEvent.metaKey) {
+      this.onAddReference(path);
+    } else if (/\.tecsgen-opts$/.test(path)) {
+      this.onLoadOptionsFile(path);
+    } else {
+      this.onOpen(path);
+    }
+  };
+
+  /** ファイル一覧内の「フォルダを開く」操作から呼ばれる。 */
   async chooseRoot(): Promise<void> {
     const dir = await this.gateway.chooseFolder();
     if (dir) await this.setRoot(dir);

@@ -157,6 +157,7 @@ const BODY_HTML = `
       <span id="status-pos"></span>
       <span id="status-zoom"></span>
       <span id="status-region"></span>
+      <span id="status-mode"></span>
       <button id="status-diag" type="button"></button>
       <div id="diagnostics-panel" hidden></div>
       <span id="status-file"></span>

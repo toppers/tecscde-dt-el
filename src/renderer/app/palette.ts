@@ -17,16 +17,27 @@ export class PaletteView {
     this.newCellModeBtn = this.requireEl("[data-mode='newCell']");
     this.celltypeList = this.requireEl("#palette-celltypes");
 
-    this.selectModeBtn.addEventListener("click", () => this.store.setMode("select"));
-    this.newCellModeBtn.addEventListener("click", () => this.store.setMode("newCell"));
-    this.celltypeList.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement | null;
-      const name = target?.closest<HTMLElement>("[data-celltype]")?.dataset["celltype"];
-      if (!name) return;
-      this.store.setActiveCelltype(name);
-      this.store.setMode("newCell");
-    });
+    this.selectModeBtn.addEventListener("click", this.onSelectMode);
+    this.newCellModeBtn.addEventListener("click", this.onNewCellMode);
+    this.celltypeList.addEventListener("click", this.onCelltypeClick);
   }
+
+  /** Called when the shell is destroyed, never when its modeless dialog closes. */
+  dispose(): void {
+    this.selectModeBtn.removeEventListener("click", this.onSelectMode);
+    this.newCellModeBtn.removeEventListener("click", this.onNewCellMode);
+    this.celltypeList.removeEventListener("click", this.onCelltypeClick);
+  }
+
+  private readonly onSelectMode = (): void => this.store.setMode("select");
+  private readonly onNewCellMode = (): void => this.store.setMode("newCell");
+  private readonly onCelltypeClick = (event: Event): void => {
+    const target = event.target as HTMLElement | null;
+    const name = target?.closest<HTMLElement>("[data-celltype]")?.dataset["celltype"];
+    if (!name) return;
+    this.store.setActiveCelltype(name);
+    this.store.setMode("newCell");
+  };
 
   private requireEl<T extends Element>(selector: string): T {
     const el = this.root.querySelector<T>(selector);

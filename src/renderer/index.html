@@ -87,14 +87,12 @@
         background: var(--border);
         margin: 0 2px;
       }
-      #display-bar {
+      #display-controls {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 12px;
-        padding: 3px 8px;
-        background: var(--panel);
-        border-bottom: 1px solid var(--border);
-        flex: none;
+        max-width: 100%;
       }
       #region-filter {
         position: relative;
@@ -142,7 +140,7 @@
         border-radius: 2px;
         flex: none;
       }
-      #display-bar label {
+      #display-controls label {
         display: inline-flex;
         align-items: center;
         gap: 3px;
@@ -175,11 +173,7 @@
         min-height: 0;
       }
       #file-browser {
-        flex: none;
-        width: 180px;
-        overflow-y: auto;
         background: var(--panel);
-        border-right: 1px solid var(--border);
         padding: 8px;
         font-size: 12px;
       }
@@ -215,12 +209,59 @@
         font-style: italic;
       }
       #palette {
-        flex: none;
-        width: 160px;
-        overflow-y: auto;
         background: var(--panel);
-        border-right: 1px solid var(--border);
         padding: 8px;
+      }
+      .modeless-dialog {
+        position: fixed;
+        margin: 0;
+        padding: 0;
+        width: min(250px, calc(100vw - 16px));
+        min-width: min(200px, calc(100vw - 16px));
+        max-width: calc(100vw - 16px);
+        min-height: 120px;
+        max-height: calc(100vh - 16px);
+        overflow: auto;
+        resize: both;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+        z-index: 30;
+      }
+      .modeless-dialog[open] {
+        display: flex;
+        flex-direction: column;
+      }
+      .modeless-dialog:has(#palette) {
+        width: min(230px, calc(100vw - 16px));
+      }
+      .modeless-dialog-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        flex: none;
+        cursor: move;
+        user-select: none;
+        touch-action: none;
+        border-bottom: 1px solid var(--border);
+      }
+      .modeless-dialog-header h2 {
+        flex: 1;
+        margin: 0;
+        font-size: 13px;
+      }
+      .modeless-dialog-header button {
+        font: inherit;
+        padding: 2px 6px;
+        cursor: pointer;
+      }
+      .modeless-dialog-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
       }
       #palette-mode {
         display: flex;
@@ -561,7 +602,8 @@
   <body>
     <div id="app">
       <div id="toolbar">
-        <button data-action="openFolder" type="button" title="ファイルブラウザのルートフォルダを選ぶ（外部仕様3.5.1節）">フォルダを開く</button>
+        <button data-action="openFileBrowser" type="button" title="ファイルブラウザを開く">ファイル</button>
+        <button data-action="openCelltypes" type="button" title="セルタイプ一覧を開く">セルタイプ一覧</button>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
         <button data-action="clear" type="button" title="編集対象をクリアし、新規作成する（外部仕様5.2節）">消去</button>
@@ -588,6 +630,15 @@
         </div>
         <button data-action="information" type="button">情報</button>
         <span class="sep"></span>
+        <div id="display-controls" role="group" aria-label="表示設定">
+          <div id="region-filter">
+            <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
+            <div id="region-filter-popover" hidden></div>
+          </div>
+          <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
+          <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
+          <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+        </div>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
           <span id="search-count"></span>
@@ -596,24 +647,7 @@
           <div id="search-results"></div>
         </div>
       </div>
-      <div id="display-bar">
-        <div id="region-filter">
-          <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
-          <div id="region-filter-popover" hidden></div>
-        </div>
-        <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
-        <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
-        <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
-      </div>
       <div id="main">
-        <div id="file-browser"></div>
-        <div id="palette">
-          <div id="palette-mode">
-            <button data-mode="select" type="button">選択</button>
-            <button data-mode="newCell" type="button">セル新規作成</button>
-          </div>
-          <div id="palette-celltypes"></div>
-        </div>
         <div id="canvas-area">
           <div id="canvas-scroll">
             <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
@@ -626,12 +660,21 @@
         <div id="property-panel"></div>
       </div>
       <div id="statusbar">
+        <span id="status-mode"></span>
         <span id="status-pos"></span>
         <span id="status-zoom"></span>
         <span id="status-region"></span>
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>
         <div id="diagnostics-panel" hidden></div>
         <span id="status-file"></span>
+      </div>
+      <div id="file-browser" hidden></div>
+      <div id="palette" hidden>
+        <div id="palette-mode">
+          <button data-mode="select" type="button">選択</button>
+          <button data-mode="newCell" type="button">セル新規作成</button>
+        </div>
+        <div id="palette-celltypes"></div>
       </div>
     </div>
     <script type="module" src="./renderer.js"></script>

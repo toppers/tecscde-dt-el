@@ -20,7 +20,7 @@ import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import type { WindowGateway } from "../gateways/window-gateway";
 import { AppGestureHost } from "./gesture-host";
-import { addAsReference, baseName, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
+import { addAsReference, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
 import { FileBrowserView } from "./file-browser-panel";
 import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
@@ -41,6 +41,8 @@ import { InformationDialog } from "./information-dialog";
 import type { SettingsGateway } from "../gateways/settings-gateway";
 import { LogGateway } from "../gateways/log-gateway";
 import { checkTecsgenVersion } from "./tecsgen-version";
+import { ModelessDialog } from "./modeless-dialog";
+import { documentStatusText, documentTitle, inputModeLabel } from "./status-text";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -78,7 +80,7 @@ export class AppShell {
   private readonly scrollEl: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly zoomSlider: HTMLInputElement;
-  /** 第6B章6B.6: 表示制御バーの切り替え（色分け・シグニチャ名）。 */
+  /** 6C.1: toolbar display settings (color, signature labels and name emphasis). */
   private readonly filterColor: HTMLInputElement;
   private readonly filterSignature: HTMLInputElement;
   private readonly filterEmphasize: HTMLInputElement;
@@ -86,6 +88,7 @@ export class AppShell {
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
+  private readonly statusMode: HTMLElement;
 
   private readonly renderer: SvgRenderer;
   /** ドラッグ FSM。DOM 結線は `attach` 済み。テストはこの公開メソッドを直接叩ける。 */
@@ -101,6 +104,8 @@ export class AppShell {
   private readonly diagnosticsPanel: DiagnosticsPanelView;
   private readonly fileBrowser: FileBrowserView;
   private readonly information: InformationDialog | undefined;
+  private readonly fileDialog: ModelessDialog;
+  private readonly celltypesDialog: ModelessDialog;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -139,6 +144,7 @@ export class AppShell {
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
+    this.statusMode = requireEl<HTMLElement>(root, "#status-mode");
 
     this.renderer = new SvgRenderer(this.svg);
     const host = new AppGestureHost(
@@ -176,6 +182,26 @@ export class AppShell {
           this.reportActionError("loadOptionsFile", err),
         ),
     );
+    const doc = this.svg.ownerDocument;
+    const fileRoot = requireEl<HTMLElement>(root, "#file-browser");
+    const paletteRoot = requireEl<HTMLElement>(root, "#palette");
+    fileRoot.hidden = false;
+    paletteRoot.hidden = false;
+    const fileContent = doc.createElement("div");
+    const chooseFolder = doc.createElement("button");
+    chooseFolder.type = "button";
+    chooseFolder.dataset["action"] = "chooseFolder";
+    chooseFolder.textContent = "フォルダを開く";
+    const onChooseFolder = (): void => {
+      void this.fileBrowser.chooseRoot().catch((error: unknown) => this.reportActionError("chooseFolder", error));
+    };
+    chooseFolder.addEventListener("click", onChooseFolder);
+    this.disposers.push(() => chooseFolder.removeEventListener("click", onChooseFolder));
+    fileContent.append(chooseFolder, fileRoot);
+    this.fileDialog = new ModelessDialog({ document: doc, title: "ファイル", id: "file-browser-dialog",
+      content: fileContent, initialPosition: { x: 16, y: 110 } });
+    this.celltypesDialog = new ModelessDialog({ document: doc, title: "セルタイプ一覧", id: "celltypes-dialog",
+      content: paletteRoot, initialPosition: { x: 280, y: 110 } });
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -184,7 +210,7 @@ export class AppShell {
     this.disposers.push(this.gesture.attach(this.svg));
     this.bindToolbar();
     this.bindZoomSlider();
-    this.bindDisplayBar();
+    this.bindDisplayControls();
     this.disposers.push(() => this.regionFilter.dispose());
     this.bindKeyboard();
     this.bindSpacePan();
@@ -206,6 +232,10 @@ export class AppShell {
   dispose(): void {
     this.copyCommandGeneration++;
     this.information?.dispose();
+    this.palette.dispose();
+    this.fileBrowser.dispose();
+    this.fileDialog.dispose();
+    this.celltypesDialog.dispose();
     for (const d of this.disposers.splice(0)) d();
   }
 
@@ -282,6 +312,12 @@ export class AppShell {
   runAction(action: string): void {
     if (this.information?.isOpen && action !== "information") return;
     switch (action) {
+      case "openFileBrowser":
+        this.fileDialog.open();
+        break;
+      case "openCelltypes":
+        this.celltypesDialog.open();
+        break;
       case "information":
         void this.information?.open().catch((error) => this.reportActionError(action, error));
         break;
@@ -394,8 +430,8 @@ export class AppShell {
     this.disposers.push(() => this.zoomSlider.removeEventListener("input", onInput));
   }
 
-  /** 第6B章6B.6・6B.7: 表示制御バーの2つのチェックを `DisplayFilters` に結ぶ。 */
-  private bindDisplayBar(): void {
+  /** 6C.1: toolbar display controls retain the existing DisplayFilters state. */
+  private bindDisplayControls(): void {
     const onColor = (): void => {
       const f = this.store.view.filters;
       this.store.setView(this.store.view.withFilters(f.withColorByRegion(this.filterColor.checked)));
@@ -447,9 +483,12 @@ export class AppShell {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
     // 外部仕様4.9.2: 選択したセルの所属リージョンをステータス表示に示す。
     this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
+    this.statusMode.textContent = inputModeLabel(this.store.getMode());
     const path = this.store.filePath;
-    const dirty = path !== null && this.store.isDirty();
-    this.statusFile.textContent = path ? `${baseName(path)}${dirty ? " ● 未保存の変更" : ""}` : "(未保存)";
+    const dirty = this.store.isDirty();
+    this.statusFile.textContent = documentStatusText(path, dirty);
+    const title = documentTitle(path, dirty);
+    if (this.svg.ownerDocument.title !== title) this.svg.ownerDocument.title = title;
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
