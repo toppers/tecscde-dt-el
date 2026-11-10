@@ -22,7 +22,7 @@ export function describeLaunchFailure(failure: TecsgenLaunchFailure): string {
     case "not-found":
       return (
         `tecsgen が見つかりません（実行ファイル '${failure.command}' が PATH 上、または TECSGEN_COMMAND の指定先に無い）。` +
-        "tecsgen をインストールして PATH に追加するか、環境変数 TECSGEN_COMMAND に起動コマンドを設定してアプリを再起動してください。"
+        "「情報」のtecsgen設定から実行ファイルを指定してください。環境変数 TECSGEN_COMMAND を使う場合は設定後にアプリを再起動してください。"
       );
     case "permission":
       return `tecsgen を実行する権限がありません（実行ファイル '${failure.command}'、${failure.detail}）。実行権限と、ファイルが実行可能な形式かを確認してください。`;

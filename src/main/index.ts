@@ -13,10 +13,13 @@ import { createRequire } from "node:module";
 import { updateElectronApp } from "update-electron-app";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
+import { ToolSettingsService } from "./tool-settings.js";
 import { LogService } from "./log-service.js";
 import { registerIpcHandlers } from "./ipc.js";
 import { CloseGuard } from "./close-guard.js";
-import { loadAppSettings, saveAppSettings } from "./app-settings.js";
+import { restoreSession } from "./session-restore.js";
+import { createCloseStateQuery } from "./close-state-bridge.js";
+import { loadAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +42,7 @@ if (require("electron-squirrel-startup")) {
 updateElectronApp({ repo: "toppers/tecscde-dt-el" });
 
 // 診断ログ: 起動時のカレントディレクトリを第一候補に、書き込めなければuserData配下へ。
-const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")]);
+const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")], app.getVersion());
 
 let pendingOpenPath: string | null = null;
 
@@ -89,16 +92,22 @@ function createWindow(): BrowserWindow {
 
   // 第7章7.9節: 未保存の変更があるままウィンドウを閉じようとしたら確認する。
   // rendererの`beforeunload`は実機で確認なしに終了したため使わず、mainの`close`で止める。
-  const closeGuard = new CloseGuard(win, async () => {
+  const fileService = new FileService(win);
+  const closeBridge = createCloseStateQuery(ipcMain, win.webContents);
+  const closeGuard = new CloseGuard(win, async (unknownState) => {
     const result = await dialog.showMessageBox(win, {
       type: "warning",
       buttons: ["保存せずに終了", "キャンセル"],
       defaultId: 1,
       cancelId: 1,
-      message: "未保存の変更があります",
+      message: unknownState ? "保存状態を確認できません" : "未保存の変更があります",
       detail: "保存せずに終了すると、現在の変更内容は失われます。",
     });
     return result.response === 0;
+  }, {
+    queryState: (id) => closeBridge.queryState(id),
+    stopWrites: async () => { fileService.setWriteAcceptance(false); await fileService.waitForWrites(); },
+    resume: (id) => { fileService.setWriteAcceptance(true); closeBridge.cancel(id); },
   });
   const onSetDirty = (event: IpcMainEvent, dirty: unknown): void => {
     if (event.sender === win.webContents) closeGuard.setDirty(dirty === true);
@@ -106,9 +115,10 @@ function createWindow(): BrowserWindow {
   ipcMain.on("window:setDirty", onSetDirty);
   win.on("closed", () => ipcMain.removeListener("window:setDirty", onSetDirty));
 
-  const fileService = new FileService(win);
-  const tecsgenRunner = new TecsgenRunner();
-  registerIpcHandlers(fileService, tecsgenRunner, logService);
+  win.on("closed", () => { closeGuard.dispose(); closeBridge.dispose(); });
+  const toolSettings = new ToolSettingsService();
+  const tecsgenRunner = new TecsgenRunner(() => toolSettings.resolveCommand());
+  registerIpcHandlers(fileService, tecsgenRunner, logService, toolSettings, win);
 
   // モジュールG（renderer HTMLシェル）の成果物。`npm run build:renderer` が esbuild で
   // dist/renderer/{index.html,renderer.js} を出力する。
@@ -140,44 +150,11 @@ function createWindow(): BrowserWindow {
           data = await fileService.openPath(pendingOpenPath);
         }
         pendingOpenPath = null;
-        // 7.7.1節: 起動時オープン（第7章7.4節）も前回セッションの保存対象——
-        // 次回、引数無しで起動した際にこのファイルを復元できるようにする。
-        await saveAppSettings({
-          lastSession: {
-            editablePath: data.editable.path,
-            referencePaths: data.references.map((r) => r.path),
-            ...(data.extraImportPaths && data.extraImportPaths.length > 0
-              ? { extraImportPaths: data.extraImportPaths }
-              : {}),
-            ...(data.optionsFilePath ? { optionsFilePath: data.optionsFilePath } : {}),
-          },
-        });
       } else {
         const settings = await loadAppSettings();
-        const lastSession = settings.lastSession;
-        if (lastSession?.editablePath) {
-          // 7.7.1節「復元失敗時」: 記憶されたパスが存在しない・読めない場合は
-          // エラーにせず次善のフォールバック（samples）へ進む。
-          const opened = await fileService
-            .openPaths([...lastSession.referencePaths, lastSession.editablePath])
-            .catch(() => null);
-          if (opened) {
-            // `-S`の再現は、保存しておいたオプションファイルの再解析で行う（第7C章7.7.4節）。
-            const systemDirs = lastSession.optionsFilePath
-              ? (await fileService.parseTecsgenOptionsFile(lastSession.optionsFilePath).catch(() => undefined))?.systemDirs ?? []
-              : [];
-            data = {
-              ...opened,
-              ...(systemDirs.length > 0 ? { systemDirs } : {}),
-              ...(lastSession.extraImportPaths ? { extraImportPaths: lastSession.extraImportPaths } : {}),
-              ...(lastSession.optionsFilePath ? { optionsFilePath: lastSession.optionsFilePath } : {}),
-            };
-          } else {
-            data = await loadSamples(fileService);
-          }
-        } else {
-          data = await loadSamples(fileService);
-        }
+        data = settings.lastSession
+          ? await restoreSession(fileService, settings.lastSession).catch(() => loadSamples(fileService))
+          : await loadSamples(fileService);
       }
       win.webContents.send("app:bootstrap", data);
     } catch (err) {

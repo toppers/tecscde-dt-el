@@ -9,6 +9,9 @@ export interface OpenFileEntry {
 }
 
 export interface OpenResult {
+  readonly primarySourceKey?: string | null;
+  readonly sourceOrder?: readonly string[];
+  readonly sources?: readonly OpenFileEntry[];
   readonly editable: OpenFileEntry;
   readonly references: readonly OpenFileEntry[];
   readonly extraImportPaths?: readonly string[];
@@ -16,6 +19,21 @@ export interface OpenResult {
   /** `.tecsgen-opts`の`-S`で指定されたシステム定義ディレクトリ（絶対パス）。第7C章7.7.4節。 */
   readonly systemDirs?: readonly string[];
 }
+
+export interface SessionSnapshot {
+  readonly editablePath: string | null;
+  readonly referencePaths: readonly string[];
+  readonly extraImportPaths: readonly string[];
+  readonly optionsFilePath?: string;
+  readonly sourceOrder?: readonly string[];
+}
+
+export interface SourceWriteReceipt { readonly path: string; readonly writeSequence: number }
+
+export type CloseStateResponse =
+  | { readonly kind: "ready"; readonly queryId: string; readonly documentEpoch: number;
+      readonly historyNodeId: number; readonly dirty: boolean; readonly pendingSaves: 0 }
+  | { readonly kind: "unavailable"; readonly queryId: string };
 
 /** [[TECSCDE-DT-EL内部仕様]] 第7章7.6.1節: FileService.listDirectory() が返す1エントリ。 */
 export interface DirEntry {
@@ -47,6 +65,7 @@ export type TecsgenVersionResult =
 
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
+  readonly settingsRevision?: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
@@ -126,13 +145,46 @@ export interface AppSettingsView {
   readonly allowEditSystemDefined: boolean;
 }
 
+export type TecsgenCommandSource = "environment" | "settings" | "tecspath" | "path" | "missing" | "invalid";
+export type TecsgenCopyShell = "powershell7" | "powershell5" | "cmd";
+export interface ResolvedTecsgenCommand {
+  readonly revision?: number;
+  readonly executable: string;
+  readonly args: readonly string[];
+  readonly source: TecsgenCommandSource;
+}
+export interface ToolSettings {
+  readonly revision: number;
+  readonly tecsgenPath: string;
+  readonly tecspath: string;
+  readonly effectiveSource: TecsgenCommandSource;
+  readonly effectiveCommand: string;
+  readonly executable: string;
+  readonly prefixArgs: readonly string[];
+  readonly override: boolean;
+}
+export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
+  | { readonly ok: false; readonly error: string };
+export interface AppInformation {
+  readonly name: string;
+  readonly version: string;
+  readonly commit: string;
+  readonly cdeFormatVersion: string;
+  readonly electron: string;
+  readonly chrome: string;
+  readonly node: string;
+  readonly platform: string;
+  readonly arch: string;
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
     loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
   };
   readonly file: {
-    save(path: string, content: string): Promise<void>;
+    save(path: string, content: string): Promise<void | SourceWriteReceipt>;
+    chooseSavePath?(suggestedName: string): Promise<string | null>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
     export(path: string, data: string): Promise<void>;
     /** 第7章7.6.1節: ファイルブラウザのルートフォルダ選択。 */
@@ -141,6 +193,7 @@ export interface TecscdeApi {
     listDirectory(dirPath: string): Promise<readonly DirEntry[]>;
     /** 第7章7.6.2節: ファイルブラウザのクリックから、ダイアログを介さず単一パスを開く。 */
     openPath(path: string): Promise<OpenResult>;
+    openPaths?(paths: readonly string[]): Promise<OpenResult>;
     /** 第7B章7.6.4節: 未保存の変更がある状態から別ファイルを開く前の破棄確認。 */
     confirmDiscardChanges(): Promise<boolean>;
     /**
@@ -148,8 +201,8 @@ export interface TecscdeApi {
      * `null`の場合（消去後、7.7.3節）はreferencesのみ保存し復元対象から外す。
      */
     saveSession(
-      editablePath: string | null,
-      referencePaths: readonly string[],
+      editablePath: string | null | SessionSnapshot,
+      referencePaths?: readonly string[],
       extraImportPaths?: readonly string[],
       optionsFilePath?: string,
     ): Promise<void>;
@@ -168,6 +221,8 @@ export interface TecscdeApi {
     generatedTypes(args: readonly string[], editingFilePath: string, optionsFilePath?: string): Promise<GeneratedCdlResult>;
     preprocess(headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult>;
     version(): Promise<TecsgenVersionResult>;
+    checkPath(path: string): Promise<TecsgenVersionResult>;
+    commandLine(args: readonly string[], shell: TecsgenCopyShell, cwd?: string): Promise<string>;
   };
   readonly clipboard: {
     writeText(text: string): Promise<void>;
@@ -176,10 +231,17 @@ export interface TecscdeApi {
   /** 第7章7.9節: ウィンドウを閉じるときの未保存確認のため、未保存かどうかをmainへ知らせる。 */
   readonly window: {
     setDirty(dirty: boolean): void;
+    onRequestCloseState(listener: (queryId: string) => void): () => void;
+    onCancelCloseState(listener: (queryId: string) => void): () => void;
+    replyCloseState(response: CloseStateResponse): void;
   };
   /** 第3章3.2節: アプリケーション設定のうち、rendererが読むもの。 */
   readonly settings: {
     get(): Promise<AppSettingsView>;
+    getToolSettings(): Promise<ToolSettings>;
+    updateToolSettings(patch: { readonly tecsgenPath: string }): Promise<ToolSettingsUpdateResult>;
+    chooseTecsgenPath(): Promise<string | null>;
+    getAppInformation(): Promise<AppInformation>;
   };
   /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
   readonly log: {

@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-10T08:01:17.514Z",
+  "scope": "Installed launchers; version-only calls, isolated cwd; no TECS source generation",
+  "checks": [
+    {
+      "entry": "tecsgen.bat",
+      "operation": "version",
+      "result": {
+        "kind": "ok",
+        "text": "tecsgen  version 1.9.1"
+      },
+      "passed": true
+    },
+    {
+      "entry": "tecsgen.bat",
+      "operation": "generate with --version",
+      "passed": true,
+      "exitCode": 0,
+      "text": "tecsgen  version 1.9.1"
+    },
+    {
+      "entry": "tecsgen.bat",
+      "operation": "generatedTypes with --version",
+      "passed": true,
+      "exitCode": 0,
+      "text": "tecsgen  version 1.9.1"
+    },
+    {
+      "entry": "tecsgen.ps1",
+      "operation": "version",
+      "result": {
+        "kind": "ok",
+        "text": "tecsgen  version 1.9.1"
+      },
+      "passed": true
+    },
+    {
+      "entry": "tecsgen.ps1",
+      "operation": "generate with --version",
+      "passed": true,
+      "exitCode": 0,
+      "text": "tecsgen  version 1.9.1"
+    },
+    {
+      "entry": "tecsgen.ps1",
+      "operation": "generatedTypes with --version",
+      "passed": true,
+      "exitCode": 0,
+      "text": "tecsgen  version 1.9.1"
+    }
+  ],
+  "success": true
+}

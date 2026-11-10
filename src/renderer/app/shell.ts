@@ -37,6 +37,10 @@ import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
 import type { AppStore } from "./store";
+import { InformationDialog } from "./information-dialog";
+import type { SettingsGateway } from "../gateways/settings-gateway";
+import { LogGateway } from "../gateways/log-gateway";
+import { checkTecsgenVersion } from "./tecsgen-version";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -49,6 +53,7 @@ export interface AppShellOptions {
   readonly clipboard: ClipboardGateway;
   /** 第9章9.5節: tecsgenの「実行(Generate)」操作。 */
   readonly tecsgen: TecsgenGateway;
+  readonly settings?: SettingsGateway;
   /** 第7章7.9節: 未保存かどうかをmain（CloseGuard）へ知らせる。省略時は通知しない（テスト用）。 */
   readonly windowGateway?: Pick<WindowGateway, "setDirty">;
   /** window 相当（キーボード・スクロールの結線先）。既定は globalThis の window。 */
@@ -95,6 +100,7 @@ export class AppShell {
   private readonly navigator: NavigatorView;
   private readonly diagnosticsPanel: DiagnosticsPanelView;
   private readonly fileBrowser: FileBrowserView;
+  private readonly information: InformationDialog | undefined;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -104,12 +110,20 @@ export class AppShell {
   private suppressScrollSync = false;
   private spaceHeld = false;
   private panDragLast: Point | undefined;
+  private copyCommandGeneration = 0;
 
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
     this.gateway = opts.gateway;
     this.clipboard = opts.clipboard;
     this.tecsgen = opts.tecsgen;
+    this.information = opts.settings ? new InformationDialog({
+      document: (opts.root as Document).ownerDocument ?? opts.root as Document,
+      settings: opts.settings, tecsgen: opts.tecsgen, clipboard: opts.clipboard,
+      getTecsgenStatus: () => this.store.getTecsgenStatus(),
+      onSaved: (settings) => checkTecsgenVersion(this.store, this.tecsgen, new LogGateway(),
+        () => this.openDiagnostics(), settings.effectiveCommand, settings.revision),
+    }) : undefined;
     this.windowGateway = opts.windowGateway;
     this.win = opts.win ?? (globalThis as unknown as { window: Window }).window;
 
@@ -190,12 +204,15 @@ export class AppShell {
   }
 
   dispose(): void {
+    this.copyCommandGeneration++;
+    this.information?.dispose();
     for (const d of this.disposers.splice(0)) d();
   }
 
   // --- 描画ループ ---
 
   render(): void {
+    this.information?.refreshStatus();
     const doc = this.store.getDocument();
     const view = this.store.view;
     const canvasView = view.toCanvasView(doc.regions);
@@ -243,6 +260,14 @@ export class AppShell {
   // --- ツールバー ---
 
   private bindToolbar(): void {
+    const selector = this.toolbar.querySelector<HTMLSelectElement>("#tecsgen-copy-shell");
+    const onCopyShellChange = (): void => {
+      this.copyCommandGeneration++;
+      const result = this.toolbar.querySelector<HTMLElement>("#tecsgen-copy-result");
+      if (result) result.textContent = "";
+    };
+    selector?.addEventListener("change", onCopyShellChange);
+    this.disposers.push(() => selector?.removeEventListener("change", onCopyShellChange));
     const onClick = (e: Event): void => {
       const target = e.target as HTMLElement | null;
       const action = target?.closest<HTMLElement>("[data-action]")?.dataset["action"];
@@ -255,7 +280,11 @@ export class AppShell {
 
   /** ツールバー／キーボード共通のコマンド入口。 */
   runAction(action: string): void {
+    if (this.information?.isOpen && action !== "information") return;
     switch (action) {
+      case "information":
+        void this.information?.open().catch((error) => this.reportActionError(action, error));
+        break;
       case "openFolder":
         void this.fileBrowser.chooseRoot().catch((err: unknown) => this.reportActionError(action, err));
         break;
@@ -319,11 +348,24 @@ export class AppShell {
 
   /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */
   private copyTecsgenCommand(): void {
-    void tecsgenCommandLine(this.store, this.gateway)
-      .then((commandLine) => {
-        if (commandLine) return this.clipboard.writeText(commandLine);
+    const generation = ++this.copyCommandGeneration;
+    const selected = this.toolbar.querySelector<HTMLSelectElement>("#tecsgen-copy-shell")?.value;
+    const shell = selected === "powershell5" || selected === "cmd" ? selected : "powershell7";
+    const result = this.toolbar.querySelector<HTMLElement>("#tecsgen-copy-result");
+    if (result) result.textContent = "";
+    void tecsgenCommandLine(this.store, this.gateway, this.tecsgen, shell)
+      .then(async (commandLine) => {
+        if (!commandLine || generation !== this.copyCommandGeneration) return;
+        await this.clipboard.writeText(commandLine);
+        if (result && generation === this.copyCommandGeneration) {
+          const label = shell === "cmd" ? "コマンドプロンプト" : shell === "powershell5" ? "PowerShell 5.1" : "PowerShell 7";
+          result.textContent = `${label}用をコピーしました。`;
+        }
       })
-      .catch((err: unknown) => this.reportActionError("copyTecsgenCommand", err));
+      .catch((err: unknown) => {
+        if (result && generation === this.copyCommandGeneration) result.textContent = `コピーできませんでした: ${err instanceof Error ? err.message : String(err)}`;
+        this.reportActionError("copyTecsgenCommand", err);
+      });
   }
 
   private zoomBy(factor: number, anchor?: Point): void {
@@ -421,6 +463,7 @@ export class AppShell {
 
   private bindKeyboard(): void {
     const onKey = (e: KeyboardEvent): void => {
+      if (this.information?.isOpen) return;
       // External spec 7.4.2: clear search even while the search input has focus.
       // Keep selection and filters, and let gestures also handle Escape.
       if (e.key === "Escape" && !e.isComposing && this.store.view.searchQuery !== null) {
@@ -482,6 +525,7 @@ export class AppShell {
   /** 外部仕様7.1.2: スペースを押している間は左ドラッグで表示を移動する。 */
   private bindSpacePan(): void {
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (this.information?.isOpen) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey ||
           (target && (TEXT_INPUT_TAGS.has(target.tagName) || target.isContentEditable ||

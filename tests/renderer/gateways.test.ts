@@ -35,6 +35,8 @@ function stubApi(): TecscdeApi {
       }),
       preprocess: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, executableFound: true }),
       version: vi.fn().mockResolvedValue({ kind: "not-found" }),
+      checkPath: vi.fn().mockResolvedValue({ kind: "not-found" }),
+      commandLine: vi.fn().mockResolvedValue("copied command"),
     },
     clipboard: {
       writeText: vi.fn(),
@@ -42,9 +44,16 @@ function stubApi(): TecscdeApi {
     },
     settings: {
       get: vi.fn().mockResolvedValue({ allowEditSystemDefined: false }),
+      getToolSettings: vi.fn(),
+      updateToolSettings: vi.fn(),
+      chooseTecsgenPath: vi.fn(),
+      getAppInformation: vi.fn(),
     },
     window: {
       setDirty: vi.fn(),
+      onRequestCloseState: vi.fn(),
+      onCancelCloseState: vi.fn(),
+      replyCloseState: vi.fn(),
     },
     log: {
       append: vi.fn().mockResolvedValue(undefined),

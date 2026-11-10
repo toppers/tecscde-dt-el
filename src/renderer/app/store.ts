@@ -7,6 +7,7 @@
 // 更新は差し替え＋購読者通知。このモジュールは renderer プロセスで完結し、`electron` へは
 // 触れない（gateways 経由のみ）。
 
+import { sourceSaveState } from "./source-save-state";
 import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
@@ -25,22 +26,49 @@ import { TecscdeDocument } from "../model/document";
 import { SelectionState } from "../render/view";
 import { ViewState } from "../view-state/view-state";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
-import type { GeneratedCdlFile } from "../../shared/ipc-types.js";
+import type { GeneratedCdlFile, SessionSnapshot } from "../../shared/ipc-types.js";
 
 export type InputMode = "select" | "newCell";
 
 export type StoreListener = () => void;
 
+export interface LoadGuard {
+  readonly requestGeneration: number;
+  readonly documentEpoch: number;
+  readonly revision: number;
+}
+
+export interface SaveTicket {
+  readonly id: number;
+  readonly documentEpoch: number;
+  readonly historyNodeId: number;
+  readonly key: string | null;
+  readonly locationGeneration: number;
+  readonly expectedPath: string | null;
+  readonly state: string;
+  readonly content: string;
+}
+
 export class AppStore {
   private historyState: History;
-  private savedDocument: TecscdeDocument;
+  private readonly savedStates = new Map<string | null, string>();
   private viewState: ViewState = ViewState.initial();
   private selectionState: SelectionState = SelectionState.empty();
   private mode: InputMode = "select";
   private activeCelltype: string | undefined;
   private path: string | null = null;
-  /** 直近の保存時点での `history.past.length`。dirty 判定の基準（7.3節 DirtyTracker）。 */
-  private savedAtPastLength = 0;
+  /** 7J: source checkpoints track successful writes independently of history depth. */
+  private readonly savedSequences = new Map<string | null, number>();
+  private readonly savedWriteSequences = new Map<string, number>();
+  private saveSequence = 0;
+  private locationGeneration = 0;
+  documentEpoch = 0;
+  documentRevision = 0;
+  private requestGeneration = 0;
+  private closing = false;
+  private readonly pendingSaves = new Set<Promise<unknown>>();
+  private saveAsTail: Promise<void> | undefined;
+  private readonly resumeWaiters: (() => void)[] = [];
   /** モジュールB がロード時に出した一過性の診断。編集では再導出されないので保持する。 */
   private loadDiagnostics: readonly Diagnostic[] = [];
   /**
@@ -72,11 +100,14 @@ export class AppStore {
   private referenceSources: ReadonlyMap<string, string> = new Map();
   /** 第9章9.4節: 直近のtecsgen実行結果から変換した診断。次のGenerateまで保持する。 */
   private tecsgenDiagnostics: readonly Diagnostic[] = [];
+  private tecsgenDiagnosticsRevision: number | undefined;
+  private toolSettingsRevision = -1;
   /**
    * 第9C章9C.5節: 起動時のtecsgenの版の確認による診断。ドキュメントの読み込みや
    * Generateの結果の差し替えでは消えない（`tecsgenDiagnostics`とは別に持つ）。
    */
   private environmentDiagnostics: readonly Diagnostic[] = [];
+  private tecsgenStatus = { version: "未確認", command: "未確認" };
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
   private readonly listeners = new Set<StoreListener>();
@@ -86,7 +117,7 @@ export class AppStore {
     loadDiagnostics: readonly Diagnostic[] = [],
   ) {
     this.historyState = History.begin(initial);
-    this.savedDocument = initial;
+    for (const key of this.sourceKeys()) this.savedStates.set(key, sourceSaveState(initial, key));
     this.loadDiagnostics = loadDiagnostics;
   }
 
@@ -118,6 +149,19 @@ export class AppStore {
 
   get filePath(): string | null {
     return this.path;
+  }
+
+  getSessionSnapshot(): SessionSnapshot {
+    const originalPrimary = this.getDocument().editingFileName;
+    return { editablePath: this.path, referencePaths: [...this.referenceFilePaths],
+      extraImportPaths: [...this.extraImportPaths],
+      ...(this.optionsFilePath ? { optionsFilePath: this.optionsFilePath } : {}),
+      sourceOrder: [...new Set([
+        ...this.getDocument().sourceOrder.map((key) => key === originalPrimary && this.path ? this.path : key),
+        ...this.referenceFilePaths,
+        ...(this.path ? [this.path] : []),
+      ])],
+    };
   }
 
   /** 第9章9.5節: `TecsgenCommandBuilder`が参照専用ファイルの実パスとして使う。 */
@@ -180,32 +224,94 @@ export class AppStore {
   }
 
   isDirty(): boolean {
-    return this.historyState.past.length !== this.savedAtPastLength;
+    return this.sourceKeys().some((key) => this.isSourceDirty(key));
   }
 
-  isSourceDirty(sourcePath: string): boolean {
-    const snapshot = (document: TecscdeDocument): string => {
-      const cells = document.cellValues().filter((cell) => cell.locale === sourcePath).map((cell) => ({
-        name: cell.name,
-        celltypeName: cell.celltypeName,
-        x: cell.x, y: cell.y, width: cell.width, height: cell.height,
-        regionId: cell.regionId,
-        attrs: cell.attrs,
-        ports: [...cell.cports, ...cell.eports].map((port) => ({
-          name: port.name, signature: port.signature, edgeSide: port.edgeSide,
-          offset: port.offset, subscript: port.subscript, arraySize: port.arraySize,
-        })),
-      }));
-      const joins = document.joinValues().filter((join) =>
-        document.getCell(join.cellId)?.locale === sourcePath).map((join) => ({
-          join,
-          targetName: document.getCell(join.eportCellId)?.name,
-        }));
-      return JSON.stringify({ cells, joins });
-    };
-    return snapshot(this.getDocument()) !== snapshot(this.savedDocument);
+  private sourceKeys(): (string | null)[] {
+    return [...new Set([this.getDocument().editingFileName ?? null, ...this.getDocument().sourceTemplates.keys()])];
   }
 
+  isSourceDirty(sourcePath: string | null): boolean {
+    return sourceSaveState(this.getDocument(), sourcePath) !== this.savedStates.get(sourcePath);
+  }
+
+  beginLoad(): LoadGuard {
+    return { requestGeneration: ++this.requestGeneration, documentEpoch: this.documentEpoch, revision: this.documentRevision };
+  }
+
+  isLoadCurrent(guard: LoadGuard): boolean {
+    return guard.requestGeneration === this.requestGeneration && guard.documentEpoch === this.documentEpoch &&
+      guard.revision === this.documentRevision;
+  }
+
+  async canApplyLoad(guard: LoadGuard): Promise<boolean> {
+    if (this.closing) await new Promise<void>((resolve) => this.resumeWaiters.push(resolve));
+    return this.isLoadCurrent(guard) && !this.closing;
+  }
+
+  get isClosing(): boolean { return this.closing; }
+
+  async prepareClose(): Promise<void> {
+    this.closing = true;
+    while (this.pendingSaves.size > 0) await Promise.allSettled([...this.pendingSaves]);
+  }
+
+  cancelClose(): void {
+    this.closing = false;
+    for (const resume of this.resumeWaiters.splice(0)) resume();
+  }
+
+  trackSave<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new Error("終了確認中は保存できません。"));
+    const pending = operation();
+    this.pendingSaves.add(pending);
+    void pending.finally(() => this.pendingSaves.delete(pending)).catch(() => {});
+    return pending;
+  }
+
+  enqueueSaveAs(operation: () => Promise<void>): Promise<void> {
+    const epoch = this.documentEpoch;
+    return this.trackSave(() => {
+      const start = () => epoch === this.documentEpoch ? operation() : Promise.resolve();
+      const pending = this.saveAsTail ? this.saveAsTail.then(start) : start();
+      const tail = pending.then(() => {}, () => {});
+      this.saveAsTail = tail;
+      void tail.then(() => { if (this.saveAsTail === tail) this.saveAsTail = undefined; });
+      return pending;
+    });
+  }
+
+  createSaveTicket(key: string | null, content: string): SaveTicket {
+    return Object.freeze({ id: ++this.saveSequence, documentEpoch: this.documentEpoch,
+      historyNodeId: this.history.nodeId, key, locationGeneration: this.locationGeneration,
+      expectedPath: key === (this.getDocument().editingFileName ?? null) ? this.path : key,
+      state: sourceSaveState(this.getDocument(), key), content });
+  }
+
+  canSaveTicket(ticket: SaveTicket): boolean {
+    const primary = ticket.key === (this.getDocument().editingFileName ?? null);
+    return ticket.documentEpoch === this.documentEpoch &&
+      (!primary || ticket.locationGeneration === this.locationGeneration) &&
+      ticket.expectedPath === (primary ? this.path : ticket.key);
+  }
+
+  recordSaved(ticket: SaveTicket, destination: string, saveAs = false, writeSequence?: number): boolean {
+    if (!this.canSaveTicket(ticket) ||
+        (writeSequence === undefined && ticket.id <= (this.savedSequences.get(ticket.key) ?? 0))) return false;
+    const primary = ticket.key === (this.getDocument().editingFileName ?? null);
+    if (ticket.expectedPath !== (primary ? this.path : ticket.key)) return false;
+    if (writeSequence !== undefined && writeSequence <= (this.savedWriteSequences.get(destination) ?? 0)) return false;
+    if (writeSequence !== undefined) this.savedWriteSequences.set(destination, writeSequence);
+    this.savedStates.set(ticket.key, ticket.state);
+    this.savedSequences.set(ticket.key, ticket.id);
+    if (saveAs && primary) {
+      this.path = destination;
+      this.locationGeneration++;
+      this.documentRevision++;
+    }
+    this.notify();
+    return true;
+  }
   /**
    * 現在の診断レポート（モジュールH）。ロード時の一過性診断（モジュールB）と、
    * 現在のドキュメント状態から再導出する整合性チェック（`checkIntegrity`）を集約する。
@@ -225,7 +331,10 @@ export class AppStore {
 
   /** 新しいコマンドを確定する（Undo で戻せる）。適用不能なら History が doc を素通しする。 */
   dispatch(command: Command): void {
+    if (this.closing) return;
+    const previous = this.historyState;
     this.historyState = this.historyState.commit(command);
+    if (this.historyState !== previous) this.documentRevision++;
     this.notify();
   }
 
@@ -279,14 +388,16 @@ export class AppStore {
   }
 
   undo(): void {
-    if (!this.historyState.canUndo) return;
+    if (this.closing || !this.historyState.canUndo) return;
     this.historyState = this.historyState.undo();
+    this.documentRevision++;
     this.notify();
   }
 
   redo(): void {
-    if (!this.historyState.canRedo) return;
+    if (this.closing || !this.historyState.canRedo) return;
     this.historyState = this.historyState.redo();
+    this.documentRevision++;
     this.notify();
   }
 
@@ -327,11 +438,22 @@ export class AppStore {
     keepDirty = false,
     systemDirs: readonly string[] = [],
   ): void {
+    const previousPrimary = this.getDocument().editingFileName ?? null;
+    const nextPrimary = document.editingFileName ?? null;
+    if (keepDirty && previousPrimary !== nextPrimary && this.savedStates.has(previousPrimary)) {
+      this.savedStates.set(nextPrimary, this.savedStates.get(previousPrimary)!);
+      this.savedStates.delete(previousPrimary);
+    }
     this.historyState = History.begin(document);
-    if (!keepDirty) this.savedDocument = document;
+    if (!keepDirty) this.documentEpoch++;
+    this.documentRevision++;
+    if (!keepDirty) { this.savedStates.clear(); this.savedSequences.clear(); }
+    for (const key of this.sourceKeys()) {
+      if (!this.savedStates.has(key)) this.savedStates.set(key, sourceSaveState(document, key));
+    }
     this.selectionState = SelectionState.empty();
     this.path = path;
-    this.savedAtPastLength = keepDirty ? -1 : 0;
+
     this.loadDiagnostics = loadDiagnostics;
     this.referenceSources = referenceSources;
     this.referenceFilePaths = referenceFilePaths;
@@ -356,8 +478,10 @@ export class AppStore {
   }
 
   /** 第9章9.4節: `TecsgenResultParser.parse()`の結果を反映する。`getReport()`へ合流する。 */
-  setTecsgenDiagnostics(diagnostics: readonly Diagnostic[]): void {
+  setTecsgenDiagnostics(diagnostics: readonly Diagnostic[], revision?: number): void {
+    if (revision !== undefined && revision < this.toolSettingsRevision) return;
     this.tecsgenDiagnostics = diagnostics;
+    this.tecsgenDiagnosticsRevision = revision;
     this.notify();
   }
 
@@ -367,10 +491,35 @@ export class AppStore {
     this.notify();
   }
 
+  setToolSettingsRevision(revision: number): void {
+    if (revision <= this.toolSettingsRevision) return;
+    this.toolSettingsRevision = revision;
+    if (this.tecsgenDiagnosticsRevision === undefined || this.tecsgenDiagnosticsRevision < revision) {
+      this.tecsgenDiagnostics = this.tecsgenDiagnostics.filter((entry) =>
+        entry.code !== "E-TECSGEN-NOT-FOUND" && entry.code !== "E-TECSGEN-LAUNCH-FAILED");
+    }
+  }
+
+  replaceTecsgenEnvironmentDiagnostics(diagnostics: readonly Diagnostic[], revision?: number): void {
+    const belongsToTecsgen = (entry: Diagnostic): boolean => entry.code.startsWith("W-TECSGEN-VERSION-") ||
+      entry.code === "E-TECSGEN-NOT-FOUND" || entry.code === "E-TECSGEN-LAUNCH-FAILED";
+    this.environmentDiagnostics = [...this.environmentDiagnostics.filter((entry) => !belongsToTecsgen(entry)), ...diagnostics];
+    if (revision === undefined || this.tecsgenDiagnosticsRevision === undefined || this.tecsgenDiagnosticsRevision < revision) {
+      this.tecsgenDiagnostics = this.tecsgenDiagnostics.filter((entry) => !belongsToTecsgen(entry));
+    }
+    this.notify();
+  }
+
+  getTecsgenStatus(): { readonly version: string; readonly command: string } { return this.tecsgenStatus; }
+
+  setTecsgenStatus(version: string, command: string): void {
+    this.tecsgenStatus = { version, command };
+    this.notify();
+  }
+
   /** 保存が成功したときに呼ぶ。以後 `isDirty()` は false になる（次の編集まで）。 */
   markSaved(path: string): void {
-    this.savedAtPastLength = this.historyState.past.length;
-    this.savedDocument = this.getDocument();
+    for (const key of this.sourceKeys()) this.savedStates.set(key, sourceSaveState(this.getDocument(), key));
     this.path = path;
     this.notify();
   }

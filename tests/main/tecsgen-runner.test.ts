@@ -38,8 +38,106 @@ describe("TecsgenRunner", () => {
     execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
     await new TecsgenRunner().run(["main.cdl"]);
     expect(execFileMock).toHaveBeenCalledWith(
-      "ruby", ["C:\\Program Files\\tecsgen.rb", "main.cdl"], { timeout: 30_000 },
+      "ruby", ["C:\\Program Files\\tecsgen.rb", "main.cdl"], { timeout: 30_000, shell: false },
     );
+  });
+
+  it.each(["", "  ", '""', '"unclosed'])("does not execute a fallback for invalid explicit TECSGEN_COMMAND %j", async (value) => {
+    process.env.TECSGEN_COMMAND = value;
+    const runner = new TecsgenRunner();
+    const result = await runner.run(["--version"]);
+    expect(result.launchFailure?.kind).toBe("launch-error");
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the current provider for each new operation and fixes an in-flight command", async () => {
+    let executable = "/first tool";
+    const provider = vi.fn(async () => ({ executable, args: ["fixed-prefix"], source: "settings" as const }));
+    const runner = new TecsgenRunner(provider);
+    execFileMock.mockResolvedValue({ stdout: "1.9.1", stderr: "" });
+    const first = runner.generate(["main.cdl"]);
+    executable = "/second tool";
+    await first;
+    await runner.version();
+    expect(execFileMock.mock.calls[0]?.slice(0, 2)).toEqual(["/first tool", ["fixed-prefix", "main.cdl"]]);
+    expect(execFileMock.mock.calls[1]?.slice(0, 2)).toEqual(["/second tool", ["fixed-prefix", "--version"]]);
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
+  it("captures the provider before Plugin temporary-file work starts", async () => {
+    let executable = "/first tool";
+    const provider = vi.fn(async () => ({ executable, args: [], source: "settings" as const }));
+    const runner = new TecsgenRunner(provider);
+    execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
+    const pending = runner.generatedTypes(["main.cdl"], join(process.cwd(), "main.cdl"));
+    executable = "/second tool";
+    await pending;
+    expect(execFileMock.mock.calls[0]?.[0]).toBe("/first tool");
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it("freezes the default runner environment at construction", async () => {
+    process.env.TECSGEN_COMMAND = "/startup/tool";
+    const runner = new TecsgenRunner();
+    process.env.TECSGEN_COMMAND = "/changed/tool";
+    execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
+    await runner.run([]);
+    expect(execFileMock.mock.calls[0]?.[0]).toBe("/startup/tool");
+  });
+
+  it("associates successful and failed executions with the captured settings revision", async () => {
+    const runner = new TecsgenRunner(async () => ({ executable: "/tool", args: [], source: "settings", revision: 4 }));
+    execFileMock.mockResolvedValueOnce({ stdout: "ok", stderr: "" })
+      .mockRejectedValueOnce(Object.assign(Error("missing"), { code: "ENOENT" }))
+      .mockRejectedValueOnce(Object.assign(Error("failed"), { code: 2, stderr: "bad input" }));
+    expect(await runner.generate([])).toMatchObject({ exitCode: 0, settingsRevision: 4 });
+    expect(await runner.generate([])).toMatchObject({ executableFound: false, settingsRevision: 4 });
+    expect(await runner.generate([])).toMatchObject({ exitCode: 2, settingsRevision: 4 });
+  });
+
+  it.skipIf(process.platform !== "win32")("uses the common explicit batch host for Generate, version and Plugin loading", async () => {
+    const runner = new TecsgenRunner(async () => ({ executable: resolve("tests/fixtures/tecsgen-invocation/forward.bat"), args: ["prefix"], source: "settings" }));
+    execFileMock.mockResolvedValue({ stdout: "version 1.9.1", stderr: "" });
+    await runner.generate(["-c", 'gcc -I "C:\\Program Files\\include"']);
+    await runner.version();
+    await runner.generatedTypes(["main.cdl"], join(process.cwd(), "main.cdl"));
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    for (const [executable, args, options] of execFileMock.mock.calls) {
+      expect(executable.toLowerCase()).toMatch(/\\system32\\cmd.exe$/);
+      expect(args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
+      expect(options).toMatchObject({ shell: false, windowsVerbatimArguments: true, windowsHide: true });
+    }
+  });
+
+  it.skipIf(process.platform !== "win32")("hides the explicit PowerShell script host without bypassing execution policy", async () => {
+    execFileMock.mockResolvedValue({ stdout: "version 1.9.1", stderr: "" });
+    const runner = new TecsgenRunner(async () => ({ executable: resolve("tests/fixtures/tecsgen-invocation/capture.ps1"), args: [], source: "settings" }));
+    await runner.version();
+    const [executable, args, options] = execFileMock.mock.calls[0]!;
+    expect(executable.toLowerCase()).toMatch(/\\(?:pwsh|powershell)\.exe$/);
+    expect(args).toContain("-EncodedCommand");
+    expect(args).not.toContain("-ExecutionPolicy");
+    expect(options).toMatchObject({ shell: false, windowsHide: true });
+  });
+
+  it.skipIf(process.platform !== "win32").each(["bat", "ps1"])("reports a deleted saved absolute %s script as not-found without launching its host", async (extension) => {
+    const dir = await mkdtemp(join(tmpdir(), "tecsgen-deleted-script-"));
+    const path = join(dir, "tecsgen." + extension);
+    try {
+      await writeFile(path, extension === "bat" ? "@echo version 1.9.1" : "'version 1.9.1'");
+      const runner = new TecsgenRunner(async () => ({ executable: path, args: [], source: "settings" }));
+      await rm(path);
+      execFileMock.mockResolvedValue({ stdout: "wrong fallback", stderr: "" });
+      expect(await runner.version()).toEqual({ kind: "not-found" });
+      expect(execFileMock).not.toHaveBeenCalled();
+    } finally { await rmdir(dir); }
+  });
+
+  it.skipIf(process.platform !== "win32")("keeps unqualified environment batch commands for the host's PATH lookup", async () => {
+    process.env.TECSGEN_COMMAND = "tecsgen.bat";
+    execFileMock.mockResolvedValue({ stdout: "version 1.9.1", stderr: "" });
+    expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "version 1.9.1" });
+    expect(execFileMock.mock.calls[0]?.[1].at(-1)).toContain("tecsgen.bat");
   });
 
   it("generatedTypes() reads all generated CDL and removes its temporary output", async () => {
@@ -249,13 +347,13 @@ describe("TecsgenRunner", () => {
     it("keeps the Generate limits (30s, default maxBuffer) without a cwd", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
       await new TecsgenRunner().generate(["-I", "inc", "main.cdl"]);
-      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["-I", "inc", "main.cdl"], { timeout: 30_000 });
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["-I", "inc", "main.cdl"], { timeout: 30_000, shell: false });
     });
 
     it("runs in the given directory with the same Generate limits (not the looser plugin-load limits)", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
       await new TecsgenRunner().generate(["main.cdl"], "/proj/opts");
-      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["main.cdl"], { timeout: 30_000, cwd: "/proj/opts" });
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["main.cdl"], { timeout: 30_000, cwd: "/proj/opts", shell: false });
     });
   });
 
@@ -263,7 +361,7 @@ describe("TecsgenRunner", () => {
     it("reads the version from stderr when stdout is empty (tecsgen prints its banner to stderr)", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "tecsgen  version 1.9.1  \n" });
       expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1" });
-      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["--version"], { timeout: 30_000 });
+      expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["--version"], { timeout: 30_000, shell: false });
     });
 
     it("prefers stdout when it has text", async () => {
@@ -288,7 +386,21 @@ describe("TecsgenRunner", () => {
 
     it("reports a non-zero exit as failed", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("bad"), { code: 2, stdout: "", stderr: "x" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2: x" });
+    });
+
+    it("keeps a bounded host failure reason and uses stdout if stderr is empty", async () => {
+      execFileMock.mockRejectedValueOnce(Object.assign(new Error("policy"), { code: 1, stdout: "", stderr: "policy: " + "x".repeat(2000) }));
+      const policy = await new TecsgenRunner().version();
+      expect(policy.kind).toBe("failed");
+      if (policy.kind === "failed") {
+        expect(policy.detail).toContain("policy:");
+        expect(policy.detail.length).toBe("終了コード 1: ".length + 1000);
+      }
+      execFileMock.mockRejectedValueOnce(Object.assign(new Error("out"), { code: 3, stdout: " host denied ", stderr: " " }));
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 3: host denied" });
+      execFileMock.mockRejectedValueOnce(Object.assign(new Error("empty"), { code: 4 }));
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 4" });
     });
   });
 });

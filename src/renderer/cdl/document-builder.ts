@@ -46,6 +46,9 @@ export interface LoadResult {
 }
 
 export interface LoadOptions {
+  /** undefinedのみ旧呼び出しの主推定を使う。nullは主ファイルなし。 */
+  readonly primarySourceKey?: string | null;
+  readonly sourceOrder?: readonly string[];
   readonly cdeclResults?: ReadonlyMap<string, CdeclResult>;
   /** `-S`で指定されたディレクトリ（絶対パス）。配下から読み込んだCDLを`systemDefined`とする（第3章3.2節）。 */
   readonly systemDirs?: readonly string[];
@@ -254,6 +257,20 @@ export class CdlDocumentLoader {
         ? { ...source, systemDefined, editable: source.editable && options.allowEditSystemDefined === true }
         : source;
     });
+    const sourceKey = (source: CdlSource): string => source.sourcePath ?? source.fileName;
+    const primarySource = options.primarySourceKey === undefined
+      ? sources.slice().reverse().find((source) => source.editable && !source.generated)
+      : options.primarySourceKey === null ? undefined
+        : sources.find((source) => sourceKey(source) === options.primarySourceKey && !source.generated);
+    if (typeof options.primarySourceKey === "string" && !primarySource) {
+      throw new Error(`Primary source not found among ordinary CDL sources: ${options.primarySourceKey}`);
+    }
+    const ordinaryOrder = sources.filter((source) => !source.generated).map(sourceKey);
+    const sourceOrder = options.sourceOrder ?? ordinaryOrder;
+    if (new Set(sourceOrder).size !== sourceOrder.length || sourceOrder.length !== ordinaryOrder.length
+      || sourceOrder.some((key, index) => key !== ordinaryOrder[index])) {
+      throw new Error("sourceOrder must match the ordinary sources in parsing order");
+    }
     const diagnostics: Diagnostic[] = [];
     const celltypes = new Map<string, CelltypeRef>();
     const parsedSources: ParsedSource[] = [];
@@ -293,7 +310,7 @@ export class CdlDocumentLoader {
         }
       }
       if (source.editable && !source.generated) {
-        sourceTemplate = {
+        const template: CdlSourceTemplate = {
           text: source.text,
           cells: parsed.cells.map((cell) => {
             const startIndex = attachedCommentStart(source.text, cell.startIndex);
@@ -307,16 +324,18 @@ export class CdlDocumentLoader {
           scopes: parsed.scopes.map((scope) => ({ path: scope.path, bodyEndIndex: scope.bodyEndIndex })),
           toolInfoBlocks: blocks.map((block) => ({ toolName: block.toolName, startIndex: block.startIndex, endIndex: block.endIndex })),
         };
-        sourceTemplates.set(source.sourcePath ?? source.fileName, sourceTemplate);
+        sourceTemplates.set(sourceKey(source), template);
+        if (source === primarySource) sourceTemplate = template;
       }
       for (const d of parsed.diagnostics) diagnostics.push(withLocation(d, source.fileName));
       // 編集対象ファイルの import / import_C を原文のまま保持する（内部仕様3章）。
-      if (source.editable) preservedImports = parsed.imports.map((i) => i.rawText);
+      if (source === primarySource) preservedImports = parsed.imports.map((i) => i.rawText);
 
       for (const block of source.generated ? [] : blocks) {
         if (block.toolName === "tecsgen") {
-          toolInfoTecsgen = ToolInfoValidator.parseTecsgen(block.json);
-          const versionDiag = ToolInfoValidator.checkFormatVersion(toolInfoTecsgen);
+          const parsedTecsgen = ToolInfoValidator.parseTecsgen(block.json);
+          if (source === primarySource) toolInfoTecsgen = parsedTecsgen;
+          const versionDiag = ToolInfoValidator.checkFormatVersion(parsedTecsgen);
           if (versionDiag) diagnostics.push(versionDiag);
         } else if (block.toolName === "tecscde") {
           const { parsed: p, diagnostics: d } = ToolInfoValidator.parseTecscde(block.json);
@@ -621,8 +640,7 @@ export class CdlDocumentLoader {
       if (sourceTemplate === template) sourceTemplate = updated;
     }
 
-    const editingSource = sources.slice().reverse().find((source) => source.editable);
-    const referenceFiles = sources.filter((source) => source !== editingSource && !source.generated).map((source) => source.fileName);
+    const referenceFiles = sources.filter((source) => source !== primarySource && !source.generated).map((source) => source.fileName);
 
     const document = TecscdeDocument.build({
       cells,
@@ -632,8 +650,10 @@ export class CdlDocumentLoader {
       toolInfoTecsgen,
       paper,
       referenceFiles,
-      editingFileName: editingSource?.sourcePath ?? editingSource?.fileName,
-      unknownToolInfoTecscde: tecscdeParsed.unknownFields,
+      editingFileName: primarySource ? sourceKey(primarySource) : undefined,
+      primarySourceKey: primarySource ? sourceKey(primarySource) : null,
+      sourceOrder,
+      unknownToolInfoTecscde: primarySource ? layoutsBySource.get(sourceKey(primarySource))?.unknownFields ?? {} : {},
       preservedImports,
       sourceTemplate,
       sourceTemplates,
@@ -644,6 +664,6 @@ export class CdlDocumentLoader {
 
   /** 単一ファイル読み込みの簡便ラッパ（テスト・新規作成後の1ファイル読込用）。 */
   static loadSingle(text: string, fileName: string, editable = true): LoadResult {
-    return CdlDocumentLoader.loadSources([{ text, fileName, editable }]);
+    return CdlDocumentLoader.loadSources([{ text, fileName, editable }], { primarySourceKey: fileName });
   }
 }

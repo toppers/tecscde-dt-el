@@ -14,7 +14,7 @@ import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { TecscdeDocument } from "../model/document";
 import { ViewState } from "../view-state/view-state";
 import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports } from "./import-resolution";
-import type { AppStore } from "./store";
+import type { AppStore, LoadGuard } from "./store";
 
 /** `path/to/foo.cde` → `foo.cde`（renderer には node:path が無いので自前）。 */
 export function baseName(path: string): string {
@@ -48,7 +48,12 @@ export async function applyOpenResult(
   tecsgenGateway: TecsgenGateway,
   result: OpenResult,
   extraImportPaths: readonly string[] = result.extraImportPaths ?? [],
-): Promise<void> {
+  guard: LoadGuard = store.beginLoad(),
+): Promise<boolean> {
+  if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return false;
+  const contextPaths = extraImportPaths.map((path) =>
+    result.optionsFilePath && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
+      ? `${result.optionsFilePath.replace(/[\\/][^\\/]*$/, "")}/${path}` : path);
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
   const { references: autoReferences, diagnostics: importDiagnostics, cdeclResults } = await resolveAllImports(
     gateway,
@@ -56,14 +61,14 @@ export async function applyOpenResult(
     result.editable.path,
     result.editable.content,
     toolInfo,
-    extraImportPaths,
+    contextPaths,
     result.references,
   );
   const references = mergeReferences(result.references, autoReferences);
 
   let generatedTypeSources: readonly GeneratedCdlFile[] = [];
   const pluginDiagnostics: Array<{ severity: "warning"; code: string; message: string }> = [];
-  if (typeof tecsgenGateway.generatedTypes === "function") {
+  if (result.editable.path && typeof tecsgenGateway.generatedTypes === "function") {
     const args = TecsgenCommandBuilder.buildArgs({
       importPath: [...(toolInfo.importPath ?? []), ...extraImportPaths],
       defineMacro: toolInfo.defineMacro,
@@ -89,22 +94,26 @@ export async function applyOpenResult(
     }
   }
 
+  const primary = result.primarySourceKey === undefined ? result.editable.path : result.primarySourceKey;
+  const ordinary = result.sources ?? [...result.references, ...(primary ? [result.editable] : [])];
+  const byPath = new Map([...ordinary, ...references].map((entry) => [entry.path, entry]));
+  const order = [...new Set([...(result.sourceOrder ?? ordinary.map((entry) => entry.path)), ...byPath.keys()])];
   const sources: CdlSource[] = [
-    ...references.map((r) => ({ text: r.content, fileName: baseName(r.path), sourcePath: r.path, editable: true })),
-    { text: result.editable.content, fileName: baseName(result.editable.path), sourcePath: result.editable.path, editable: true },
+    ...order.map((path) => byPath.get(path)!).map((r) => ({ text: r.content, fileName: baseName(r.path), sourcePath: r.path, editable: true })),
     ...generatedTypeSources.map((source) => ({
       text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
     })),
   ];
   const systemDirs = result.systemDirs ?? [];
   const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
-    cdeclResults, systemDirs, allowEditSystemDefined: store.getAllowEditSystemDefined(),
+    cdeclResults, systemDirs, allowEditSystemDefined: store.getAllowEditSystemDefined(), primarySourceKey: primary,
   });
-  const referenceFilePaths = references.map((r) => r.path);
+  const referenceFilePaths = order.filter((path) => path !== primary);
   const referenceSources = new Map(references.map((r) => [r.path, r.content]));
+  if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return false;
   store.loadDocument(
     document,
-    result.editable.path,
+    primary,
     [...importDiagnostics, ...pluginDiagnostics, ...diagnostics],
     referenceFilePaths,
     referenceSources,
@@ -118,6 +127,9 @@ export async function applyOpenResult(
   // 読み込み直後は図の中心を表示中心にしておく（panCenter 初期値 {0,0} だと左上寄り）。
   const { width, height } = document.paper.contentSize();
   store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
+  const snapshot = store.getSessionSnapshot();
+  await gateway.saveSession?.(snapshot);
+  return true;
 }
 
 /**
@@ -135,18 +147,25 @@ export async function openFromPath(
   path: string,
   options: { extraImportPaths?: readonly string[]; optionsFilePath?: string } = {},
 ): Promise<void> {
-  if (store.isDirty()) {
-    const proceed = await gateway.confirmDiscardChanges();
-    if (!proceed) return;
+  const guard = store.beginLoad();
+  try {
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    if (store.isDirty()) {
+      const proceed = await gateway.confirmDiscardChanges();
+      if (!proceed || !await store.canApplyLoad(guard)) return;
+    }
+    const result = await gateway.openPath(path);
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    if (!store.isLoadCurrent(guard)) return;
+    await applyOpenResult(
+      store, gateway, tecsgenGateway,
+      options.optionsFilePath ? { ...result, optionsFilePath: options.optionsFilePath } : result,
+      options.extraImportPaths,
+      guard,
+    );
+  } catch (error) {
+    if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
   }
-  const result = await gateway.openPath(path);
-  await applyOpenResult(
-    store, gateway, tecsgenGateway,
-    options.optionsFilePath ? { ...result, optionsFilePath: options.optionsFilePath } : result,
-    options.extraImportPaths,
-  );
-  // 第7C章7.7.1節: 編集対象が変化するたびに前回セッションを保存する。
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /**
@@ -156,20 +175,28 @@ export async function openFromPath(
  * （FileBrowserViewの展開状態は本関数と結線されていないため自然に維持される）。
  */
 export async function newDocument(store: AppStore, gateway: FileGateway): Promise<void> {
-  if (store.isDirty()) {
-    const proceed = await gateway.confirmDiscardChanges();
-    if (!proceed) return;
+  const guard = store.beginLoad();
+  try {
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    if (store.isDirty()) {
+      const proceed = await gateway.confirmDiscardChanges();
+      if (!proceed || !await store.canApplyLoad(guard)) return;
+    }
+    const referenceFilePaths = store.getReferenceFilePaths();
+    const referenceSources = store.getReferenceSources(); // #8: 消去後もaddAsReferenceが使えるよう維持する
+    const document = TecscdeDocument.empty();
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    if (!store.isLoadCurrent(guard)) return;
+    store.loadDocument(document, null, [], referenceFilePaths, referenceSources, []);
+    // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
+    const { width, height } = document.paper.contentSize();
+    store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
+    // 7.7.1節: editablePathは無し（未保存の新規作成はセッション復元の対象外）、
+    // references集合は維持されたまま保存する。
+    await gateway.saveSession(store.getSessionSnapshot());
+  } catch (error) {
+    if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
   }
-  const referenceFilePaths = store.getReferenceFilePaths();
-  const referenceSources = store.getReferenceSources(); // #8: 消去後もaddAsReferenceが使えるよう維持する
-  const document = TecscdeDocument.empty();
-  store.loadDocument(document, null, [], referenceFilePaths, referenceSources, []);
-  // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
-  const { width, height } = document.paper.contentSize();
-  store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
-  // 7.7.1節: editablePathは無し（未保存の新規作成はセッション復元の対象外）、
-  // references集合は維持されたまま保存する。
-  await gateway.saveSession(null, referenceFilePaths, []);
 }
 
 /** Add a CDL selected in the file browser to the editable, jointly loaded files. */
@@ -179,66 +206,78 @@ export async function addAsReference(
   tecsgenGateway: TecsgenGateway,
   path: string,
 ): Promise<void> {
-  const editablePath = store.filePath;
-  if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
-  const existingPaths = store.getReferenceFilePaths();
-  if (path === editablePath || existingPaths.includes(path)) return;
+  const guard = store.beginLoad();
+  try {
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    const editablePath = store.filePath;
+    if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
+    const existingPaths = store.getReferenceFilePaths();
+    if (path === editablePath || existingPaths.includes(path)) return;
 
-  const toolInfo = store.getDocument().toolInfoTecsgen;
-  const extraImportPaths = store.getExtraImportPaths();
-  const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
-  const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
-    gateway,
-    tecsgenGateway,
-    editablePath,
-    mergedToolInfo,
-    path,
-    existingPaths,
-  );
-  if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
+    const toolInfo = store.getDocument().toolInfoTecsgen;
+    const extraImportPaths = store.getExtraImportPaths();
+    const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
+    const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
+      gateway,
+      tecsgenGateway,
+      editablePath,
+      mergedToolInfo,
+      path,
+      existingPaths,
+    );
+    if (!await store.canApplyLoad(guard)) return;
+    if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
 
-  const keepDirty = store.isDirty();
-  const mergedSources = new Map(store.getReferenceSources());
-  for (const referencePath of store.getReferenceFilePaths()) {
-    // 閲覧のみのシステム定義CDLはテンプレートを持たない（書き戻さない）ので、読み込んだ原文をそのまま使う。
-    if (!store.getDocument().sourceTemplates.has(referencePath)) continue;
-    mergedSources.set(referencePath, CdlSerializer.serializeSource(store.getDocument(), referencePath));
+    const mergedSources = new Map(store.getReferenceSources());
+    for (const referencePath of store.getReferenceFilePaths()) {
+      // 閲覧のみのシステム定義CDLはテンプレートを持たない（書き戻さない）ので、読み込んだ原文をそのまま使う。
+      if (!store.getDocument().sourceTemplates.has(referencePath)) continue;
+      mergedSources.set(referencePath, CdlSerializer.serializeSource(store.getDocument(), referencePath));
+    }
+    for (const r of discovered) mergedSources.set(r.path, r.content);
+
+    const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
+    const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
+    const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
+      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences,
+    );
+    const sourceTexts = new Map([...mergedSources, [editablePath, editableText] as const]);
+    const sourceOrder = [...new Set([
+      ...store.getDocument().sourceOrder.map((key) => key === store.getDocument().primarySourceKey ? editablePath : key)
+        .filter((key) => sourceTexts.has(key)), ...sourceTexts.keys(),
+    ])];
+    const sources: CdlSource[] = [
+      ...sourceOrder.map((p) => ({ text: sourceTexts.get(p)!, fileName: baseName(p), sourcePath: p, editable: true })),
+      ...store.getGeneratedTypeSources().map((source) => ({
+        text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
+      })),
+    ];
+    const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
+      cdeclResults, systemDirs: store.getSystemDirs(), allowEditSystemDefined: store.getAllowEditSystemDefined(),
+      primarySourceKey: editablePath,
+    });
+    if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return;
+    store.loadDocument(
+      document,
+      editablePath,
+      [...allImportDiagnostics, ...importDiagnostics.filter((first) =>
+        !allImportDiagnostics.some((later) => first.code === later.code && first.message === later.message)
+      ), ...diagnostics],
+      sourceOrder.filter((key) => key !== editablePath),
+      mergedSources,
+      extraImportPaths,
+      store.getOptionsFilePath(),
+      store.getGeneratedTypeSources(),
+      portTypeIndex,
+      true,
+      store.getSystemDirs(),
+    );
+    const { width, height } = document.paper.contentSize();
+    store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
+    await gateway.saveSession(store.getSessionSnapshot());
+  } catch (error) {
+    if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
   }
-  for (const r of discovered) mergedSources.set(r.path, r.content);
-
-  const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
-  const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
-  const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
-    gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences,
-  );
-  const sources: CdlSource[] = [
-    ...[...mergedSources.entries()].map(([p, text]) => ({ text, fileName: baseName(p), sourcePath: p, editable: true })),
-    { text: editableText, fileName: baseName(editablePath), sourcePath: editablePath, editable: true },
-    ...store.getGeneratedTypeSources().map((source) => ({
-      text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
-    })),
-  ];
-  const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
-    cdeclResults, systemDirs: store.getSystemDirs(), allowEditSystemDefined: store.getAllowEditSystemDefined(),
-  });
-  store.loadDocument(
-    document,
-    editablePath,
-    [...allImportDiagnostics, ...importDiagnostics.filter((first) =>
-      !allImportDiagnostics.some((later) => first.code === later.code && first.message === later.message)
-    ), ...diagnostics],
-    [...mergedSources.keys()],
-    mergedSources,
-    extraImportPaths,
-    store.getOptionsFilePath(),
-    store.getGeneratedTypeSources(),
-    portTypeIndex,
-    keepDirty,
-    store.getSystemDirs(),
-  );
-  const { width, height } = document.paper.contentSize();
-  store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
 }
 
 /** Open every CDL listed by tecsgen options as editable, with the last file as primary. */
@@ -248,55 +287,71 @@ export async function loadOptionsFile(
   tecsgenGateway: TecsgenGateway,
   path: string,
 ): Promise<void> {
-  const parsed = await gateway.parseTecsgenOptionsFile(path);
-  if (parsed.cdlFiles.length === 0) return;
-  if (store.isDirty() && !await gateway.confirmDiscardChanges()) return;
-  const opened = await Promise.all(parsed.cdlFiles.map(async (filePath) => (await gateway.openPath(filePath)).editable));
-  const editable = opened[opened.length - 1]!;
-  const references = opened.slice(0, -1);
-  await applyOpenResult(store, gateway, tecsgenGateway, {
-    editable,
-    references,
-    extraImportPaths: parsed.importPaths,
-    optionsFilePath: path,
-    ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
-  });
-  await gateway.saveSession(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
+  const guard = store.beginLoad();
+  try {
+    if (store.isClosing && !await store.canApplyLoad(guard)) return;
+    const parsed = await gateway.parseTecsgenOptionsFile(path);
+    if (!await store.canApplyLoad(guard)) return;
+    if (parsed.cdlFiles.length === 0) return;
+    if (store.isDirty() && !await gateway.confirmDiscardChanges()) return;
+    if (!await store.canApplyLoad(guard)) return;
+    const sourcePaths = [...new Set(parsed.cdlFiles)];
+    const openedResult = typeof gateway.openPaths === "function" ? await gateway.openPaths(parsed.cdlFiles) : undefined;
+    const opened = openedResult?.sources ?? await Promise.all(sourcePaths.map(async (filePath) => (await gateway.openPath(filePath)).editable));
+    if (!await store.canApplyLoad(guard)) return;
+    const editable = openedResult?.editable ?? opened[sourcePaths.indexOf(parsed.cdlFiles[parsed.cdlFiles.length - 1]!)]!;
+    const references = opened.filter((entry) => entry.path !== editable.path);
+    await applyOpenResult(store, gateway, tecsgenGateway, {
+      editable,
+      references,
+      extraImportPaths: parsed.importPaths,
+      optionsFilePath: path,
+      ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
+      primarySourceKey: editable.path,
+      sourceOrder: [...new Set(opened.map((entry) => entry.path))],
+      sources: [...new Map(opened.map((entry) => [entry.path, entry])).values()],
+    }, parsed.importPaths, guard);
+  } catch (error) {
+    if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
+  }
 }
 
-/** ［保存］: 既存パスがあれば上書き、無ければ［名前を付けて保存］へ委譲。 */
+/** Capture every source ticket before the first I/O; reflect each success independently. */
 export async function save(store: AppStore, gateway: FileGateway): Promise<void> {
-  // 第3章3.2節: 主ファイルがシステム定義ディレクトリ配下で閲覧のみのときは保存しない。
-  if (store.isEditingFileReadOnlySystemDefined()) return;
-  const path = store.filePath;
-  if (!path) {
-    await saveAs(store, gateway);
-    return;
-  }
+  if (store.isEditingFileReadOnlySystemDefined()) return Promise.resolve();
+  if (!store.filePath) return saveAs(store, gateway);
   const document = store.getDocument();
-  for (const referencePath of store.getReferenceFilePaths()) {
-    if (!store.isSourceDirty(referencePath)) continue;
-    await gateway.save(referencePath, CdlSerializer.serializeSource(document, referencePath));
-  }
-  const text = CdlSerializer.serialize(document);
-  await gateway.save(path, text);
-  store.markSaved(path);
-  await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
+  const path = store.filePath;
+  const referenceTickets = store.getReferenceFilePaths().filter((key) =>
+    document.sourceTemplates.has(key) && store.isSourceDirty(key)).map((key) =>
+    store.createSaveTicket(key, CdlSerializer.serializeSource(document, key)));
+  const primary = store.createSaveTicket(document.editingFileName ?? null, CdlSerializer.serialize(document));
+  return store.trackSave(async () => {
+    const results = await Promise.allSettled([...referenceTickets, primary].map(async (ticket) => {
+      const destination = ticket === primary ? path : ticket.key!;
+      const receipt = await gateway.save(destination, ticket.content);
+      store.recordSaved(ticket, destination, false, receipt?.writeSequence);
+    }));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  });
 }
 
-/** ［名前を付けて保存］: 保存ダイアログを開く。キャンセル時は何もしない。 */
-export async function saveAs(store: AppStore, gateway: FileGateway): Promise<void> {
-  if (store.isEditingFileReadOnlySystemDefined()) return; // save()と同じ理由
-  const document = store.getDocument();
-  const text = CdlSerializer.serialize(document);
-  const suggested = store.filePath ? baseName(store.filePath) : "untitled.cde";
-  const savedPath = await gateway.saveAs(text, suggested);
-  if (savedPath) {
-    for (const referencePath of store.getReferenceFilePaths()) {
-      if (!store.isSourceDirty(referencePath)) continue;
-      await gateway.save(referencePath, CdlSerializer.serializeSource(document, referencePath));
+export function saveAs(store: AppStore, gateway: FileGateway): Promise<void> {
+  if (store.isEditingFileReadOnlySystemDefined()) return Promise.resolve();
+  // Save As changes the primary only. Other unsaved sources retain their own checkpoints.
+  return store.enqueueSaveAs(async () => {
+    const document = store.getDocument();
+    const primary = store.createSaveTicket(document.editingFileName ?? null, CdlSerializer.serialize(document));
+    const suggested = store.filePath ? baseName(store.filePath) : "untitled.cde";
+    const destination = typeof gateway.chooseSavePath === "function"
+      ? await gateway.chooseSavePath(suggested) : await gateway.saveAs(primary.content, suggested);
+    if (!store.canSaveTicket(primary)) return;
+    const receipt = destination && typeof gateway.chooseSavePath === "function"
+      ? await gateway.save(destination, primary.content) : undefined;
+    if (destination && store.recordSaved(primary, destination, true, receipt?.writeSequence)) {
+      const session = store.getSessionSnapshot();
+      await gateway.saveSession?.(session);
     }
-    store.markSaved(savedPath);
-    await gateway.saveSession?.(store.filePath, store.getReferenceFilePaths(), store.getExtraImportPaths(), store.getOptionsFilePath());
-  }
+  });
 }

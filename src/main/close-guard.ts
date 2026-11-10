@@ -1,47 +1,109 @@
-// [[TECSCDE-DT-EL内部仕様]] 第7章7.9節: ウィンドウを閉じるときの未保存確認。
-// ブラウザの`beforeunload`には頼らず、mainのウィンドウの`close`イベントで確認する。
-// rendererは未保存かどうかが変わるたびに`setDirty`で知らせておく（`close`の同期的な
-// 中断と、rendererへの非同期の問い合わせは噛み合わないため）。
+// [[TECSCDE-DT-EL内部仕様]] 07J.9: close waits for renderer checkpoint
+// reflection and accepted main writes, then asks about the current dirty state.
 
-/** `BrowserWindow`のうち、`CloseGuard`が使う部分だけ（テストで差し替えられるようにする）。 */
 export interface CloseGuardWindow {
   on(event: "close", listener: (event: { preventDefault(): void }) => void): unknown;
   close(): void;
 }
 
-export class CloseGuard {
-  private dirty = false; // rendererが最後に知らせた値
-  private confirmed = false; // 利用者が「保存せずに終了」を選んだ
-  private asking = false; // ダイアログ表示中（二重表示を防ぐ）
+export interface CloseGuardDependencies {
+  /** The IPC bridge must also validate the responding webContents. */
+  queryState(queryId: string): Promise<unknown>;
+  /** Close admission before waiting; never time out accepted writes. */
+  stopWrites(): Promise<void>;
+  /** Reopen admission and send cancelCloseState for this transaction only. */
+  resume(queryId: string): void;
+  readonly queryTimeoutMs?: number;
+}
 
-  /**
-   * @param confirmDiscard 「保存せずに終了」ならtrue、「キャンセル」ならfalseを返す確認ダイアログ。
-   */
+function isIdentifier(value: unknown): boolean {
+  return typeof value === "string" ? value.length > 0 : typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function readyState(response: unknown, queryId: string): { dirty: boolean } | undefined {
+  if (typeof response !== "object" || response === null || Array.isArray(response)) return;
+  const state = response as Record<string, unknown>;
+  if (state.kind !== "ready" || state.queryId !== queryId || typeof state.dirty !== "boolean" ||
+      state.pendingSaves !== 0 || !isIdentifier(state.documentEpoch) || !isIdentifier(state.historyNodeId)) return;
+  return { dirty: state.dirty };
+}
+
+let nextCloseQuery = 0;
+
+export class CloseGuard {
+  private permission = false;
+  private checking = false;
+  private disposed = false;
+
   constructor(
     private readonly win: CloseGuardWindow,
-    private readonly confirmDiscard: () => Promise<boolean>,
+    private readonly confirmDiscard: (unknownState?: boolean) => Promise<boolean>,
+    private readonly dependencies?: CloseGuardDependencies,
   ) {
     win.on("close", (event) => {
-      if (!this.dirty || this.confirmed) return; // そのまま閉じる
+      if (this.permission) {
+        this.permission = false; // one reentrant close only
+        return;
+      }
       event.preventDefault();
-      void this.confirmAndClose();
+      if (!this.checking && !this.disposed) void this.checkAndClose();
     });
   }
 
-  setDirty(dirty: boolean): void {
-    this.dirty = dirty;
+  /** Compatibility notification; cached values never authorize close. */
+  setDirty(_dirty: boolean): void {}
+
+  dispose(): void {
+    this.disposed = true;
+    this.permission = false;
   }
 
-  private async confirmAndClose(): Promise<void> {
-    if (this.asking) return;
-    this.asking = true;
+  private async query(queryId: string): Promise<unknown> {
+    if (!this.dependencies) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      if (await this.confirmDiscard()) {
-        this.confirmed = true;
+      return await Promise.race([
+        this.dependencies.queryState(queryId),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), this.dependencies?.queryTimeoutMs ?? 5000);
+        }),
+      ]);
+    } catch {
+      return undefined;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  private async checkAndClose(): Promise<void> {
+    this.checking = true;
+    const queryId = `close-${++nextCloseQuery}`;
+    let closing = false;
+    try {
+      const response = await this.query(queryId);
+      // Timeout/unavailable does not shorten the accepted-write wait.
+      await this.dependencies?.stopWrites();
+      if (this.disposed) return;
+      const state = readyState(response, queryId);
+      if (state?.dirty === false || await this.confirmDiscard(state === undefined)) {
+        if (this.disposed) return;
+        this.permission = true;
+        closing = true;
         this.win.close();
       }
+    } catch {
+      // A failed query/dialog/queue check never grants permission to close.
+      this.permission = false;
+      closing = false;
     } finally {
-      this.asking = false;
+      try {
+        if (!closing && !this.disposed) this.dependencies?.resume(queryId);
+      } catch {
+        // A destroyed renderer may reject the cancellation send. It cannot
+        // grant close permission or leave the next close permanently blocked.
+      } finally {
+        this.checking = false;
+      }
     }
   }
 }

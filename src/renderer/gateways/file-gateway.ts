@@ -10,11 +10,17 @@ import type {
   OpenResult,
   ResolvedImport,
   TecsgenOptionsFile,
+  SessionSnapshot,
+  SourceWriteReceipt,
 } from "../../shared/ipc-types.js";
 
 export class FileGateway {
-  save(path: string, content: string): Promise<void> {
+  save(path: string, content: string): Promise<void | SourceWriteReceipt> {
     return window.tecscde.file.save(path, content);
+  }
+
+  chooseSavePath(suggestedName: string): Promise<string | null> {
+    return window.tecscde.file.chooseSavePath!(suggestedName);
   }
 
   saveAs(content: string, suggestedName: string): Promise<string | null> {
@@ -40,6 +46,10 @@ export class FileGateway {
     return window.tecscde.file.openPath(path);
   }
 
+  openPaths(paths: readonly string[]): Promise<OpenResult> {
+    return window.tecscde.file.openPaths!(paths);
+  }
+
   /** 7B章7.6.4節: 未保存の変更がある状態から別ファイルを開く前の破棄確認。 */
   confirmDiscardChanges(): Promise<boolean> {
     return window.tecscde.file.confirmDiscardChanges();
@@ -47,11 +57,12 @@ export class FileGateway {
 
   /** 7C章7.7.1節: 前回終了時に開いていたファイル集合の永続化。 */
   saveSession(
-    editablePath: string | null,
-    referencePaths: readonly string[],
+    editablePath: string | null | SessionSnapshot,
+    referencePaths?: readonly string[],
     extraImportPaths?: readonly string[],
     optionsFilePath?: string,
   ): Promise<void> {
+    if (typeof editablePath === "object" && editablePath !== null) return window.tecscde.file.saveSession(editablePath);
     if (optionsFilePath !== undefined) {
       return window.tecscde.file.saveSession(editablePath, referencePaths, extraImportPaths, optionsFilePath);
     }

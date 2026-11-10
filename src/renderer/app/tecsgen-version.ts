@@ -17,6 +17,9 @@ export const TECSGEN_VERSION_CODES = {
   UNKNOWN: "W-TECSGEN-VERSION-UNKNOWN",
 } as const;
 
+const checkGenerations = new WeakMap<object, number>();
+const settingsRevisions = new WeakMap<object, number>();
+
 const LABELLED_VERSION = /version\s+v?(\d+(?:\.\d+)*)/i;
 const DOTTED_NUMBER = /(\d+(?:\.\d+)+)/;
 
@@ -77,21 +80,36 @@ function unknown(reason: string): Diagnostic {
  * 警告を出したときは`onWarning`を呼ぶ（診断一覧を自動で開くため。外部仕様8.4.2）。
  */
 export async function checkTecsgenVersion(
-  store: Pick<AppStore, "setEnvironmentDiagnostics">,
+  store: Pick<AppStore, "setEnvironmentDiagnostics"> &
+    Partial<Pick<AppStore, "replaceTecsgenEnvironmentDiagnostics" | "setTecsgenStatus" | "setToolSettingsRevision">>,
   tecsgen: Pick<TecsgenGateway, "version">,
   log: Pick<LogGateway, "append">,
   onWarning?: () => void,
-): Promise<void> {
+  command = "未確認",
+  revision?: number,
+): Promise<TecsgenVersionResult> {
+  if (revision !== undefined) {
+    if (revision < (settingsRevisions.get(store) ?? -1)) return { kind: "failed", detail: "古い設定の確認を破棄しました。" };
+    settingsRevisions.set(store, revision);
+    store.setToolSettingsRevision?.(revision);
+  }
+  const generation = (checkGenerations.get(store) ?? 0) + 1;
+  checkGenerations.set(store, generation);
   let result: TecsgenVersionResult;
   try {
     result = await tecsgen.version();
   } catch (error) {
     result = { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
   }
+  if (checkGenerations.get(store) !== generation || (revision !== undefined && settingsRevisions.get(store) !== revision)) return result;
   const { diagnostics, logLine } = evaluateTecsgenVersion(result);
+  if (store.replaceTecsgenEnvironmentDiagnostics) store.replaceTecsgenEnvironmentDiagnostics(diagnostics, revision);
+  else store.setEnvironmentDiagnostics(diagnostics);
+  store.setTecsgenStatus?.(result.kind === "ok" ? (parseTecsgenVersion(result.text) ? result.text : "未確認（版を読み取れません）") :
+    result.kind === "not-found" ? "未検出" : `確認失敗: ${result.detail}`, command);
   if (diagnostics.length > 0) {
-    store.setEnvironmentDiagnostics(diagnostics);
     onWarning?.();
   }
   if (logLine) await log.append([logLine]).catch(() => undefined);
+  return result;
 }

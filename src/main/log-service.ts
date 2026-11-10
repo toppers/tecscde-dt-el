@@ -23,6 +23,7 @@ export class LogService {
 
   constructor(
     private readonly dirs: readonly string[],
+    private readonly appVersion: string,
     now: () => Date = () => new Date(),
   ) {
     this.startedAt = now();
@@ -52,7 +53,7 @@ export class LogService {
         return;
       }
     }
-    const header = `# TECSCDE 診断ログ（起動: ${this.startedAt.toISOString()}）\n`;
+    const header = `# TECSCDE 診断ログ（起動: ${this.startedAt.toISOString()}、版: ${this.appVersion}）\n`;
     let lastError: unknown;
     for (const dir of this.dirs) {
       const candidate = join(dir, this.fileName);

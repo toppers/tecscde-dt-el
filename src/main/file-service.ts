@@ -3,7 +3,7 @@
 // Tauriとの両立が不要になったため本書では廃止し、Electron固有のAPIに置き換える。
 
 import { promises as fs } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
 import type {
   DirEntry,
@@ -14,6 +14,7 @@ import type {
   TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
+import { destinationKey, fileWrites, type WriteReceipt } from "./write-queue.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
 // `.tecsgen-opts`は拡張子すべて小文字・大文字小文字を区別する（外部仕様5.3）。`.cde`/`.cdl`は区別しない。
@@ -35,6 +36,8 @@ function decodeBuffer(buf: Buffer): string {
 }
 
 export class FileService {
+  private acceptingWrites = true;
+  private readonly pendingWrites = new Set<Promise<unknown>>();
   /**
    * 実機確認で判明（2026-09-21）: 毎回同じ既定ディレクトリが出るのは不便なため、
    * 直前に選んだフォルダを`chooseFolder()`の`defaultPath`として渡し、次回の初期位置にする。
@@ -70,22 +73,76 @@ export class FileService {
     return this.readPaths(paths);
   }
 
-  private async readPaths(paths: readonly string[]): Promise<OpenResult> {
-    const buffers = await Promise.all(paths.map((p) => fs.readFile(p)));
-    const contents = buffers.map(decodeBuffer);
-    // 第7D章7.5節: renderer側でresolveImportsが返す正規化済み絶対パスと文字列比較で
-    // 重複排除できるよう、ここで返すパスも正規化する（renderer はNode APIを持たないため
-    // 正規化は必ずmain側で行う）。
-    const resolvedPaths = paths.map((p) => resolve(p));
-    const editablePath = resolvedPaths[resolvedPaths.length - 1]!; // 最後のファイルを主ファイルとする
+  /** 07I: primary role is independent of the actual source parsing order. */
+  async openBatch(request: {
+    readonly primaryPath: string | null;
+    readonly referencePaths: readonly string[];
+    readonly sourceOrder: readonly string[];
+  }): Promise<OpenResult> {
+    const primary = request.primaryPath === null ? null : resolve(request.primaryPath);
+    const references = request.referencePaths.map((path) => resolve(path));
+    const order = request.sourceOrder.map((path) => resolve(path));
+    const roles = [...references, ...(primary === null ? [] : [primary])];
+    const keys = new Set(roles.map(destinationKey));
+    if (keys.size !== roles.length || new Set(order.map(destinationKey)).size !== order.length ||
+        order.length !== keys.size || order.some((path) => !keys.has(destinationKey(path)))) {
+      throw new Error("ソース順と主・参照ファイル集合が一致しません。");
+    }
+    const sources = await Promise.all(order.map(async (path) => {
+      await fileWrites.waitForPath(path);
+      return { path, content: decodeBuffer(await fs.readFile(path)) };
+    }));
+    const byKey = new Map(sources.map((source) => [destinationKey(source.path), source]));
+    const primaryEntry = primary === null ? undefined : byKey.get(destinationKey(primary))!;
     return {
-      editable: { path: editablePath, content: contents[contents.length - 1]! },
-      references: resolvedPaths.slice(0, -1).map((p, i) => ({ path: p, content: contents[i]! })),
+      editable: primaryEntry ?? { path: "", content: "" },
+      references: references.map((path) => byKey.get(destinationKey(path))!),
+      sources,
+      primarySourceKey: primaryEntry?.path ?? null,
+      sourceOrder: order,
     };
   }
 
+  private async readPaths(paths: readonly string[]): Promise<OpenResult> {
+    const last = paths[paths.length - 1];
+    if (last === undefined) throw new Error("主ファイルを含まない読み込みにはopenBatchを指定してください。");
+    // Derive the role from the original last input, then stable-deduplicate the
+    // sources. Moving the primary to the end would change parsing precedence.
+    const seen = new Map<string, string>();
+    for (const path of paths) {
+      const absolute = resolve(path);
+      if (!seen.has(destinationKey(absolute))) seen.set(destinationKey(absolute), absolute);
+    }
+    const primary = seen.get(destinationKey(last))!;
+    const sourceOrder = [...seen.values()];
+    return this.openBatch({ primaryPath: primary,
+      referencePaths: sourceOrder.filter((path) => destinationKey(path) !== destinationKey(primary)), sourceOrder });
+  }
+
   async save(path: string, content: string): Promise<void> {
-    await this.writeAtomic(path, content);
+    await this.saveWithReceipt(path, content);
+  }
+
+  saveWithReceipt(path: string, content: string): Promise<WriteReceipt> {
+    return this.acceptWrite(() => this.writeAtomic(path, content));
+  }
+
+  setWriteAcceptance(accept: boolean): void {
+    this.acceptingWrites = accept;
+  }
+
+  async waitForWrites(): Promise<void> {
+    // This is called after closing admission. Already admitted dialogs remain
+    // tracked through their actual write and may therefore finish normally.
+    await Promise.allSettled([...this.pendingWrites]);
+  }
+
+  private acceptWrite<T>(operation: () => Promise<T>): Promise<T> {
+    if (!this.acceptingWrites) return Promise.reject(new Error("終了確認中のため保存を受け付けられません。"));
+    const pending = operation();
+    this.pendingWrites.add(pending);
+    void pending.then(() => this.pendingWrites.delete(pending), () => this.pendingWrites.delete(pending));
+    return pending;
   }
 
   /**
@@ -123,18 +180,31 @@ export class FileService {
       .sort((a, b) => (a.kind !== b.kind ? (a.kind === "directory" ? -1 : 1) : a.name.localeCompare(b.name)));
   }
 
-  async saveAsDialog(suggestedName: string, content: string): Promise<string | null> {
-    const result = await dialog.showSaveDialog(this.window, {
-      defaultPath: suggestedName,
-      filters: [{ name: "CDE files", extensions: ["cde"] }],
+  /** Choose only: renderer validates its ticket again before submitting bytes. */
+  chooseSavePath(suggestedName: string): Promise<string | null> {
+    return this.acceptWrite(async () => {
+      const result = await dialog.showSaveDialog(this.window, {
+        defaultPath: suggestedName,
+        filters: [{ name: "CDE files", extensions: ["cde"] }],
+      });
+      return result.canceled || !result.filePath ? null : result.filePath;
     });
-    if (result.canceled || !result.filePath) return null;
-    await this.writeAtomic(result.filePath, content);
-    return result.filePath;
+  }
+
+  async saveAsDialog(suggestedName: string, content: string): Promise<string | null> {
+    return this.acceptWrite(async () => {
+      const result = await dialog.showSaveDialog(this.window, {
+        defaultPath: suggestedName,
+        filters: [{ name: "CDE files", extensions: ["cde"] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      await this.writeAtomic(result.filePath, content);
+      return result.filePath;
+    });
   }
 
   async exportFile(path: string, data: string): Promise<void> {
-    await this.writeAtomic(path, data);
+    await this.acceptWrite(() => this.writeAtomic(path, data));
   }
 
   /**
@@ -182,12 +252,14 @@ export class FileService {
       request.kind === "manual"
         ? [request.specifier]
         : searchDirs.flatMap((dir) =>
-            importPaths.map((p) => (p === "." ? join(dir, request.specifier) : join(dir, p, request.specifier))),
+            importPaths.map((p) => (isAbsolute(p) ? join(p, request.specifier) :
+              p === "." ? join(dir, request.specifier) : join(dir, p, request.specifier))),
           );
 
     for (const candidate of candidates) {
       let buf: Buffer;
       try {
+        await fileWrites.waitForPath(candidate);
         buf = await fs.readFile(candidate);
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
@@ -213,6 +285,7 @@ export class FileService {
    * トークンのみ`cdlFiles`へ分類する。他の引数はPlugin実行時に元のオプションファイルから渡す。
    */
   async parseTecsgenOptionsFile(path: string): Promise<TecsgenOptionsFile> {
+    await fileWrites.waitForPath(path);
     const buf = await fs.readFile(path);
     let text: string;
     try {
@@ -310,9 +383,16 @@ export class FileService {
    * OSレベルでアトミックであり、書き込み途中でプロセスが異常終了しても元のファイルは
    * 無傷のまま残る。
    */
-  private async writeAtomic(path: string, content: string): Promise<void> {
-    const tmpPath = `${path}.tmp-${process.pid}`;
-    await fs.writeFile(tmpPath, content);
-    await fs.rename(tmpPath, path);
+  private writeAtomic(path: string, content: string): Promise<WriteReceipt> {
+    return fileWrites.write(path, async (absolutePath) => {
+      const tmpPath = `${absolutePath}.tmp-${process.pid}`;
+      try {
+        await fs.writeFile(tmpPath, content);
+        await fs.rename(tmpPath, absolutePath);
+      } catch (error) {
+        await fs.unlink(tmpPath).catch(() => {});
+        throw error;
+      }
+    });
   }
 }

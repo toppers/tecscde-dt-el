@@ -15,6 +15,9 @@ import type {
   ImportResolutionOptions,
   ResolvedImport,
   TecsgenOptionsFile,
+  SessionSnapshot,
+  CloseStateResponse,
+  SourceWriteReceipt,
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
@@ -22,21 +25,25 @@ const api: TecscdeApi = {
     loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
   },
   file: {
-    save: (path: string, content: string): Promise<void> => ipcRenderer.invoke("file:save", path, content),
+    save: (path: string, content: string): Promise<void | SourceWriteReceipt> => ipcRenderer.invoke("file:save", path, content),
+    chooseSavePath: (suggestedName: string): Promise<string | null> => ipcRenderer.invoke("file:chooseSavePath", suggestedName),
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:saveAs", content, suggestedName),
     export: (path: string, data: string): Promise<void> => ipcRenderer.invoke("file:export", path, data),
     chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("file:chooseFolder"),
     listDirectory: (dirPath: string): Promise<readonly DirEntry[]> => ipcRenderer.invoke("file:listDirectory", dirPath),
     openPath: (path: string): Promise<OpenResult> => ipcRenderer.invoke("file:openPath", path),
+    openPaths: (paths: readonly string[]): Promise<OpenResult> => ipcRenderer.invoke("file:openPaths", paths),
     confirmDiscardChanges: (): Promise<boolean> => ipcRenderer.invoke("file:confirmDiscardChanges"),
     saveSession: (
-      editablePath: string | null,
-      referencePaths: readonly string[],
+      editablePath: string | null | SessionSnapshot,
+      referencePaths?: readonly string[],
       extraImportPaths?: readonly string[],
       optionsFilePath?: string,
     ): Promise<void> =>
-      optionsFilePath !== undefined
+      typeof editablePath === "object" && editablePath !== null
+        ? ipcRenderer.invoke("file:saveSession", editablePath)
+        : optionsFilePath !== undefined
         ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths, optionsFilePath)
         : extraImportPaths !== undefined
           ? ipcRenderer.invoke("file:saveSession", editablePath, referencePaths, extraImportPaths)
@@ -57,6 +64,8 @@ const api: TecscdeApi = {
     preprocess: (headerPath: string, cppCommand?: string, includeDirs?: readonly string[]): Promise<CppResult> =>
       ipcRenderer.invoke("tecsgen:preprocess", headerPath, cppCommand, includeDirs),
     version: (): Promise<TecsgenVersionResult> => ipcRenderer.invoke("tecsgen:version"),
+    checkPath: (path: string): Promise<TecsgenVersionResult> => ipcRenderer.invoke("tecsgen:checkPath", path),
+    commandLine: (args, shell, cwd) => ipcRenderer.invoke("tecsgen:commandLine", args, shell, cwd),
   },
   // 実機確認で判明: preloadに公開される`electron`モジュールにはclipboardが
   // 含まれない（ESM/CJS問わず）ため、file/tecsgenと同様にipcMain経由にする。
@@ -66,9 +75,24 @@ const api: TecscdeApi = {
   },
   settings: {
     get: (): Promise<AppSettingsView> => ipcRenderer.invoke("settings:get"),
+    getToolSettings: () => ipcRenderer.invoke("settings:getToolSettings"),
+    updateToolSettings: (patch) => ipcRenderer.invoke("settings:updateToolSettings", patch),
+    chooseTecsgenPath: () => ipcRenderer.invoke("settings:chooseTecsgenPath"),
+    getAppInformation: () => ipcRenderer.invoke("settings:getAppInformation"),
   },
   window: {
     setDirty: (dirty: boolean): void => ipcRenderer.send("window:setDirty", dirty),
+    onRequestCloseState: (listener) => {
+      const handler = (_event: unknown, request: { queryId: string }): void => listener(request.queryId);
+      ipcRenderer.on("window:requestCloseState", handler);
+      return () => ipcRenderer.removeListener("window:requestCloseState", handler);
+    },
+    onCancelCloseState: (listener) => {
+      const handler = (_event: unknown, request: { queryId: string }): void => listener(request.queryId);
+      ipcRenderer.on("window:cancelCloseState", handler);
+      return () => ipcRenderer.removeListener("window:cancelCloseState", handler);
+    },
+    replyCloseState: (response: CloseStateResponse) => ipcRenderer.send("window:closeState", response),
   },
   log: {
     append: (lines: readonly string[]): Promise<void> => ipcRenderer.invoke("log:append", lines),

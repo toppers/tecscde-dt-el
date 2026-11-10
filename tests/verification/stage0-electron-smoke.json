@@ -1,0 +1,138 @@
+{
+  "date": "2026-11-09T12:12:09.783Z",
+  "isolation": "<isolated-temp>",
+  "checks": [
+    {
+      "name": "actual Electron opened isolated fixture and rendered its cell",
+      "passed": true
+    },
+    {
+      "name": "property edit saves through real preload/IPC/filesystem and becomes clean",
+      "passed": true
+    },
+    {
+      "name": "save then Undo then different edit at the same history depth remains dirty",
+      "passed": true
+    },
+    {
+      "name": "close waits for a started save before confirming or closing",
+      "passed": true
+    },
+    {
+      "name": "completed save wrote its original snapshot",
+      "passed": true
+    },
+    {
+      "name": "save completion preserved the later unsaved edit",
+      "passed": true
+    },
+    {
+      "name": "cancelled close preserves dirty content and keeps the window open",
+      "passed": true
+    },
+    {
+      "name": "editing and saving resume after close cancellation",
+      "passed": true
+    },
+    {
+      "name": "clean close exited successfully",
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "dialogsBefore": 1
+      }
+    },
+    {
+      "name": "valid empty session starts empty without sample replacement",
+      "passed": true
+    },
+    {
+      "name": "empty session retains null primary and empty source order",
+      "passed": true,
+      "detail": {
+        "editablePath": null,
+        "referencePaths": [],
+        "extraImportPaths": [],
+        "sourceOrder": []
+      }
+    },
+    {
+      "name": "clean close exited successfully",
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "dialogsBefore": 0
+      }
+    },
+    {
+      "name": "reference-only session restores its cell without promoting it to primary",
+      "passed": true,
+      "detail": {
+        "editablePath": null,
+        "referencePaths": [
+          "<isolated-temp>\\system\\reference.cdl"
+        ],
+        "extraImportPaths": [],
+        "sourceOrder": [
+          "<isolated-temp>\\system\\reference.cdl"
+        ]
+      }
+    },
+    {
+      "name": "clean close exited successfully",
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "dialogsBefore": 0
+      }
+    },
+    {
+      "name": "changed opts replace saved import context and retain order/duplicates",
+      "passed": true,
+      "detail": {
+        "editablePath": "<isolated-temp>\\fixture.cdl",
+        "referencePaths": [
+          "<isolated-temp>\\system\\reference.cdl"
+        ],
+        "extraImportPaths": [
+          "fresh",
+          "fresh",
+          "system"
+        ],
+        "optionsFilePath": "<isolated-temp>\\changed.tecsgen-opts",
+        "sourceOrder": [
+          "<isolated-temp>\\fixture.cdl",
+          "<isolated-temp>\\system\\reference.cdl"
+        ]
+      }
+    },
+    {
+      "name": "opts reparse retains the stored source set and primary role",
+      "passed": true
+    },
+    {
+      "name": "same opts parse supplies system directory context to actual rendered reference cell",
+      "passed": true
+    },
+    {
+      "name": "clean close exited successfully",
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "dialogsBefore": 0
+      }
+    }
+  ],
+  "success": true,
+  "closeDialogs": [
+    {
+      "message": "未保存の変更があります",
+      "buttons": [
+        "保存せずに終了",
+        "キャンセル"
+      ],
+      "defaultId": 1,
+      "cancelId": 1
+    }
+  ]
+}

@@ -40,6 +40,7 @@
       }
       #toolbar {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 6px;
         padding: 6px 8px;
@@ -59,6 +60,27 @@
         opacity: 0.45;
         cursor: default;
       }
+      #toolbar .tecsgen-copy-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: none;
+      }
+      #tecsgen-copy-shell {
+        font: inherit;
+        padding: 3px 4px;
+        max-width: 190px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: #fff;
+      }
+      #tecsgen-copy-result {
+        max-width: 260px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 11px;
+      }
+      #tecsgen-copy-result:empty { display: none; }
       #toolbar .sep {
         width: 1px;
         align-self: stretch;
@@ -314,6 +336,31 @@
         margin: 0 0 8px;
         font-size: 12px;
       }
+      #information-dialog {
+        box-sizing: border-box;
+        width: min(640px, calc(100vw - 32px));
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 20px;
+        color: var(--ink);
+        background: var(--panel);
+      }
+      #information-dialog::backdrop { background: rgba(0, 0, 0, 0.3); }
+      #information-dialog h2 { margin: 0 0 16px; font-size: 18px; }
+      #information-dialog h3 { margin: 16px 0 8px; font-size: 14px; }
+      #information-version { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .information-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+      .information-field input { box-sizing: border-box; width: 100%; padding: 6px; font: inherit; }
+      .information-field input:read-only { background: #eeeeee; }
+      .information-actions, .information-footer { display: flex; gap: 8px; }
+      .information-footer { justify-content: flex-end; margin-top: 16px; }
+      #information-dialog button { padding: 5px 12px; font: inherit; }
+      .information-note { color: #666666; font-size: 12px; overflow-wrap: anywhere; }
+      .information-result { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .information-result:empty { display: none; }
+      .information-result.error { color: #b42318; }
       .prop-field {
         display: flex;
         flex-direction: column;
@@ -530,7 +577,16 @@
         <button data-action="toggleNavigator" type="button">ナビゲータ</button>
         <span class="sep"></span>
         <button data-action="generate" type="button" title="tecsgenを実行する（第9章9.5節）">実行</button>
-        <button data-action="copyTecsgenCommand" type="button" title="tecsgenのコマンドラインをコピーする（外部仕様8.4.2）">コマンドをコピー</button>
+        <div class="tecsgen-copy-controls">
+          <button data-action="copyTecsgenCommand" type="button" title="tecsgenのコマンドラインをコピーする（外部仕様8.4.2）">コマンドをコピー</button>
+          <select id="tecsgen-copy-shell" aria-label="コピー先のシェル">
+            <option value="powershell7">PowerShell 7</option>
+            <option value="powershell5">Windows PowerShell 5</option>
+            <option value="cmd">コマンドプロンプト</option>
+          </select>
+          <span id="tecsgen-copy-result" role="status" aria-live="polite"></span>
+        </div>
+        <button data-action="information" type="button">情報</button>
         <span class="sep"></span>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />

@@ -19,6 +19,7 @@ import { TecsgenResultParser } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
+import type { TecsgenCopyShell } from "../../shared/ipc-types";
 
 /**
  * 第7C章7.7.4節（7.）・外部仕様8.4.2: tecsgenに渡す入力を、`__tool_info__`と`.tecsgen-opts`から合成する。
@@ -62,7 +63,7 @@ export async function generate(store: AppStore, fileGateway: FileGateway, tecsge
   try {
     const { input, cwd } = await resolveCommandInput(store, fileGateway, store.filePath);
     const result = await tecsgenGateway.generate(TecsgenCommandBuilder.buildArgs(input), cwd);
-    store.setTecsgenDiagnostics(TecsgenResultParser.parse(result));
+    store.setTecsgenDiagnostics(TecsgenResultParser.parse(result), result.settingsRevision);
   } finally {
     store.setGenerating(false);
   }
@@ -72,7 +73,13 @@ export async function generate(store: AppStore, fileGateway: FileGateway, tecsge
 export async function tecsgenCommandLine(
   store: AppStore,
   fileGateway: Pick<FileGateway, "parseTecsgenOptionsFile">,
+  tecsgenGateway?: Pick<TecsgenGateway, "commandLine">,
+  shell: TecsgenCopyShell = "powershell7",
 ): Promise<string | undefined> {
   if (!store.filePath) return undefined;
-  return TecsgenCommandBuilder.buildCommandLine((await resolveCommandInput(store, fileGateway, store.filePath)).input);
+  const { input, cwd } = await resolveCommandInput(store, fileGateway, store.filePath);
+  if (typeof tecsgenGateway?.commandLine === "function") {
+    return tecsgenGateway.commandLine(TecsgenCommandBuilder.buildArgs(input), shell, cwd);
+  }
+  return TecsgenCommandBuilder.buildCommandLine(input);
 }

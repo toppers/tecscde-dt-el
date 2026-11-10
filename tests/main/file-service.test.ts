@@ -61,6 +61,112 @@ describe("FileService", () => {
     expect(leftovers).toEqual([]);
   });
 
+  it("serializes concurrent writes and reads the last accepted content", async () => {
+    const target = join(dir, "queued.cde");
+    const firstService = new FileService({} as never);
+    const secondService = new FileService({} as never);
+    const first = firstService.save(target, "first");
+    const second = secondService.save(join(dir, "sub", "..", "queued.cde"), "second");
+    const read = firstService.openPath(target);
+    await Promise.all([first, second]);
+    expect((await read).editable.content).toBe("second");
+    expect(readFileSync(target, "utf-8")).toBe("second");
+  });
+
+  it("stops admitting writes during close and resumes after cancellation", async () => {
+    const target = join(dir, "out.cde");
+    const service = new FileService({} as never);
+    const pending = service.save(target, "accepted");
+    service.setWriteAcceptance(false);
+    await expect(service.save(target, "rejected")).rejects.toThrow();
+    await service.waitForWrites();
+    await pending;
+    expect(readFileSync(target, "utf-8")).toBe("accepted");
+    service.setWriteAcceptance(true);
+    await service.save(target, "resumed");
+    expect(readFileSync(target, "utf-8")).toBe("resumed");
+  });
+
+  it("waits for an already admitted SaveAs dialog and its write when admission closes", async () => {
+    const target = join(dir, "chosen.cde");
+    let choose!: (result: { canceled: boolean; filePath: string }) => void;
+    showSaveDialog.mockReturnValue(new Promise((resolve) => { choose = resolve; }));
+    const service = new FileService({} as never);
+    const save = service.saveAsDialog("untitled.cde", "accepted");
+    service.setWriteAcceptance(false);
+    let drained = false;
+    const drain = service.waitForWrites().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    choose({ canceled: false, filePath: target });
+    expect(await save).toBe(target);
+    await drain;
+    expect(readFileSync(target, "utf-8")).toBe("accepted");
+  });
+
+  it("returns a failed write to its caller but permits later writes to the same destination", async () => {
+    const target = join(dir, "new", "out.cde");
+    const service = new FileService({} as never);
+    await expect(service.save(target, "failed")).rejects.toThrow();
+    mkdirSync(join(dir, "new"));
+    const receipt = await service.saveWithReceipt(target, "recovered");
+    expect(receipt.writeSequence).toBe(2);
+    expect(readFileSync(target, "utf-8")).toBe("recovered");
+  });
+
+  it("opens an explicit primary without changing source order, and supports a null primary", async () => {
+    const primary = join(dir, "a.cdl");
+    const reference = join(dir, "b.cdl");
+    writeFileSync(primary, "A");
+    writeFileSync(reference, "B");
+    const service = new FileService({} as never);
+    const result = await service.openBatch({ primaryPath: primary, referencePaths: [reference], sourceOrder: [primary, reference] });
+    expect(result.primarySourceKey).toBe(primary);
+    expect(result.sources?.map((source) => source.path)).toEqual([primary, reference]);
+    expect(result.editable.path).toBe(primary);
+    const referencesOnly = await service.openBatch({ primaryPath: null, referencePaths: [reference], sourceOrder: [reference] });
+    expect(referencesOnly.primarySourceKey).toBeNull();
+    expect(referencesOnly.references).toEqual([{ path: reference, content: "B" }]);
+    const empty = await service.openBatch({ primaryPath: null, referencePaths: [], sourceOrder: [] });
+    expect(empty.sources).toEqual([]);
+    expect(empty.primarySourceKey).toBeNull();
+    await expect(service.openBatch({ primaryPath: primary, referencePaths: [reference], sourceOrder: [primary] })).rejects.toThrow();
+  });
+
+  it("openPaths derives primary before stable deduplication of A, B, A", async () => {
+    const a = join(dir, "a.cdl");
+    const b = join(dir, "b.cdl");
+    writeFileSync(a, "A"); writeFileSync(b, "B");
+    const service = new FileService({} as never);
+    const result = await service.openPaths([a, b, a]);
+    expect(result.primarySourceKey).toBe(a);
+    expect(result.sourceOrder).toEqual([a, b]);
+    expect(result.sources).toEqual([{ path: a, content: "A" }, { path: b, content: "B" }]);
+    expect(result.references).toEqual([{ path: b, content: "B" }]);
+  });
+
+  it.skipIf(process.platform !== "win32")("uses sourceOrder spelling for the primary canonical key on Windows", async () => {
+    const primary = join(dir, "primary.cdl");
+    writeFileSync(primary, "A");
+    const service = new FileService({} as never);
+    const spelling = primary.toUpperCase();
+    const result = await service.openBatch({ primaryPath: primary, referencePaths: [], sourceOrder: [spelling] });
+    expect(result.primarySourceKey).toBe(spelling);
+    expect(result.editable.path).toBe(result.primarySourceKey);
+    expect(result.sourceOrder).toEqual([spelling]);
+  });
+
+  it("resolves an absolute include directory independently of the primary directory", async () => {
+    const includes = join(dir, "opts", "include");
+    mkdirSync(includes, { recursive: true });
+    const target = join(includes, "types.cdl");
+    writeFileSync(target, "celltype tExample {};");
+    const service = new FileService({} as never);
+    const request = { kind: "import" as const, specifier: "types.cdl" };
+    const result = await service.resolveImports(join(dir, "sources", "main.cdl"), [request], { importPaths: [includes] });
+    expect(result).toEqual([{ request, canonicalPath: target, content: "celltype tExample {};" }]);
+  });
+
   it("saveAsDialog returns null when the user cancels, without writing anything", async () => {
     showSaveDialog.mockResolvedValue({ canceled: true });
     const service = new FileService({} as never);
@@ -68,6 +174,25 @@ describe("FileService", () => {
     const result = await service.saveAsDialog("untitled.cde", "content");
 
     expect(result).toBeNull();
+  });
+
+  it("chooseSavePath only chooses a destination and tracks an admitted dialog through close", async () => {
+    const target = join(dir, "chosen-only.cde");
+    let choose!: (result: { canceled: boolean; filePath: string }) => void;
+    showSaveDialog.mockReturnValue(new Promise((resolve) => { choose = resolve; }));
+    const service = new FileService({} as never);
+    const choosing = service.chooseSavePath("untitled.cde");
+    service.setWriteAcceptance(false);
+    await expect(service.chooseSavePath("rejected.cde")).rejects.toThrow();
+    expect(showSaveDialog).toHaveBeenCalledOnce();
+    let settled = false;
+    const waiting = service.waitForWrites().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    choose({ canceled: false, filePath: target });
+    expect(await choosing).toBe(target);
+    await waiting;
+    expect(existsSync(target)).toBe(false);
   });
 
   it("saveAsDialog writes to the chosen path and returns it", async () => {

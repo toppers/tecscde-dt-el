@@ -34,15 +34,36 @@ function main(): void {
   });
 
   const store = new AppStore();
+  // Bootstrap owns the initial request before any user interaction or async initialization.
+  const bootstrapGuard = store.beginLoad();
+  let closeQuery: string | undefined;
+  const unbindClose = window.tecscde.window.onRequestCloseState((queryId) => {
+    closeQuery = queryId;
+    void store.prepareClose().then(() => {
+      if (closeQuery !== queryId) return;
+      window.tecscde.window.replyCloseState({ kind: "ready", queryId,
+        documentEpoch: store.documentEpoch, historyNodeId: store.history.nodeId,
+        dirty: store.isDirty(), pendingSaves: 0 });
+    }).catch(() => {
+      if (closeQuery === queryId) window.tecscde.window.replyCloseState({ kind: "unavailable", queryId });
+    });
+  });
+  const unbindCancel = window.tecscde.window.onCancelCloseState((queryId) => {
+    if (closeQuery !== queryId) return;
+    closeQuery = undefined;
+    store.cancelClose();
+  });
+  window.addEventListener("unload", () => { unbindClose(); unbindCancel(); }, { once: true });
   // 第3章3.2節: システム定義CDLを編集可能にする設定。起動ドキュメントを読み込む前に反映する。
-  const settingsReady = new SettingsGateway()
+  const settings = new SettingsGateway();
+  const settingsReady = settings
     .get()
     .then((settings) => store.setAllowEditSystemDefined(settings.allowEditSystemDefined))
     .catch((error: unknown) => console.error("設定の読み込みに失敗しました:", error));
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
   const tecsgen = new TecsgenGateway();
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway: new WindowGateway(), win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, settings, windowGateway: new WindowGateway(), win: window });
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
@@ -50,13 +71,15 @@ function main(): void {
   store.subscribe(() => logger.sync());
 
   // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
-  void checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics());
+  void settings.getToolSettings().then((tool) =>
+    checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics(), tool.effectiveCommand, tool.revision))
+    .catch((error: unknown) => console.error("tecsgen設定の読み込みに失敗しました:", error));
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {
     void Promise.all([grammarReady, settingsReady])
       .then(() => {
-        if (data) return applyOpenResult(store, gateway, tecsgen, data);
+        if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard);
       })
       .catch((error: unknown) => {
         console.error("CDL/cdeclパーサの初期化に失敗しました:", error);

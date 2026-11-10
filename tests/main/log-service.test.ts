@@ -21,8 +21,16 @@ describe("LogService", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("records an injected package version once in the first line", async () => {
+    const service = new LogService([dir], "9.8.7-test", () => started);
+    await service.append(["one"]); await service.append(["two"]);
+    const lines = (await readFile(service.path!, "utf8")).trimEnd().split("\n");
+    expect(lines[0]).toBe(`# TECSCDE 診断ログ（起動: ${started.toISOString()}、版: 9.8.7-test）`);
+    expect(lines.slice(1)).toEqual(["one", "two"]);
+  });
+
   it("creates the log file in the first directory with a header and appends in order", async () => {
-    const service = new LogService([dir], () => started);
+    const service = new LogService([dir], "9.8.7-test", () => started);
 
     await service.append(["[W-A] first"]);
     await service.append(["[W-B] second", "[W-C] third"]);
@@ -37,7 +45,7 @@ describe("LogService", () => {
   });
 
   it("keeps the order of calls that are not awaited one by one", async () => {
-    const service = new LogService([dir], () => started);
+    const service = new LogService([dir], "9.8.7-test", () => started);
 
     await Promise.all([service.append(["1"]), service.append(["2"]), service.append(["3"])]);
 
@@ -49,7 +57,7 @@ describe("LogService", () => {
     const blocker = join(dir, "not-a-directory");
     await writeFile(blocker, "x");
     const fallback = join(dir, "fallback");
-    const service = new LogService([join(blocker, "sub"), fallback], () => started);
+    const service = new LogService([join(blocker, "sub"), fallback], "9.8.7-test", () => started);
 
     await service.append(["[W-A] first"]);
 
@@ -61,7 +69,7 @@ describe("LogService", () => {
     const blocker = join(dir, "not-a-directory");
     await writeFile(blocker, "x");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const service = new LogService([join(blocker, "sub")], () => started);
+    const service = new LogService([join(blocker, "sub")], "9.8.7-test", () => started);
 
     await expect(service.append(["[W-A] first"])).resolves.toBeUndefined();
 
@@ -71,7 +79,7 @@ describe("LogService", () => {
   });
 
   it("does nothing for an empty batch", async () => {
-    const service = new LogService([dir], () => started);
+    const service = new LogService([dir], "9.8.7-test", () => started);
 
     await service.append([]);
 

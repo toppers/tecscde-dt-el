@@ -10,6 +10,21 @@ import { InvariantViolation } from "../model/errors";
 import type { TecscdeDocument } from "../model/document";
 import type { Command } from "./command";
 
+let nextNodeId = 1;
+
+// Value comparison also recognizes commands that rebuild an equivalent immutable document.
+function documentState(document: TecscdeDocument): string {
+  return JSON.stringify(document, (key, value: unknown) => {
+    if (value instanceof Map) return [...value.entries()].sort(([a], [b]) => String(a).localeCompare(String(b)));
+    // Region membership is a set; assigning an unchanged cell may reorder its reverse index.
+    if (key === "cellIds" && Array.isArray(value)) return [...value].sort();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+    }
+    return value;
+  });
+}
+
 export class History {
   private constructor(
     private readonly initial: TecscdeDocument,
@@ -17,10 +32,13 @@ export class History {
     readonly past: readonly Command[],
     /** Undoされた分（Redoで進められる）。 */
     readonly future: readonly Command[],
+    private readonly pastNodeIds: readonly number[],
+    private readonly futureNodeIds: readonly number[],
+    readonly nodeId: number,
   ) {}
 
   static begin(initial: TecscdeDocument): History {
-    return new History(initial, [], []);
+    return new History(initial, [], [], [], [], nextNodeId++);
   }
 
   /**
@@ -41,18 +59,23 @@ export class History {
 
   /** 新しいコマンドを確定する。future は破棄する（一般的な線形履歴、4.3節）。 */
   commit(command: Command): History {
-    return new History(this.initial, [...this.past, command], []);
+    const before = this.current;
+    const after = command.apply(before);
+    if (before === after || documentState(before) === documentState(after)) return this;
+    return new History(this.initial, [...this.past, command], [], [...this.pastNodeIds, this.nodeId], [], nextNodeId++);
   }
 
   undo(): History {
     if (!this.canUndo) throw new InvariantViolation("cannot undo: past is empty");
     const last = this.past[this.past.length - 1]!;
-    return new History(this.initial, this.past.slice(0, -1), [last, ...this.future]);
+    return new History(this.initial, this.past.slice(0, -1), [last, ...this.future],
+      this.pastNodeIds.slice(0, -1), [this.nodeId, ...this.futureNodeIds], this.pastNodeIds.at(-1)!);
   }
 
   redo(): History {
     if (!this.canRedo) throw new InvariantViolation("cannot redo: future is empty");
     const [next, ...rest] = this.future;
-    return new History(this.initial, [...this.past, next!], rest);
+    return new History(this.initial, [...this.past, next!], rest,
+      [...this.pastNodeIds, this.nodeId], this.futureNodeIds.slice(1), this.futureNodeIds[0]!);
   }
 }

@@ -1,92 +1,152 @@
-// [[TECSCDE-DT-EL内部仕様]] 第7章7.9節 — ウィンドウを閉じるときの未保存確認（CloseGuard）。
-// BrowserWindowは差し替え、`close`イベントの扱いとダイアログの呼び出しだけを検証する。
-
+// 07J.9: close is a transaction; cached dirty notifications cannot authorize it.
 import { describe, expect, it, vi } from "vitest";
 import { CloseGuard, type CloseGuardWindow } from "../../src/main/close-guard.js";
 
-function setup(confirmDiscard: () => Promise<boolean>) {
-  let closeListener: ((event: { preventDefault(): void }) => void) | undefined;
-  const win: CloseGuardWindow = {
-    on: (_event, listener) => {
-      closeListener = listener;
-    },
-    close: vi.fn(),
-  };
-  const guard = new CloseGuard(win, confirmDiscard);
-  const fireClose = () => {
-    const event = { preventDefault: vi.fn() };
-    closeListener!(event);
-    return event;
-  };
-  return { win, guard, fireClose };
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const ready = (queryId: string, dirty = false) => ({
+  kind: "ready", queryId, documentEpoch: 1, historyNodeId: "node-1", dirty, pendingSaves: 0,
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function setup(options: {
+  queryState?: (queryId: string) => Promise<unknown>;
+  stopWrites?: () => Promise<void>;
+  confirm?: (unknownState?: boolean) => Promise<boolean>;
+  timeout?: number;
+} = {}) {
+  let listener!: (event: { preventDefault(): void }) => void;
+  const win: CloseGuardWindow = { on: (_event, fn) => { listener = fn; }, close: vi.fn() };
+  const queryState = vi.fn(options.queryState ?? (async (id) => ready(id)));
+  const stopWrites = vi.fn(options.stopWrites ?? (async () => {}));
+  const resume = vi.fn();
+  const confirm = vi.fn(options.confirm ?? (async () => false));
+  const guard = new CloseGuard(win, confirm, { queryState, stopWrites, resume, queryTimeoutMs: options.timeout ?? 1000 });
+  const fire = () => { const event = { preventDefault: vi.fn() }; listener(event); return event; };
+  return { win, guard, fire, queryState, stopWrites, resume, confirm };
 }
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe("CloseGuard", () => {
-  it("lets the window close without asking when nothing is unsaved", async () => {
-    const confirm = vi.fn().mockResolvedValue(true);
-    const { fireClose } = setup(confirm);
-    const event = fireClose();
+describe("CloseGuard transaction", () => {
+  it("always interrupts close, including cached false/no notification, and uses fresh clean state", async () => {
+    const { win, guard, fire, confirm, queryState, stopWrites } = setup();
+    guard.setDirty(false);
+    expect(fire().preventDefault).toHaveBeenCalledOnce();
     await flush();
-    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(queryState).toHaveBeenCalledOnce();
+    expect(stopWrites).toHaveBeenCalledOnce();
     expect(confirm).not.toHaveBeenCalled();
+    expect(win.close).toHaveBeenCalledOnce();
+    expect(fire().preventDefault).not.toHaveBeenCalled();
   });
 
-  it("stops the close and asks when unsaved changes exist", async () => {
-    const confirm = vi.fn().mockResolvedValue(false);
-    const { guard, fireClose } = setup(confirm);
-    guard.setDirty(true);
-    const event = fireClose();
+  it("waits for renderer checkpoint reflection and main accepted writes before deciding", async () => {
+    const response = deferred<unknown>();
+    const writes = deferred<void>();
+    const { win, fire, confirm, stopWrites, queryState } = setup({ queryState: () => response.promise, stopWrites: () => writes.promise });
+    fire();
+    expect(stopWrites).not.toHaveBeenCalled();
+    const id = queryState.mock.calls[0]![0];
+    response.resolve(ready(id));
     await flush();
-    expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("closes the window once the user chooses to discard, without asking again", async () => {
-    const confirm = vi.fn().mockResolvedValue(true);
-    const { win, guard, fireClose } = setup(confirm);
-    guard.setDirty(true);
-    fireClose();
+    expect(stopWrites).toHaveBeenCalledOnce();
+    expect(win.close).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    writes.resolve();
     await flush();
-    expect(win.close).toHaveBeenCalledTimes(1);
-    // win.close() がもう一度 close イベントを起こしても、確認せずに通す。
-    const second = fireClose();
-    expect(second.preventDefault).not.toHaveBeenCalled();
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(win.close).toHaveBeenCalledOnce();
   });
 
-  it("keeps the window open when the user cancels, and asks again on the next close", async () => {
-    const confirm = vi.fn().mockResolvedValue(false);
-    const { win, guard, fireClose } = setup(confirm);
-    guard.setDirty(true);
-    fireClose();
+  it("coalesces repeated close, cancels and retries with a different query ID", async () => {
+    const decision = deferred<boolean>();
+    const { guard, fire, queryState, confirm, resume, win } = setup({
+      queryState: async (id) => ready(id, true), confirm: () => decision.promise,
+    });
+    guard.setDirty(false);
+    fire(); fire();
+    await flush();
+    expect(queryState).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(false);
+    decision.resolve(false);
+    await flush();
+    expect(resume).toHaveBeenCalledExactlyOnceWith(queryState.mock.calls[0]![0]);
+    expect(win.close).not.toHaveBeenCalled();
+    fire();
+    await flush();
+    expect(queryState).toHaveBeenCalledTimes(2);
+    expect(queryState.mock.calls[1]![0]).not.toBe(queryState.mock.calls[0]![0]);
+  });
+
+  it.each([
+    { kind: "ready", queryId: "wrong", dirty: false, pendingSaves: 0, documentEpoch: 1, historyNodeId: "n" },
+    { kind: "ready", dirty: false, pendingSaves: 1 },
+    { kind: "ready", dirty: "false", pendingSaves: 0 },
+    null,
+  ])("does not treat an invalid response as clean: %j", async (response) => {
+    const { fire, confirm, win, stopWrites } = setup({ queryState: async () => response });
+    fire();
+    await flush();
+    expect(stopWrites).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(true);
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
+  it("a renderer timeout still waits for main writes and ignores the late clean response", async () => {
+    const response = deferred<unknown>();
+    const writes = deferred<void>();
+    const { fire, queryState, stopWrites, confirm, win, resume } = setup({
+      queryState: () => response.promise, stopWrites: () => writes.promise, timeout: 1,
+    });
+    fire();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stopWrites).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    writes.resolve();
+    await flush();
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(true);
+    expect(resume).toHaveBeenCalledOnce();
+    response.resolve(ready(queryState.mock.calls[0]![0]));
     await flush();
     expect(win.close).not.toHaveBeenCalled();
-    fireClose();
-    await flush();
-    expect(confirm).toHaveBeenCalledTimes(2);
   });
 
-  it("does not show a second dialog while one is already open", async () => {
-    let resolve!: (value: boolean) => void;
-    const confirm = vi.fn().mockReturnValue(new Promise<boolean>((r) => { resolve = r; }));
-    const { guard, fireClose } = setup(confirm);
-    guard.setDirty(true);
-    fireClose();
-    fireClose();
-    expect(confirm).toHaveBeenCalledTimes(1);
-    resolve(false);
+  it("uses discard permission once, then rechecks any later close", async () => {
+    const { fire, win, queryState } = setup({ queryState: async (id) => ready(id, true), confirm: async () => true });
+    fire(); await flush();
+    expect(win.close).toHaveBeenCalledOnce();
+    expect(fire().preventDefault).not.toHaveBeenCalled();
+    expect(fire().preventDefault).toHaveBeenCalledOnce();
     await flush();
+    expect(queryState).toHaveBeenCalledTimes(2);
   });
 
-  it("closes without asking after the changes are saved (dirty becomes false)", async () => {
-    const confirm = vi.fn().mockResolvedValue(false);
-    const { guard, fireClose } = setup(confirm);
-    guard.setDirty(true);
-    guard.setDirty(false);
-    const event = fireClose();
-    expect(event.preventDefault).not.toHaveBeenCalled();
+  it("resumes after a confirmation error and never grants close permission", async () => {
+    const { fire, win, resume } = setup({ queryState: async (id) => ready(id, true), confirm: async () => { throw new Error("dialog"); } });
+    fire(); await flush();
+    expect(resume).toHaveBeenCalledOnce();
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
+  it("a query failure is unknown and admission failure cannot authorize close", async () => {
+    const { fire, win, confirm, resume, stopWrites } = setup({
+      queryState: async () => { throw new Error("renderer crashed"); },
+      stopWrites: async () => { throw new Error("cannot prove writes settled"); },
+    });
+    fire(); await flush();
+    expect(stopWrites).toHaveBeenCalledOnce();
     expect(confirm).not.toHaveBeenCalled();
+    expect(resume).toHaveBeenCalledOnce();
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
+  it("clears checking even when resuming a cancelled close throws", async () => {
+    const { fire, queryState, resume, win } = setup({ queryState: async (id) => ready(id, true) });
+    resume.mockImplementation(() => { throw new Error("webContents disappeared"); });
+    fire(); await flush();
+    fire(); await flush();
+    expect(queryState).toHaveBeenCalledTimes(2);
+    expect(win.close).not.toHaveBeenCalled();
   });
 });

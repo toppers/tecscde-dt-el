@@ -165,7 +165,8 @@ export class CdlSerializer {
   static serialize(doc: TecscdeDocument, now: Date = new Date()): string {
     const editableCells = doc
       .cellValues()
-      .filter((c) => c.editable && (doc.sourceTemplates.size <= 1 || c.locale === doc.editingFileName))
+      .filter((c) => c.editable && (doc.primarySourceKey === null
+        ? !c.locale : doc.sourceTemplates.size <= 1 || c.locale === doc.editingFileName))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name));
 

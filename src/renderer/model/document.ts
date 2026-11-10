@@ -37,6 +37,9 @@ export interface TecscdeDocumentBuildParams {
   readonly referenceFiles: readonly string[];
   /** 編集対象ファイル名。5.2.2: 新規作成時は未設定。 */
   readonly editingFileName?: string;
+  /** 主ソースの役割と解析順は独立して保持する。nullは明示的な主なし。 */
+  readonly primarySourceKey?: string | null;
+  readonly sourceOrder?: readonly string[];
   /** 5.5.2: __tool_info__("tecscde") の未知キーを保持して書き戻す。 */
   readonly unknownToolInfoTecscde: Readonly<Record<string, unknown>>;
   /**
@@ -62,6 +65,8 @@ export class TecscdeDocument {
     readonly preservedImports: readonly string[],
     readonly sourceTemplate: CdlSourceTemplate | undefined,
     readonly sourceTemplates: ReadonlyMap<string, CdlSourceTemplate>,
+    readonly primarySourceKey: string | null,
+    readonly sourceOrder: readonly string[],
   ) {}
 
   static empty(): TecscdeDocument {
@@ -78,6 +83,8 @@ export class TecscdeDocument {
       [],
       undefined,
       new Map(),
+      null,
+      [],
     );
   }
 
@@ -96,6 +103,8 @@ export class TecscdeDocument {
       params.preservedImports ?? [],
       params.sourceTemplate,
       params.sourceTemplates ?? new Map(),
+      params.primarySourceKey === undefined ? params.editingFileName ?? null : params.primarySourceKey,
+      params.sourceOrder ?? [...(params.sourceTemplates?.keys() ?? [])],
     );
   }
 
@@ -152,6 +161,8 @@ export class TecscdeDocument {
       this.preservedImports,
       this.sourceTemplate,
       this.sourceTemplates,
+      this.primarySourceKey,
+      this.sourceOrder,
     );
   }
 
@@ -171,6 +182,8 @@ export class TecscdeDocument {
       this.preservedImports,
       this.sourceTemplate,
       this.sourceTemplates,
+      this.primarySourceKey,
+      this.sourceOrder,
     );
   }
 
@@ -190,6 +203,8 @@ export class TecscdeDocument {
       this.preservedImports,
       this.sourceTemplate,
       this.sourceTemplates,
+      this.primarySourceKey,
+      this.sourceOrder,
     );
   }
 
@@ -209,6 +224,33 @@ export class TecscdeDocument {
       this.preservedImports,
       this.sourceTemplate,
       this.sourceTemplates,
+      this.primarySourceKey,
+      this.sourceOrder,
     );
+  }
+
+  /** Save As成功後にだけ呼ぶ。ソースの役割・本文・セルの所属を同時に付け替える。 */
+  withSourceLocation(oldKey: string | null, newKey: string): TecscdeDocument {
+    if (oldKey === newKey) return this;
+    const cells = new Map(this.cellsById);
+    for (const [id, cell] of cells) {
+      if ((cell.locale ?? null) === oldKey) cells.set(id, Cell.create({ ...cell, locale: newKey }));
+    }
+    const templates = new Map(this.sourceTemplates);
+    const template = oldKey === null ? this.sourceTemplate : templates.get(oldKey);
+    if (oldKey !== null) templates.delete(oldKey);
+    if (template) templates.set(newKey, template);
+    const isPrimary = this.primarySourceKey === oldKey;
+    const order = this.sourceOrder.map((key) => key === oldKey ? newKey : key);
+    if (oldKey === null && !order.includes(newKey)) order.push(newKey);
+    return TecscdeDocument.build({
+      cells, joins: this.joinsById, celltypes: this.celltypesByName, regions: this.regions,
+      toolInfoTecsgen: this.toolInfoTecsgen, paper: this.paper,
+      referenceFiles: this.referenceFiles.map((key) => key === oldKey ? newKey : key),
+      editingFileName: isPrimary ? newKey : this.editingFileName,
+      primarySourceKey: isPrimary ? newKey : this.primarySourceKey, sourceOrder: order,
+      unknownToolInfoTecscde: this.unknownToolInfoTecscde, preservedImports: this.preservedImports,
+      sourceTemplate: this.sourceTemplate, sourceTemplates: templates,
+    });
   }
 }

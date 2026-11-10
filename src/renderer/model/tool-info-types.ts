@@ -15,7 +15,7 @@ export interface ToolInfoTecsgen {
 }
 
 export const CDE_FORMAT_VERSION = "0.1.0.0";
-export const TECSCDE_TS_VERSION = "0.1.0";
+export { APP_VERSION as TECSCDE_TS_VERSION } from "./app-version";
 
 export function emptyToolInfoTecsgen(): ToolInfoTecsgen {
   return { unknownFields: {} };

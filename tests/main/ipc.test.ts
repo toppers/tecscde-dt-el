@@ -27,9 +27,34 @@ vi.mock("../../src/main/app-settings.js", () => ({ saveAppSettings, loadAppSetti
 const { registerIpcHandlers } = await import("../../src/main/ipc.js");
 
 describe("registerIpcHandlers", () => {
+  it("rejects malformed command-copy requests before resolving any execution settings", async () => {
+    const resolveCommand = vi.fn();
+    registerIpcHandlers({} as never, {} as never, {} as never, { resolveCommand } as never);
+    const copy = handlers.get("tecsgen:commandLine")!;
+    for (const args of [["x"], [1], "bad"]) {
+      await expect(copy({}, args, "unknown", undefined)).rejects.toThrow("不正");
+    }
+    await expect(copy({}, [1], "cmd", undefined)).rejects.toThrow("不正");
+    await expect(copy({}, [], "powershell5", 42)).rejects.toThrow("不正");
+    expect(resolveCommand).not.toHaveBeenCalled();
+  });
+
+  it("formats the current configured executable for the selected shell without executing it", async () => {
+    const resolveCommand = vi.fn(async () => ({ executable: process.execPath, args: ["--prefix"], source: "settings" as const }));
+    const generate = vi.fn();
+    registerIpcHandlers({} as never, { generate } as never, {} as never, { resolveCommand } as never);
+    for (const shell of ["powershell7", "powershell5", "cmd"]) {
+      const command = await handlers.get("tecsgen:commandLine")!({}, ['quoted "text"', ""], shell, undefined);
+      expect(command).toContain("EncodedCommand");
+    }
+    expect(resolveCommand).toHaveBeenCalledTimes(3);
+    expect(generate).not.toHaveBeenCalled();
+  });
   it("wires every file:* and tecsgen:* channel to the corresponding service method", async () => {
     const fileService = {
       save: vi.fn().mockResolvedValue(undefined),
+      saveWithReceipt: vi.fn().mockResolvedValue({ path: "/tmp/a.cde", writeSequence: 1 }),
+      chooseSavePath: vi.fn().mockResolvedValue("saved-path"),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
       exportFile: vi.fn().mockResolvedValue(undefined),
       chooseFolder: vi.fn().mockResolvedValue("/tmp/root"),
@@ -57,10 +82,12 @@ describe("registerIpcHandlers", () => {
         "clipboard:readText",
         "clipboard:writeText",
         "file:chooseFolder",
+        "file:chooseSavePath",
         "file:confirmDiscardChanges",
         "file:export",
         "file:listDirectory",
         "file:openPath",
+        "file:openPaths",
         "file:parseTecsgenOptionsFile",
         "file:resolveImports",
         "file:save",
@@ -68,15 +95,21 @@ describe("registerIpcHandlers", () => {
         "file:saveSession",
         "log:append",
         "settings:get",
+        "settings:getToolSettings",
+        "settings:updateToolSettings",
+        "settings:getAppInformation",
+        "settings:chooseTecsgenPath",
         "tecsgen:generate",
         "tecsgen:generatedTypes",
         "tecsgen:preprocess",
         "tecsgen:version",
+        "tecsgen:checkPath",
+        "tecsgen:commandLine",
       ].sort(),
     );
 
     handlers.get("file:save")!({}, "/tmp/a.cde", "content");
-    expect(fileService.save).toHaveBeenCalledWith("/tmp/a.cde", "content");
+    expect(fileService.saveWithReceipt).toHaveBeenCalledWith("/tmp/a.cde", "content");
 
     handlers.get("file:saveAs")!({}, "content", "untitled.cde");
     expect(fileService.saveAsDialog).toHaveBeenCalledWith("untitled.cde", "content");

@@ -110,6 +110,12 @@ const BODY_HTML = `
       <button data-action="toggleNavigator" type="button">ナビゲータ</button>
       <button data-action="generate" type="button">実行</button>
       <button data-action="copyTecsgenCommand" type="button">コマンドをコピー</button>
+      <select id="tecsgen-copy-shell" aria-label="コピー先のシェル">
+        <option value="powershell7">PowerShell 7</option>
+        <option value="powershell5">Windows PowerShell 5</option>
+        <option value="cmd">コマンドプロンプト</option>
+      </select>
+      <span id="tecsgen-copy-result" role="status" aria-live="polite"></span>
       <div id="search-box">
         <input type="search" id="search-input" />
         <span id="search-count"></span>
@@ -988,6 +994,55 @@ cell tRegular Regular {};
       expect(text.startsWith("tecsgen ")).toBe(true);
       expect(text).toContain("C:/proj/celltypes.cdl");
       expect(text.endsWith("C:/proj/main.cde")).toBe(true);
+    });
+
+    it.each(["powershell7", "powershell5", "cmd"])("copies the command for selected %s without changing document/history/dirty", async (copyShell) => {
+      const commandLine = vi.fn(async (_args: readonly string[], shell: string) => `command for ${shell}`);
+      const tecsgen = { ...fakeTecsgen().gateway, commandLine } as unknown as TecsgenGateway;
+      const clipboard = fakeClipboard();
+      const { store } = mountShell(clipboard, loadDoc(), noopGateway, tecsgen);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde", [], ["C:/proj/celltypes.cdl"]);
+      const before = store.getDocument();
+      const history = store.history;
+      const dirty = store.isDirty();
+      const selector = document.querySelector<HTMLSelectElement>("#tecsgen-copy-shell")!;
+      selector.value = copyShell;
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelector<HTMLButtonElement>("[data-action=copyTecsgenCommand]")!.click();
+      await flush();
+      expect(commandLine).toHaveBeenCalledOnce();
+      expect(commandLine.mock.calls[0]![1]).toBe(copyShell);
+      expect(commandLine.mock.calls[0]![0]).toContain("C:/proj/main.cde");
+      expect(await clipboard.readText()).toBe(`command for ${copyShell}`);
+      expect(store.getDocument()).toBe(before);
+      expect(store.history).toBe(history);
+      expect(store.isDirty()).toBe(dirty);
+    });
+
+    it("defaults command copy to PowerShell 7 when an older shell has no selector", async () => {
+      const commandLine = vi.fn(async (_args: readonly string[], shell: string) => shell);
+      const tecsgen = { ...fakeTecsgen().gateway, commandLine } as unknown as TecsgenGateway;
+      const { store, clipboard } = mountShell(fakeClipboard(), loadDoc(), noopGateway, tecsgen);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde");
+      document.querySelector("#tecsgen-copy-shell")!.remove();
+      document.querySelector<HTMLButtonElement>("[data-action=copyTecsgenCommand]")!.click();
+      await flush();
+      expect(await clipboard.readText()).toBe("powershell7");
+      expect(commandLine.mock.calls[0]![1]).toBe("powershell7");
+    });
+    it("does not copy an obsolete shell format after the selection changes during formatting", async () => {
+      let resolve!: (value: string) => void;
+      const commandLine = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
+      const tecsgen = { ...fakeTecsgen().gateway, commandLine } as unknown as TecsgenGateway;
+      const { store, clipboard } = mountShell(fakeClipboard(), loadDoc(), noopGateway, tecsgen);
+      store.loadDocument(loadDoc(), "C:/proj/main.cde");
+      document.querySelector<HTMLButtonElement>("[data-action=copyTecsgenCommand]")!.click();
+      await flush();
+      const selector = document.querySelector<HTMLSelectElement>("#tecsgen-copy-shell")!;
+      selector.value = "cmd"; selector.dispatchEvent(new Event("change", { bubbles: true }));
+      resolve("obsolete PowerShell format"); await flush();
+      expect(await clipboard.readText()).not.toBe("obsolete PowerShell format");
+      expect(document.querySelector("#tecsgen-copy-result")!.textContent).toBe("");
     });
   });
 

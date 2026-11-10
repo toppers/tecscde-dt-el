@@ -1,19 +1,24 @@
 // [[TECSCDE-DT-EL内部仕様]] 第7章7.2節・第9章9.2節: ipcMain.handle の登録一式。
 // FileService/TecsgenRunner をIPC越しに公開する薄い配線層。
 
-import { app, clipboard, ipcMain } from "electron";
+import { app, clipboard, ipcMain, dialog, type BrowserWindow } from "electron";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
 import type { LogService } from "./log-service.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
-import type { ImportRequest, ImportResolutionOptions } from "../shared/ipc-types.js";
+import { ToolSettingsService } from "./tool-settings.js";
+import { getAppInformation } from "./app-information.js";
+import { formatTecsgenCommand } from "./tecsgen-command-copy.js";
+import type { ImportRequest, ImportResolutionOptions, SessionSnapshot } from "../shared/ipc-types.js";
 
 export function registerIpcHandlers(
   fileService: FileService,
   tecsgenRunner: TecsgenRunner,
   logService: LogService,
+  toolSettings: ToolSettingsService = new ToolSettingsService(),
+  window?: BrowserWindow,
 ): void {
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
   // CDL文法とcdecl文法（9B章9B.3）は同じ起動シーケンスで一度に渡す。
@@ -26,7 +31,8 @@ export function registerIpcHandlers(
     ]);
     return { runtimeWasm, cdlWasm, cdeclWasm };
   });
-  ipcMain.handle("file:save", (_e, path: string, content: string) => fileService.save(path, content));
+  ipcMain.handle("file:save", (_e, path: string, content: string) => fileService.saveWithReceipt(path, content));
+  ipcMain.handle("file:chooseSavePath", (_e, name: string) => fileService.chooseSavePath(name));
   ipcMain.handle("file:saveAs", (_e, content: string, suggestedName: string) =>
     fileService.saveAsDialog(suggestedName, content),
   );
@@ -35,15 +41,16 @@ export function registerIpcHandlers(
   ipcMain.handle("file:chooseFolder", () => fileService.chooseFolder());
   ipcMain.handle("file:listDirectory", (_e, dirPath: string) => fileService.listDirectory(dirPath));
   ipcMain.handle("file:openPath", (_e, path: string) => fileService.openPath(path));
+  ipcMain.handle("file:openPaths", (_e, paths: readonly string[]) => fileService.openPaths(paths));
   // 第7B章7.6.4節: 未保存確認（2026-09-22追加、TECSCDE-DT外部仕様5.7節）。
   ipcMain.handle("file:confirmDiscardChanges", () => fileService.confirmDiscardChanges());
   // 第7C章7.7.1節: 前回セッションの永続化（2026-09-22追加）。ウィンドウに紐づかない
   // アプリケーション設定のため、FileServiceを経由せず直接saveAppSettingsを呼ぶ。
   ipcMain.handle(
     "file:saveSession",
-    (_e, editablePath: string | null, referencePaths: readonly string[], extraImportPaths?: readonly string[], optionsFilePath?: string) =>
+    (_e, editablePath: string | null | SessionSnapshot, referencePaths: readonly string[] = [], extraImportPaths?: readonly string[], optionsFilePath?: string) =>
       saveAppSettings({
-        lastSession: {
+        lastSession: typeof editablePath === "object" && editablePath !== null ? editablePath : {
           ...(editablePath ? { editablePath } : {}),
           referencePaths,
           ...(extraImportPaths && extraImportPaths.length > 0 ? { extraImportPaths } : {}),
@@ -68,6 +75,22 @@ export function registerIpcHandlers(
     tecsgenRunner.preprocess(headerPath, cppCommand, includeDirs),
   );
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
+  ipcMain.handle("tecsgen:checkPath", (_event, path: string) => toolSettings.checkPath(path));
+  ipcMain.handle("tecsgen:commandLine", async (_event, args: unknown, shell: unknown, cwd: unknown) => {
+    if (!Array.isArray(args) || !args.every((value) => typeof value === "string") ||
+        (shell !== "powershell7" && shell !== "powershell5" && shell !== "cmd") ||
+        (cwd !== undefined && typeof cwd !== "string")) throw new Error("コピーするコマンドの指定が不正です。");
+    const command = await toolSettings.resolveCommand();
+    return formatTecsgenCommand(command, args, shell, cwd ?? process.cwd());
+  });
+  ipcMain.handle("settings:getToolSettings", () => toolSettings.get());
+  ipcMain.handle("settings:updateToolSettings", (_event, patch: { tecsgenPath: string }) => toolSettings.update(patch));
+  ipcMain.handle("settings:getAppInformation", () => getAppInformation());
+  ipcMain.handle("settings:chooseTecsgenPath", async () => {
+    const options = { title: "tecsgenの実行ファイルを選択", properties: ["openFile" as const] };
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   // 第3章3.2節: rendererが読む設定（現状は`allowEditSystemDefined`のみ）。
   ipcMain.handle("settings:get", async () => ({
     allowEditSystemDefined: (await loadAppSettings()).allowEditSystemDefined === true,
