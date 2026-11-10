@@ -8,6 +8,7 @@ import type { DirEntry } from "../../shared/ipc-types";
 import type { FileGateway } from "../gateways/file-gateway";
 import { baseName } from "./file-actions";
 import type { AppStore } from "./store";
+import { fileKind } from "../../shared/file-kind";
 
 export class FileBrowserView {
   private root: string | null = null;
@@ -45,7 +46,7 @@ export class FileBrowserView {
     const mouseEvent = event as MouseEvent;
     if (mouseEvent.ctrlKey || mouseEvent.metaKey) {
       this.onAddReference(path);
-    } else if (/\.tecsgen-opts$/.test(path)) {
+    } else if (fileKind(path) === "options") {
       this.onLoadOptionsFile(path);
     } else {
       this.onOpen(path);

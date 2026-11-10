@@ -43,6 +43,8 @@ import { LogGateway } from "../gateways/log-gateway";
 import { checkTecsgenVersion } from "./tecsgen-version";
 import { ModelessDialog } from "./modeless-dialog";
 import { documentStatusText, documentTitle, inputModeLabel } from "./status-text";
+import { DefinitionFileView } from "./definition-file-view";
+import { CelltypeDetailsView } from "./celltype-details-view";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -106,6 +108,8 @@ export class AppShell {
   private readonly information: InformationDialog | undefined;
   private readonly fileDialog: ModelessDialog;
   private readonly celltypesDialog: ModelessDialog;
+  private readonly definitionView: DefinitionFileView;
+  private readonly celltypeDetails: CelltypeDetailsView;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -125,6 +129,7 @@ export class AppShell {
     this.information = opts.settings ? new InformationDialog({
       document: (opts.root as Document).ownerDocument ?? opts.root as Document,
       settings: opts.settings, tecsgen: opts.tecsgen, clipboard: opts.clipboard,
+      cdlFiles: { settings: opts.settings, file: opts.gateway },
       getTecsgenStatus: () => this.store.getTecsgenStatus(),
       onSaved: (settings) => checkTecsgenVersion(this.store, this.tecsgen, new LogGateway(),
         () => this.openDiagnostics(), settings.effectiveCommand, settings.revision),
@@ -154,10 +159,15 @@ export class AppShell {
     );
     this.gesture = new GestureController(this.renderer, host);
 
-    this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store);
+    const docForViews = this.svg.ownerDocument;
+    this.definitionView = new DefinitionFileView({ document: docForViews, readFile: (path) => this.gateway.readDefinitionFile(path) });
+    this.celltypeDetails = new CelltypeDetailsView({ document: docForViews, store: this.store,
+      onShowDefinition: (source) => void this.definitionView.open(source, "セルタイプ定義ファイルウィンドウ") });
+    this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store, (name) => this.celltypeDetails.open(name));
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
-    this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store);
+    this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store,
+      { onShowDefinition: (source) => void this.definitionView.open(source, "セル定義ファイルウィンドウ") });
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
     this.diagnosticsPanel = new DiagnosticsPanelView(
@@ -230,6 +240,8 @@ export class AppShell {
   }
 
   dispose(): void {
+    this.definitionView.dispose();
+    this.celltypeDetails.dispose();
     this.copyCommandGeneration++;
     this.information?.dispose();
     this.palette.dispose();
@@ -242,6 +254,7 @@ export class AppShell {
   // --- 描画ループ ---
 
   render(): void {
+    this.celltypeDetails.render();
     this.information?.refreshStatus();
     const doc = this.store.getDocument();
     const view = this.store.view;
@@ -310,7 +323,7 @@ export class AppShell {
 
   /** ツールバー／キーボード共通のコマンド入口。 */
   runAction(action: string): void {
-    if (this.information?.isOpen && action !== "information") return;
+    if ((this.information?.isOpen && action !== "information") || this.celltypeDetails.isOpen) return;
     switch (action) {
       case "openFileBrowser":
         this.fileDialog.open();
@@ -502,7 +515,7 @@ export class AppShell {
 
   private bindKeyboard(): void {
     const onKey = (e: KeyboardEvent): void => {
-      if (this.information?.isOpen) return;
+      if (this.information?.isOpen || this.celltypeDetails.isOpen) return;
       // External spec 7.4.2: clear search even while the search input has focus.
       // Keep selection and filters, and let gestures also handle Escape.
       if (e.key === "Escape" && !e.isComposing && this.store.view.searchQuery !== null) {
@@ -564,7 +577,7 @@ export class AppShell {
   /** 外部仕様7.1.2: スペースを押している間は左ドラッグで表示を移動する。 */
   private bindSpacePan(): void {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (this.information?.isOpen) return;
+      if (this.information?.isOpen || this.celltypeDetails.isOpen) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey ||
           (target && (TEXT_INPUT_TAGS.has(target.tagName) || target.isContentEditable ||

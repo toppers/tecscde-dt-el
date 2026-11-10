@@ -2,6 +2,9 @@
 // modal view state only. Candidate checks never change the running tool settings.
 import type { AppInformation, ToolSettings, ToolSettingsUpdateResult, TecsgenVersionResult } from "../../shared/ipc-types";
 import { parseTecsgenVersion } from "./tecsgen-version";
+import { CdlFileListView } from "./cdl-file-list-view";
+import type { FileGateway } from "../gateways/file-gateway";
+import type { SettingsGateway } from "../gateways/settings-gateway";
 
 export interface InformationDialogOptions {
   readonly settings: {
@@ -15,6 +18,7 @@ export interface InformationDialogOptions {
   readonly onSaved: (settings: ToolSettings) => Promise<TecsgenVersionResult | void> | TecsgenVersionResult | void;
   readonly getTecsgenStatus?: () => { readonly version: string; readonly command: string } | undefined;
   readonly document?: Document;
+  readonly cdlFiles?: { readonly settings: SettingsGateway; readonly file: FileGateway };
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -34,6 +38,7 @@ export class InformationDialog {
   private readonly settingsResult: HTMLParagraphElement;
   private readonly copyResult: HTMLParagraphElement;
   private readonly saveButton: HTMLButtonElement;
+  private readonly cdlList: CdlFileListView | undefined;
   private settings: ToolSettings | undefined;
   private information: AppInformation | undefined;
   private toolStatus: { version: string; command: string } | undefined;
@@ -88,6 +93,10 @@ export class InformationDialog {
     footer.append(this.button("close", "閉じる", () => { this.dialog.close(); }));
     this.dialog.append(heading, versionHeading, this.version, copy, this.copyResult, settingsHeading,
       pathField.wrapper, actions, help, this.checkResult, this.settingsResult, tecspathField.wrapper, this.override, footer);
+    if (options.cdlFiles) {
+      this.cdlList = new CdlFileListView(this.doc, options.cdlFiles.settings, options.cdlFiles.file);
+      this.dialog.insertBefore(this.cdlList.element, footer);
+    }
     this.dialog.addEventListener("close", () => {
       // Chromium queues this event. A subsequent open already has its own
       // generation and must not be invalidated by the previous close event.
@@ -111,6 +120,7 @@ export class InformationDialog {
   async open(): Promise<void> {
     if (this.disposed) return;
     if (this.dialog.open) { this.dialog.focus(); return; }
+    void this.cdlList?.refresh();
     const generation = ++this.generation;
     const inputGeneration = this.inputGeneration;
     this.dialog.showModal();
@@ -132,6 +142,7 @@ export class InformationDialog {
   }
 
   dispose(): void {
+    this.cdlList?.dispose();
     this.disposed = true;
     this.generation++;
     if (this.dialog.open) this.dialog.close();

@@ -11,6 +11,7 @@ import { loadAppSettings, saveAppSettings } from "./app-settings.js";
 import { ToolSettingsService } from "./tool-settings.js";
 import { getAppInformation } from "./app-information.js";
 import { formatTecsgenCommand } from "./tecsgen-command-copy.js";
+import { CdlFileListService } from "./cdl-file-list.js";
 import type { ImportRequest, ImportResolutionOptions, SessionSnapshot } from "../shared/ipc-types.js";
 
 export function registerIpcHandlers(
@@ -20,6 +21,7 @@ export function registerIpcHandlers(
   toolSettings: ToolSettingsService = new ToolSettingsService(),
   window?: BrowserWindow,
 ): void {
+  const cdlLists = new CdlFileListService();
   // rendererからfile:// URLをfetchせず、mainがasar透過のfsでWASMを読む。
   // CDL文法とcdecl文法（9B章9B.3）は同じ起動シーケンスで一度に渡す。
   ipcMain.handle("cdl:grammar-assets", async () => {
@@ -41,6 +43,16 @@ export function registerIpcHandlers(
   ipcMain.handle("file:chooseFolder", () => fileService.chooseFolder());
   ipcMain.handle("file:listDirectory", (_e, dirPath: string) => fileService.listDirectory(dirPath));
   ipcMain.handle("file:openPath", (_e, path: string) => fileService.openPath(path));
+  ipcMain.handle("file:readDefinitionFile", async (_e, path: string) => (await fileService.openPath(path)).editable);
+  ipcMain.handle("file:planCdlFileLists", (_e, root: string) => cdlLists.plan(root));
+  ipcMain.handle("file:applyCdlFileLists", (_e, planId: string) => cdlLists.apply(planId));
+  ipcMain.handle("file:confirmCdlFileLists", async (_e, paths: readonly string[]) => {
+    if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) throw new Error("確認対象が不正です。");
+    const detail = paths.slice(0, 10).join("\n") + (paths.length > 10 ? `\nほか ${paths.length - 10} 件` : "");
+    const options = { type: "warning" as const, buttons: ["置き換える", "キャンセル"], defaultId: 1, cancelId: 1,
+      message: "既存の一覧を上書きしますか？", detail };
+    return (window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options)).response === 0;
+  });
   ipcMain.handle("file:openPaths", (_e, paths: readonly string[]) => fileService.openPaths(paths));
   // 第7B章7.6.4節: 未保存確認（2026-09-22追加、TECSCDE-DT外部仕様5.7節）。
   ipcMain.handle("file:confirmDiscardChanges", () => fileService.confirmDiscardChanges());
@@ -86,6 +98,16 @@ export function registerIpcHandlers(
   ipcMain.handle("settings:getToolSettings", () => toolSettings.get());
   ipcMain.handle("settings:updateToolSettings", (_event, patch: { tecsgenPath: string }) => toolSettings.update(patch));
   ipcMain.handle("settings:getAppInformation", () => getAppInformation());
+  ipcMain.handle("settings:getCdlFilesRoot", async () => (await loadAppSettings()).cdlFilesRoot ?? "");
+  ipcMain.handle("settings:setCdlFilesRoot", (_e, root: unknown) => {
+    if (typeof root !== "string") throw new Error("対象ディレクトリが不正です。");
+    return saveAppSettings({ cdlFilesRoot: root });
+  });
+  ipcMain.handle("settings:chooseCdlFilesRoot", async () => {
+    const options = { title: "CDL一覧の対象フォルダ", properties: ["openDirectory" as const] };
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   ipcMain.handle("settings:chooseTecsgenPath", async () => {
     const options = { title: "tecsgenの実行ファイルを選択", properties: ["openFile" as const] };
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);

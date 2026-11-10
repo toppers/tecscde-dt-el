@@ -17,6 +17,7 @@ function stubApi(): TecscdeApi {
       loadGrammarAssets: vi.fn().mockResolvedValue({ runtimeWasm: new Uint8Array(), cdlWasm: new Uint8Array() }),
     },
     file: {
+      readDefinitionFile: vi.fn(), planCdlFileLists: vi.fn(), applyCdlFileLists: vi.fn(), confirmCdlFileLists: vi.fn(),
       save: vi.fn().mockResolvedValue(undefined),
       saveAs: vi.fn().mockResolvedValue(null),
       export: vi.fn().mockResolvedValue(undefined),
@@ -43,6 +44,7 @@ function stubApi(): TecscdeApi {
       readText: vi.fn().mockReturnValue(""),
     },
     settings: {
+      getCdlFilesRoot: vi.fn(), setCdlFilesRoot: vi.fn(), chooseCdlFilesRoot: vi.fn(),
       get: vi.fn().mockResolvedValue({ allowEditSystemDefined: false }),
       getToolSettings: vi.fn(),
       updateToolSettings: vi.fn(),

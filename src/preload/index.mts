@@ -25,6 +25,10 @@ const api: TecscdeApi = {
     loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
   },
   file: {
+    readDefinitionFile: (path) => ipcRenderer.invoke("file:readDefinitionFile", path),
+    planCdlFileLists: (root) => ipcRenderer.invoke("file:planCdlFileLists", root),
+    applyCdlFileLists: (planId) => ipcRenderer.invoke("file:applyCdlFileLists", planId),
+    confirmCdlFileLists: (paths) => ipcRenderer.invoke("file:confirmCdlFileLists", paths),
     save: (path: string, content: string): Promise<void | SourceWriteReceipt> => ipcRenderer.invoke("file:save", path, content),
     chooseSavePath: (suggestedName: string): Promise<string | null> => ipcRenderer.invoke("file:chooseSavePath", suggestedName),
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
@@ -79,6 +83,9 @@ const api: TecscdeApi = {
     updateToolSettings: (patch) => ipcRenderer.invoke("settings:updateToolSettings", patch),
     chooseTecsgenPath: () => ipcRenderer.invoke("settings:chooseTecsgenPath"),
     getAppInformation: () => ipcRenderer.invoke("settings:getAppInformation"),
+    getCdlFilesRoot: () => ipcRenderer.invoke("settings:getCdlFilesRoot"),
+    setCdlFilesRoot: (root) => ipcRenderer.invoke("settings:setCdlFilesRoot", root),
+    chooseCdlFilesRoot: () => ipcRenderer.invoke("settings:chooseCdlFilesRoot"),
   },
   window: {
     setDirty: (dirty: boolean): void => ipcRenderer.send("window:setDirty", dirty),

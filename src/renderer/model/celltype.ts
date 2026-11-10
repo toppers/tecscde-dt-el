@@ -22,6 +22,10 @@ export interface CelltypeRefCreateParams {
   readonly hiddenRequirePortCount: number;
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
+  /** Stable defining file path; locale remains the display basename. */
+  readonly sourcePath?: string;
+  /** Generated definitions have virtual sources, never stable temporary file paths. */
+  readonly generated?: boolean;
   readonly composite?: CompositeStructure;
   readonly hasUnsupportedSyntax?: boolean;
 }
@@ -34,6 +38,8 @@ export class CelltypeRef {
     readonly attributeNames: readonly string[],
     readonly hiddenRequirePortCount: number,
     readonly locale: string | undefined,
+    readonly sourcePath: string | undefined,
+    readonly generated: boolean,
     readonly composite: CompositeStructure | undefined,
     readonly hasUnsupportedSyntax: boolean,
   ) {}
@@ -46,6 +52,8 @@ export class CelltypeRef {
       params.attributeNames,
       params.hiddenRequirePortCount,
       params.locale,
+      params.sourcePath,
+      params.generated ?? false,
       params.composite,
       params.hasUnsupportedSyntax ?? false,
     );

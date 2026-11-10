@@ -12,7 +12,8 @@ export class PaletteView {
   private readonly celltypeList: HTMLElement;
   private lastCelltypeSignature = "";
 
-  constructor(private readonly root: HTMLElement, private readonly store: AppStore) {
+  constructor(private readonly root: HTMLElement, private readonly store: AppStore,
+    private readonly onShowDetails?: (name: string) => void) {
     this.selectModeBtn = this.requireEl("[data-mode='select']");
     this.newCellModeBtn = this.requireEl("[data-mode='newCell']");
     this.celltypeList = this.requireEl("#palette-celltypes");
@@ -33,6 +34,8 @@ export class PaletteView {
   private readonly onNewCellMode = (): void => this.store.setMode("newCell");
   private readonly onCelltypeClick = (event: Event): void => {
     const target = event.target as HTMLElement | null;
+    const details = target?.closest<HTMLElement>("[data-celltype-details]")?.dataset["celltypeDetails"];
+    if (details) { this.onShowDetails?.(details); return; }
     const name = target?.closest<HTMLElement>("[data-celltype]")?.dataset["celltype"];
     if (!name) return;
     this.store.setActiveCelltype(name);
@@ -80,12 +83,22 @@ export class PaletteView {
       return;
     }
     for (const name of names) {
+      const row = document.createElement("div");
+      row.className = "palette-celltype-row";
       const item = document.createElement("button");
       item.type = "button";
       item.className = "palette-celltype" + (name === active ? " active" : "");
       item.dataset["celltype"] = name;
       item.textContent = name;
-      this.celltypeList.appendChild(item);
+      const details = document.createElement("button");
+      details.type = "button";
+      details.className = "palette-celltype-details";
+      details.dataset["celltypeDetails"] = name;
+      details.textContent = "詳細";
+      details.setAttribute("aria-label", `${name}の詳細`);
+      details.disabled = !this.onShowDetails;
+      row.append(item, details);
+      this.celltypeList.appendChild(row);
     }
   }
 }

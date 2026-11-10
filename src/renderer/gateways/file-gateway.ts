@@ -12,9 +12,16 @@ import type {
   TecsgenOptionsFile,
   SessionSnapshot,
   SourceWriteReceipt,
+  OpenFileEntry,
+  CdlFileListPlan,
+  CdlFileListResult,
 } from "../../shared/ipc-types.js";
 
 export class FileGateway {
+  readDefinitionFile(path: string): Promise<OpenFileEntry> { return window.tecscde.file.readDefinitionFile(path); }
+  planCdlFileLists(root: string): Promise<CdlFileListPlan> { return window.tecscde.file.planCdlFileLists(root); }
+  applyCdlFileLists(planId: string): Promise<CdlFileListResult> { return window.tecscde.file.applyCdlFileLists(planId); }
+  confirmCdlFileLists(paths: readonly string[]): Promise<boolean> { return window.tecscde.file.confirmCdlFileLists(paths); }
   save(path: string, content: string): Promise<void | SourceWriteReceipt> {
     return window.tecscde.file.save(path, content);
   }

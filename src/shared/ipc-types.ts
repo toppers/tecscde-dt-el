@@ -42,6 +42,16 @@ export interface DirEntry {
   readonly kind: "directory" | "file";
 }
 
+export type CdlFileListPlan =
+  | { readonly kind: "planned"; readonly planId: string; readonly items: readonly { readonly path: string; readonly status: "new" | "same" | "differs" }[] }
+  | { readonly kind: "empty" }
+  | { readonly kind: "failed"; readonly path: string; readonly detail: string };
+export type CdlFileListResult =
+  | { readonly kind: "ok"; readonly rootListPath: string; readonly listCount: number; readonly skippedSame: number }
+  | { readonly kind: "empty" }
+  | { readonly kind: "changed"; readonly path: string }
+  | { readonly kind: "failed"; readonly path: string; readonly detail: string; readonly writtenPaths: readonly string[] };
+
 /** 第9章9.7節: tecsgenを起動できなかった（または異常終了させられた）理由の種類。 */
 export type TecsgenLaunchFailureKind = "not-found" | "permission" | "timeout" | "output-overflow" | "launch-error";
 
@@ -113,6 +123,7 @@ export interface ImportRequest {
 
 /** 第7D章7.5.2節: 探索候補ディレクトリの構築に使う入力。 */
 export interface ImportResolutionOptions {
+  readonly systemDirs?: readonly string[];
   readonly baseDir?: string;
   readonly importPaths: readonly string[];
   readonly cpp?: string;
@@ -183,6 +194,10 @@ export interface TecscdeApi {
     loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
   };
   readonly file: {
+    readDefinitionFile(path: string): Promise<OpenFileEntry>;
+    planCdlFileLists(root: string): Promise<CdlFileListPlan>;
+    applyCdlFileLists(planId: string): Promise<CdlFileListResult>;
+    confirmCdlFileLists(paths: readonly string[]): Promise<boolean>;
     save(path: string, content: string): Promise<void | SourceWriteReceipt>;
     chooseSavePath?(suggestedName: string): Promise<string | null>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
@@ -242,6 +257,9 @@ export interface TecscdeApi {
     updateToolSettings(patch: { readonly tecsgenPath: string }): Promise<ToolSettingsUpdateResult>;
     chooseTecsgenPath(): Promise<string | null>;
     getAppInformation(): Promise<AppInformation>;
+    getCdlFilesRoot(): Promise<string>;
+    setCdlFilesRoot(root: string): Promise<void>;
+    chooseCdlFilesRoot(): Promise<string | null>;
   };
   /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
   readonly log: {

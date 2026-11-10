@@ -10,6 +10,7 @@ import type { TecscdeDocument } from "../model/document";
 import type { Region } from "../model/region";
 import type { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
+import { definitionFooter, definitionLocation, type DefinitionSource } from "./definition-source";
 
 function field(labelText: string): { wrapper: HTMLDivElement; input: HTMLInputElement } {
   const wrapper = document.createElement("div");
@@ -40,6 +41,7 @@ export class PropertyPanelView {
   constructor(
     private readonly root: HTMLElement,
     private readonly store: AppStore,
+    private readonly options: { readonly onShowDefinition?: (source: DefinitionSource) => void } = {},
   ) {}
 
   render(): void {
@@ -96,6 +98,7 @@ export class PropertyPanelView {
     const attrsSig = Object.entries(cell.attrs)
       .map(([k, v]) => `${k}=${v}`)
       .join(",");
+    const definition = definitionLocation(cell.locale, this.store.getGeneratedTypeSources());
     return [
       "cell",
       cell.id,
@@ -103,6 +106,9 @@ export class PropertyPanelView {
       cell.name,
       cell.celltypeName,
       cell.celltypeUnresolved,
+      cell.locale,
+      definition.label,
+      definition.source?.kind === "virtual" ? definition.source.content : "",
       doc.getCelltype(cell.celltypeName)?.hasUnsupportedSyntax ?? false,
       region,
       regionOptions,
@@ -178,6 +184,8 @@ export class PropertyPanelView {
       });
       this.root.appendChild(attrField.wrapper);
     }
+    this.root.appendChild(definitionFooter(this.root.ownerDocument,
+      definitionLocation(cell.locale, this.store.getGeneratedTypeSources()), this.options.onShowDefinition));
   }
 
   private regionOptions(doc: TecscdeDocument): Region[] {

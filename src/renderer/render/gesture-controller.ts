@@ -380,7 +380,7 @@ export class GestureController {
     const onMove = (e: MouseEvent): void => this.pointerMove(toModel(e));
     const onUp = (e: MouseEvent): void => this.pointerUp(toModel(e));
     const onKey = (e: KeyboardEvent): void => {
-      if (svg.ownerDocument.querySelector("#information-dialog[open]")) return;
+      if (svg.ownerDocument.querySelector("#information-dialog[open], #celltype-details-dialog[open]")) return;
       const t = e.target as HTMLElement | null;
       if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
       if (this.keyDown(e.key, modsOf(e))) e.preventDefault();

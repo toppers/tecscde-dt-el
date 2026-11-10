@@ -3,7 +3,7 @@
 // Tauriとの両立が不要になったため本書では廃止し、Electron固有のAPIに置き換える。
 
 import { promises as fs } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
 import type {
   DirEntry,
@@ -14,13 +14,13 @@ import type {
   TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
 import { saveAppSettings } from "./app-settings.js";
+import { fileKind } from "../shared/file-kind.js";
 import { destinationKey, fileWrites, type WriteReceipt } from "./write-queue.js";
+import { isUnderAny } from "../shared/path-under.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
-// `.tecsgen-opts`は拡張子すべて小文字・大文字小文字を区別する（外部仕様5.3）。`.cde`/`.cdl`は区別しない。
-const CDL_EXTENSION = /\.(cde|cdl)$/i;
-const OPTIONS_EXTENSION = /\.tecsgen-opts$/;
-const isBrowsable = (name: string): boolean => CDL_EXTENSION.test(name) || OPTIONS_EXTENSION.test(name);
+// 三形式とも大文字小文字を区別せず、I/O用の元パス表記を維持する。
+const isBrowsable = (name: string): boolean => fileKind(name) !== undefined;
 
 /** UTF-8を第一候補とし、レガシーCDL用にShift_JIS/EUC-JPへのフォールバックを試行する。 */
 function decodeBuffer(buf: Buffer): string {
@@ -31,6 +31,53 @@ function decodeBuffer(buf: Buffer): string {
       return new TextDecoder("shift_jis", { fatal: true }).decode(buf);
     } catch {
       return new TextDecoder("euc-jp", { fatal: true }).decode(buf);
+    }
+  }
+}
+
+type CdlListLookup = { readonly kind: "probe" | "unlisted" } | { readonly kind: "listed"; readonly path: string };
+
+/** 07E.7.5.11: directory-local lists, scoped to a single resolution batch. */
+class CdlFileLists {
+  private readonly lists = new Map<string, Promise<ReadonlyMap<string, string> | undefined>>();
+
+  constructor(private readonly systemDirs: readonly string[]) {}
+
+  async lookup(candidate: string): Promise<CdlListLookup> {
+    if (!isUnderAny(candidate, this.systemDirs)) return { kind: "probe" };
+    const directory = dirname(candidate);
+    const key = destinationKey(directory);
+    let pending = this.lists.get(key);
+    if (!pending) {
+      pending = this.read(directory);
+      this.lists.set(key, pending);
+    }
+    const list = await pending;
+    if (!list) return { kind: "probe" };
+    const name = basename(candidate);
+    const found = list.get(process.platform === "win32" ? name.toLowerCase() : name);
+    return found === undefined ? { kind: "unlisted" } : { kind: "listed", path: join(directory, found) };
+  }
+
+  private async read(directory: string): Promise<ReadonlyMap<string, string> | undefined> {
+    try {
+      const path = join(directory, "_CDL_FILES.txt");
+      await fileWrites.waitForPath(path);
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(await fs.readFile(path));
+      const names = new Map<string, string>();
+      for (const line of text.split(/\r?\n/)) {
+        const parts = line.trim().replace(/\\/g, "/").split("/").filter((part) => part !== "" && part !== ".");
+        // Entries are immediate file names. A parent's "sub/x.cdl" cannot
+        // authorize a file governed by the child's own list.
+        if (parts.length !== 1 || parts[0] === "..") continue;
+        const name = parts[0]!;
+        const key = process.platform === "win32" ? name.toLowerCase() : name;
+        if (!names.has(key)) names.set(key, name);
+      }
+      return names;
+    } catch {
+      // Missing, unreadable or invalid UTF-8 lists retain ordinary probing.
+      return undefined;
     }
   }
 }
@@ -240,23 +287,54 @@ export class FileService {
       ...(options.baseDir ? [options.baseDir] : []),
       ...(options.extraSearchDirs ?? []),
     ];
-    return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths)));
+    const systemDirs = (options.systemDirs ?? []).map((path) => resolve(path));
+    const lists = new CdlFileLists(systemDirs);
+    return Promise.all(requests.map((request) => this.resolveOne(request, searchDirs, options.importPaths, lists, systemDirs)));
+  }
+
+  private async *candidatesFor(
+    request: ImportRequest,
+    searchDirs: readonly string[],
+    importPaths: readonly string[],
+    lists: CdlFileLists,
+    systemDirs: readonly string[],
+  ): AsyncGenerator<string> {
+    const specifier = request.specifier.split(/[\\/]/).join(sep);
+    const seen = new Set<string>();
+    const first = (path: string): boolean => {
+      const key = destinationKey(path);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    };
+    if (request.kind === "manual") yield resolve(specifier);
+    else {
+      const rawCandidates = searchDirs.flatMap((dir) => importPaths.map((path) => resolve(resolve(dir, path), specifier)));
+      const checked = new Set<string>();
+      for (const candidate of rawCandidates) {
+        const key = destinationKey(candidate);
+        if (checked.has(key)) continue;
+        checked.add(key);
+        const listed = request.kind === "import" ? await lists.lookup(candidate) : { kind: "probe" as const };
+        if (listed.kind === "listed" && first(listed.path)) yield listed.path;
+        else if (listed.kind === "probe" && first(candidate)) yield candidate;
+      }
+      if (request.kind === "import") {
+        for (const directory of systemDirs) {
+          const listed = await lists.lookup(resolve(directory, specifier));
+          if (listed.kind === "listed" && first(listed.path)) yield listed.path;
+        }
+      }
+    }
   }
 
   private async resolveOne(
     request: ImportRequest,
     searchDirs: readonly string[],
     importPaths: readonly string[],
+    lists: CdlFileLists,
+    systemDirs: readonly string[],
   ): Promise<ResolvedImport> {
-    const candidates =
-      request.kind === "manual"
-        ? [request.specifier]
-        : searchDirs.flatMap((dir) =>
-            importPaths.map((p) => (isAbsolute(p) ? join(p, request.specifier) :
-              p === "." ? join(dir, request.specifier) : join(dir, p, request.specifier))),
-          );
-
-    for (const candidate of candidates) {
+    for await (const candidate of this.candidatesFor(request, searchDirs, importPaths, lists, systemDirs)) {
       let buf: Buffer;
       try {
         await fileWrites.waitForPath(candidate);

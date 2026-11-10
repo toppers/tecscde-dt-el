@@ -1,0 +1,132 @@
+{
+  "date": "2026-11-10T22:10:10.569Z",
+  "isolation": "<isolated-temp>",
+  "checks": [
+    {
+      "name": "uppercase .TECSGEN-OPTS, .CDL and .CDE inputs open with their expected source roles",
+      "passed": true
+    },
+    {
+      "name": "single-cell property footer shows its full defining path, including non-ASCII directories",
+      "passed": true
+    },
+    {
+      "name": "cell definition opens as a modeless readonly disk view and treats source text literally",
+      "passed": true
+    },
+    {
+      "name": "definition view shows the disk version while retaining the unsaved diagram edit",
+      "passed": true
+    },
+    {
+      "name": "celltype details retain the basename field and show the type definition full path independently of the primary file",
+      "passed": true
+    },
+    {
+      "name": "celltype details close before opening their separate accessible definition window",
+      "passed": true
+    },
+    {
+      "name": "celltype details can be reopened without duplicate views or placement changes",
+      "passed": true
+    },
+    {
+      "name": "information list creation writes ordered _CDL_FILES.txt entries for uppercase and lowercase CDL files",
+      "passed": true
+    },
+    {
+      "name": "root list contains child list full paths and the UI reports its location and count",
+      "passed": true
+    },
+    {
+      "name": "cancelled overwrite confirmation leaves every existing list byte unchanged",
+      "passed": true
+    },
+    {
+      "name": "different existing lists trigger one overwrite confirmation per operation with cancel as the default",
+      "passed": true,
+      "detail": {
+        "confirmations": [
+          {
+            "type": "warning",
+            "buttons": [
+              "置き換える",
+              "キャンセル"
+            ],
+            "defaultId": 1,
+            "cancelId": 1,
+            "message": "既存の一覧を上書きしますか？",
+            "detail": "<isolated-temp>\\一覧対象\\_CDL_FILES.txt"
+          },
+          {
+            "type": "warning",
+            "buttons": [
+              "置き換える",
+              "キャンセル"
+            ],
+            "defaultId": 1,
+            "cancelId": 1,
+            "message": "既存の一覧を上書きしますか？",
+            "detail": "<isolated-temp>\\一覧対象\\_CDL_FILES.txt"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated LF lists authorize their own directory entries and exclude an unlisted file through real import IPC",
+      "passed": true
+    },
+    {
+      "name": "an absolute import directory resolves without being prefixed by the source directory",
+      "passed": true
+    },
+    {
+      "name": "same-named CDL files in separate directories resolve to separate canonical sources",
+      "passed": true
+    },
+    {
+      "name": "definition viewing, details and list creation preserve the diagram selection, mode, dirty status and undo/redo availability",
+      "passed": true,
+      "detail": {
+        "before": {
+          "label": "Edited",
+          "undo": false,
+          "redo": true,
+          "status": "MAIN.CDE ● 未保存の変更",
+          "selected": 1,
+          "mode": "select"
+        },
+        "after": {
+          "label": "Edited",
+          "undo": false,
+          "redo": true,
+          "status": "MAIN.CDE ● 未保存の変更",
+          "selected": 1,
+          "mode": "select"
+        }
+      }
+    },
+    {
+      "name": "list settings updates and definition reads preserve the open-file session",
+      "passed": true
+    },
+    {
+      "name": "one Undo after all view operations returns exactly to the original clean history state",
+      "passed": true
+    },
+    {
+      "name": "Redo restores the preserved unsaved rename",
+      "passed": true
+    },
+    {
+      "name": "clean close exited successfully",
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "dialogsBefore": 2
+      }
+    }
+  ],
+  "success": true,
+  "scope": "Real Electron DOM/mouse/IPC/filesystem checks for stage3 #10/#18/#37/#38. Only native folder chooser and confirmation answers are stubbed. The child has isolated local/profile settings; host PATH and user settings are untouched. Node.exe is an external-version substitute inherited from the stage2 harness, so this is not an external tecsgen compatibility test."
+}

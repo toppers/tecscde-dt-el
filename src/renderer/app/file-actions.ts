@@ -63,6 +63,7 @@ export async function applyOpenResult(
     toolInfo,
     contextPaths,
     result.references,
+    result.systemDirs ?? [],
   );
   const references = mergeReferences(result.references, autoReferences);
 
@@ -224,6 +225,7 @@ export async function addAsReference(
       mergedToolInfo,
       path,
       existingPaths,
+      store.getSystemDirs(),
     );
     if (!await store.canApplyLoad(guard)) return;
     if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
@@ -239,7 +241,7 @@ export async function addAsReference(
     const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
     const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
     const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
-      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences,
+      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(),
     );
     const sourceTexts = new Map([...mergedSources, [editablePath, editableText] as const]);
     const sourceOrder = [...new Set([

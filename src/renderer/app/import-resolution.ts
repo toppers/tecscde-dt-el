@@ -17,6 +17,7 @@ import type {
   ResolvedImport,
 } from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics/types";
+import { normalizePathForCompare } from "../../shared/path-under";
 
 function toImportRequest(decl: ImportDecl): ImportRequest {
   return { kind: decl.kind, specifier: decl.path };
@@ -37,8 +38,19 @@ export function extractToolInfoTecsgen(text: string): ToolInfoTecsgen {
 
 /** `path/to/foo.cdl` → foo.cdlを除いたディレクトリ部分（rendererにはnode:pathが無いので自前）。 */
 function dirnameOf(path: string): string {
-  return path.replace(/[\\/][^\\/]*$/, "");
+  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (index < 0) return "";
+  if (index === 0 || (index === 2 && /^[A-Za-z]:/.test(path))) return path.slice(0, index + 1);
+  return path.slice(0, index);
 }
+
+/** Compare canonical identities without turning a relative specifier into a source key. */
+function sourceKey(path: string): string {
+  const windows = /^[A-Za-z]:|^[\\/]{2}/.test(path);
+  const normalized = normalizePathForCompare(path);
+  return windows ? "windows:" + normalized.toLowerCase() : "posix:" + normalized;
+}
+const absolutePath = (path: string): boolean => /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path);
 
 /**
  * 第9章9.6節・[[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09B CdeclExtractor設計|9B章]]:
@@ -72,14 +84,10 @@ async function ingestImportC(
 function includeDirsFor(editablePath: string, options: ImportResolutionOptions): string[] {
   const bases = [dirnameOf(editablePath), ...(options.baseDir ? [options.baseDir] : [])];
   const dirs = bases.flatMap((base) =>
-    options.importPaths.map((importPath) => (importPath === "." ? base : `${base}/${importPath}`)),
+    options.importPaths.map((importPath) => absolutePath(importPath) ? importPath :
+      (importPath === "." ? base : `${base}/${importPath}`)),
   );
   return [...new Set(dirs)];
-}
-
-function baseName(path: string): string {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
 }
 
 /**
@@ -98,10 +106,11 @@ async function resolveImportClosure(
   initialFrontier: readonly ImportRequest[],
   seedResolvedPaths: ReadonlySet<string>,
   existingReferences: readonly OpenFileEntry[] = [],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
-  const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."] };
-  const includeDirs = includeDirsFor(editablePath, options);
-  const resolvedPaths = new Set(seedResolvedPaths);
+  const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."],
+    ...(systemDirs.length > 0 ? { systemDirs: [...systemDirs] } : {}) };
+  const resolvedPaths = new Set([...seedResolvedPaths].map(sourceKey));
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
   for (const r of existingReferences) {
     const dir = dirnameOf(r.path);
@@ -112,61 +121,59 @@ async function resolveImportClosure(
   const cdeclResults = new Map<string, CdeclResult>();
 
   const knownByPath = new Map<string, OpenFileEntry>();
-  const knownByBase = new Map<string, OpenFileEntry>();
   for (const r of existingReferences) {
-    knownByPath.set(r.path, r);
-    knownByPath.set(r.path.replace(/\\/g, "/"), r);
-    knownByBase.set(baseName(r.path), r);
+    if (!knownByPath.has(sourceKey(r.path))) knownByPath.set(sourceKey(r.path), r);
   }
 
-  let frontier = initialFrontier;
+  type FrontierEntry = { readonly request: ImportRequest; readonly sourcePath: string };
+  let frontier: readonly FrontierEntry[] = initialFrontier.map((request) => ({ request, sourcePath: editablePath }));
   while (frontier.length > 0) {
-    const unresolvedFrontier: ImportRequest[] = [];
-    const directResolved: ResolvedImport[] = [];
-
-    for (const req of frontier) {
-      const norm = req.specifier.replace(/\\/g, "/");
-      const found =
-        (req.kind === "manual" ? knownByPath.get(req.specifier) : undefined) ??
-        knownByPath.get(norm) ??
-        knownByBase.get(baseName(req.specifier));
+    const resolved: Array<ResolvedImport | undefined> = new Array(frontier.length);
+    const groups = new Map<string, { sourcePath: string; requests: ImportRequest[]; indices: number[] }>();
+    frontier.forEach(({ request: req, sourcePath }, index) => {
+      // Only manual absolute paths identify a source without a search. Every
+      // import still passes main's context and directory-list authorization.
+      const found = req.kind === "manual" && absolutePath(req.specifier) ? knownByPath.get(sourceKey(req.specifier)) : undefined;
       if (found) {
-        directResolved.push({ request: req, canonicalPath: found.path, content: found.content });
+        resolved[index] = { request: req, canonicalPath: found.path, content: found.content };
       } else {
-        unresolvedFrontier.push(req);
+        const key = sourceKey(sourcePath);
+        let group = groups.get(key);
+        if (!group) { group = { sourcePath, requests: [], indices: [] }; groups.set(key, group); }
+        group.requests.push(req); group.indices.push(index);
       }
-    }
+    });
+    await Promise.all([...groups.values()].map(async (group) => {
+      const results = await gateway.resolveImports(group.sourcePath, group.requests, { ...options, extraSearchDirs: [...extraSearchDirs] });
+      group.indices.forEach((index, offset) => { resolved[index] = results[offset]; });
+    }));
+    const nextFrontier: FrontierEntry[] = [];
 
-    let resolvedFromGateway: readonly ResolvedImport[] = [];
-    if (unresolvedFrontier.length > 0) {
-      resolvedFromGateway = await gateway.resolveImports(
-        editablePath,
-        unresolvedFrontier,
-        { ...options, extraSearchDirs: [...extraSearchDirs] },
-      );
-    }
-
-    const resolved = [...directResolved, ...resolvedFromGateway];
-    const nextFrontier: ImportRequest[] = [];
-
-    for (const r of resolved) {
+    for (let index = 0; index < frontier.length; index++) {
+      const sourcePath = frontier[index]!.sourcePath;
+      const r = resolved[index] ?? { request: frontier[index]!.request, error: "not-found" as const };
       if (r.error || !r.canonicalPath) {
         diagnostics.push(unresolvedReferenceFile(r.request.specifier));
         continue;
       }
-      if (resolvedPaths.has(r.canonicalPath)) continue; // 循環・重複
-      resolvedPaths.add(r.canonicalPath);
-      const dir = dirnameOf(r.canonicalPath);
+      const key = sourceKey(r.canonicalPath);
+      if (resolvedPaths.has(key)) continue; // 循環・正規化済みソースの重複
+      const existing = knownByPath.get(key);
+      const canonicalPath = existing?.path ?? r.canonicalPath;
+      const content = existing?.content ?? r.content;
+      if (content === undefined) { diagnostics.push(unresolvedReferenceFile(r.request.specifier)); continue; }
+      resolvedPaths.add(key);
+      const dir = dirnameOf(canonicalPath);
       if (!extraSearchDirs.includes(dir)) extraSearchDirs.push(dir); // tecsgenの$base_dir累積に相当
 
       if (r.request.kind === "import_C") {
-        const result = await ingestImportC(tecsgenGateway, r.canonicalPath, r.content!, toolInfo.cpp, includeDirs, diagnostics);
-        cdeclResults.set(r.canonicalPath, result);
+        const result = await ingestImportC(tecsgenGateway, canonicalPath, content, toolInfo.cpp, includeDirsFor(sourcePath, options), diagnostics);
+        cdeclResults.set(canonicalPath, result);
       } else {
-        references.push({ path: r.canonicalPath, content: r.content! });
+        references.push({ path: canonicalPath, content });
       }
       if (r.request.kind === "import" || r.request.kind === "manual") {
-        nextFrontier.push(...extractImportRequests(r.content!)); // 推移的closure
+        nextFrontier.push(...extractImportRequests(content).map((request) => ({ request, sourcePath: canonicalPath })));
       }
     }
     frontier = nextFrontier;
@@ -191,6 +198,7 @@ export async function resolveAllImports(
   toolInfo: ToolInfoTecsgen,
   extraImportPaths: readonly string[] = [],
   existingReferences: readonly OpenFileEntry[] = [],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
@@ -205,6 +213,7 @@ export async function resolveAllImports(
     ],
     new Set([editablePath]),
     existingReferences,
+    systemDirs,
   );
 }
 
@@ -221,7 +230,8 @@ export async function resolveAddedReference(
   toolInfo: ToolInfoTecsgen,
   path: string,
   alreadyLoadedPaths: readonly string[],
+  systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const seed = new Set([editablePath, ...alreadyLoadedPaths]);
-  return resolveImportClosure(gateway, tecsgenGateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed);
+  return resolveImportClosure(gateway, tecsgenGateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs);
 }

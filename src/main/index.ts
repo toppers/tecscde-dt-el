@@ -21,6 +21,7 @@ import { restoreSession } from "./session-restore.js";
 import { createCloseStateQuery } from "./close-state-bridge.js";
 import { loadAppSettings } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
+import { fileKind } from "../shared/file-kind.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -48,7 +49,7 @@ let pendingOpenPath: string | null = null;
 
 // Windows/Linux: コマンドライン引数、または .cde/.cdl/.tecsgen-opts ファイルの「アプリで開く」
 const argPath = process.argv.find(
-  (a) => a.endsWith(".cde") || a.endsWith(".cdl") || a.endsWith(".tecsgen-opts"),
+  (a) => fileKind(a) !== undefined,
 );
 if (argPath) pendingOpenPath = argPath;
 
@@ -132,7 +133,7 @@ function createWindow(): BrowserWindow {
     try {
       let data: OpenResult;
       if (pendingOpenPath) {
-        if (pendingOpenPath.endsWith(".tecsgen-opts")) {
+        if (fileKind(pendingOpenPath) === "options") {
           const parsed = await fileService.parseTecsgenOptionsFile(pendingOpenPath);
           const [last, ...rest] = [...parsed.cdlFiles].reverse();
           if (last) {

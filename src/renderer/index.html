@@ -293,6 +293,15 @@
         color: #888888;
         font-size: 11px;
       }
+      .palette-celltype-row { display: flex; gap: 4px; }
+      .palette-celltype-row .palette-celltype { flex: 1; min-width: 0; }
+      .definition-source { margin-top: 12px; overflow-wrap: anywhere; user-select: text; }
+      .definition-file-window, .celltype-details-dialog {
+        width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+        overflow: auto; border: 1px solid var(--border); border-radius: 5px;
+        background: var(--panel); color: var(--ink); box-shadow: 0 4px 16px rgba(0,0,0,.22);
+      }
+      .celltype-details-dialog::backdrop { background: rgba(0,0,0,.3); }
       #canvas-area {
         flex: 1;
         position: relative;
@@ -392,6 +401,9 @@
       #information-dialog h2 { margin: 0 0 16px; font-size: 18px; }
       #information-dialog h3 { margin: 16px 0 8px; font-size: 14px; }
       #information-version { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .cdl-file-list-section input { display: block; box-sizing: border-box; width: 100%; margin: 4px 0 8px; }
+      .cdl-file-list-section p { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .cdl-file-list-section button + button { margin-left: 6px; }
       .information-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
       .information-field input { box-sizing: border-box; width: 100%; padding: 6px; font: inherit; }
       .information-field input:read-only { background: #eeeeee; }
