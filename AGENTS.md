@@ -122,8 +122,10 @@ still opens and unresolved generated types remain as diagnostic warnings (`W-PLU
 
 `app-settings.ts` persists window-independent settings (file-browser root, `lastSession` file set)
 under **Local** AppData on Windows (not Roaming, since paths are per-PC). `log-service.ts` appends
-what the diagnostics panel shows to `tecscde-log-YYYYMMDD-HHMMSS.txt` (cwd first, falling back to
-other dirs if unwritable; write failures never stop the app). Log files are gitignored.
+what the diagnostics panel shows to `tecscde-log-YYYYMMDD-HHMMSS.txt` under the fixed `logs/` directory
+within the settings directory (`%LOCALAPPDATA%/tecscde-dt-el/logs` on Windows), pruned to 30 recent files
+at startup; write failures report a one-time `W-LOG-WRITE-FAILED` warning and never stop the app. Log files
+are gitignored.
 
 ## Renderer bundling
 

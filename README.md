@@ -125,7 +125,7 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 ## Diagnostics log
 
-診断パネルに表示される内容は、`tecscde-log-YYYYMMDD-HHMMSS.txt` にも追記されます。カレントディレクトリを優先し、書き込めない場合は他のディレクトリにフォールバックします。書き込みに失敗してもアプリは停止しません。ログファイルは `.gitignore` 対象です。
+診断パネルに表示される内容は、設定フォルダ配下の固定ディレクトリ（Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外は `userData/logs/`）の `tecscde-log-YYYYMMDD-HHMMSS.txt` に追記されます。起動時に直近30個のログファイルを保持し、古いログは整理されます。書き込みに失敗した場合は一度限りの警告（`W-LOG-WRITE-FAILED`）として画面に通知され、アプリは停止しません。ログファイルは `.gitignore` 対象です。
 
 ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下に保存されます。
 
