@@ -10,6 +10,7 @@ import { ClipboardGateway } from "./gateways/clipboard-gateway";
 import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
+import { createLogAppender } from "./app/log-appender";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
 import { SettingsGateway } from "./gateways/settings-gateway";
@@ -67,12 +68,14 @@ function main(): void {
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
-  const logger = new DiagnosticsLogger(store, (lines) => new LogGateway().append(lines));
+  // 初回失敗時に W-LOG-WRITE-FAILED を通知する logAppender 経由で書き込む（監査#66）。
+  const logAppender = createLogAppender(store, new LogGateway());
+  const logger = new DiagnosticsLogger(store, (lines) => logAppender.append(lines));
   store.subscribe(() => logger.sync());
 
   // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
   void settings.getToolSettings().then((tool) =>
-    checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics(), tool.effectiveCommand, tool.revision))
+    checkTecsgenVersion(store, tecsgen, logAppender, () => shell.openDiagnostics(), tool.effectiveCommand, tool.revision))
     .catch((error: unknown) => console.error("tecsgen設定の読み込みに失敗しました:", error));
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。

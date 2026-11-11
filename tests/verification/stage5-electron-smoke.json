@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-11T01:57:28.578Z",
+  "isolation": "C:\\Users\\ykomi\\AppData\\Local\\Temp\\tecscde-stage5-smoke-7iDN1U",
+  "checks": [
+    {
+      "name": "Electron and renderer loaded with window.tecscde",
+      "passed": true
+    },
+    {
+      "name": "no log file created when there are no diagnostics (audit #67)",
+      "passed": true,
+      "detail": {
+        "files": []
+      }
+    },
+    {
+      "name": "log.append succeeded",
+      "passed": true,
+      "detail": {
+        "appendResult": {
+          "success": true,
+          "newFailure": false
+        }
+      }
+    },
+    {
+      "name": "exactly one log file created in logs directory",
+      "passed": true,
+      "detail": {
+        "createdFiles": [
+          "tecscde-log-20261111-105728.txt"
+        ]
+      }
+    },
+    {
+      "name": "log file contains header line with version and start time",
+      "passed": true,
+      "detail": {
+        "firstLine": "# TECSCDE 診断ログ（起動: 2026-11-11T01:57:28.895Z、版: 0.1.0）"
+      }
+    },
+    {
+      "name": "delimiter line prepended before first diagnostic record",
+      "passed": true,
+      "detail": {
+        "secondLine": "--- /virtual/test.cdl ---"
+      }
+    },
+    {
+      "name": "diagnostic line is escaped to single line (audit #68)",
+      "passed": true,
+      "detail": {
+        "thirdLine": "[W-TEST] sample warning line 1\\nline 2"
+      }
+    },
+    {
+      "name": "screenshot captured",
+      "passed": true,
+      "path": "C:\\Users\\ykomi\\orca\\workspaces\\TECSCDE-DT-EL\\TECSCDE-DT-EL-agy\\tests\\verification\\stage5-electron-smoke.png"
+    }
+  ],
+  "logs": [
+    "[stdout] ",
+    "[stdout] update-electron-app config looks good; aborting updates since app is in development mode",
+    "[stderr] DevTools listening on ws://127.0.0.1:59695/devtools/browser/843b1f35-2257-4023-8c03-87c60d9453df"
+  ],
+  "success": true
+}

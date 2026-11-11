@@ -188,6 +188,13 @@ export interface AppInformation {
   readonly arch: string;
 }
 
+/** 外部仕様9.5節 / 監査#66: ログファイル追記の結果型。初回失敗時のみ newFailure が true になる。 */
+export interface LogAppendResult {
+  readonly success: boolean;
+  readonly newFailure: boolean;
+  readonly error?: string;
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
   readonly cdl: {
@@ -263,7 +270,7 @@ export interface TecscdeApi {
   };
   /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
   readonly log: {
-    append(lines: readonly string[]): Promise<void>;
+    append(lines: readonly string[]): Promise<LogAppendResult>;
   };
   /**
    * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・

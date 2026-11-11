@@ -106,11 +106,16 @@ export function normalizeAppSettings(value: unknown): AppSettings {
  * 復元されてしまう——PC固有の設定は明示的にLocal AppData配下へ置く。Windows以外に
  * Roaming/Localの区別は無いため、Windows以外では`userData`のままでよい。
  */
-function settingsDir(): string {
+export function settingsDir(): string {
   if (process.platform === "win32" && process.env["LOCALAPPDATA"]) {
     return join(process.env["LOCALAPPDATA"], "tecscde-dt-el");
   }
   return app.getPath("userData");
+}
+
+/** 外部仕様9.5節 / 監査#64: 診断ログの固定出力先ディレクトリ（設定ディレクトリ直下の logs/）。 */
+export function logsDirectory(): string {
+  return join(settingsDir(), "logs");
 }
 
 function settingsPath(): string {

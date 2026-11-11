@@ -523,6 +523,15 @@ export class AppStore {
     this.notify();
   }
 
+  /**
+   * 監査#66: ログ書き込み失敗などの起動中環境警告を重複なく追加する。
+   */
+  addEnvironmentDiagnostic(diagnostic: Diagnostic): void {
+    if (this.environmentDiagnostics.some((d) => d.code === diagnostic.code && d.message === diagnostic.message)) return;
+    this.environmentDiagnostics = [...this.environmentDiagnostics, diagnostic];
+    this.notify();
+  }
+
   setToolSettingsRevision(revision: number): void {
     if (revision <= this.toolSettingsRevision) return;
     this.toolSettingsRevision = revision;

@@ -29,6 +29,7 @@ export const W_CODES = {
   REGION_MISMATCH: "W-REGION-MISMATCH",
   ACTIVE_TOP_OVERFLOW: "W-ACTIVE-TOP-OVERFLOW",
   ACTIVE_TOP_FAILED: "W-ACTIVE-TOP-FAILED",
+  LOG_WRITE_FAILED: "W-LOG-WRITE-FAILED",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -137,6 +138,18 @@ export function activeTopFailed(): Diagnostic {
     severity: "warning",
     code: W_CODES.ACTIVE_TOP_FAILED,
     message: "現在の用紙内に重ならずに配置できないため、最上段への移動を行いませんでした。",
+  };
+}
+
+/**
+ * [[TECSCDE-DT外部仕様 - 09 エラーと警告#9.5]], 監査#66:
+ * 診断ログの作成・追記・保存先ディレクトリ作成が失敗した際に一度だけ画面へ出す警告。
+ */
+export function logWriteFailed(): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.LOG_WRITE_FAILED,
+    message: "診断ログを作れない、または追記できない。診断パネルの内容は、このファイルに残らない",
   };
 }
 

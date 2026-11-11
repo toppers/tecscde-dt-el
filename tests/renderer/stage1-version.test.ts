@@ -15,7 +15,7 @@ describe("stage1 application version", () => {
     expect(CdlSerializer.serialize(TecscdeDocument.empty())).toContain(`"tecscde_version": "${expected}"`);
   });
   it("replaces old tool diagnostics after reconfiguration while retaining unrelated diagnostics", async () => {
-    const store = new AppStore(); const log = { append: vi.fn(async () => {}) };
+    const store = new AppStore(); const log = { append: vi.fn(async () => ({ success: true, newFailure: false })) };
     store.setEnvironmentDiagnostics([{ severity: "warning", code: "W-OTHER", message: "retain" }]);
     store.setTecsgenDiagnostics([{ severity: "error", code: "E-TECSGEN-NOT-FOUND", message: "old config" },
       { severity: "error", code: "G1001", message: "source error" }]);
@@ -24,7 +24,7 @@ describe("stage1 application version", () => {
     expect(store.getReport().items.map((entry) => entry.code)).toEqual(["G1001", "W-OTHER"]);
   });
   it("ignores an old version result that finishes after the latest check", async () => {
-    const store = new AppStore(); const log = { append: vi.fn(async () => {}) };
+    const store = new AppStore(); const log = { append: vi.fn(async () => ({ success: true, newFailure: false })) };
     let resolve!: (result: TecsgenVersionResult) => void;
     const pending = checkTecsgenVersion(store, { version: () => new Promise((r) => { resolve = r; }) }, log);
     await checkTecsgenVersion(store, { version: async () => ({ kind: "ok", text: "version 1.9.1" }) }, log);
@@ -33,7 +33,7 @@ describe("stage1 application version", () => {
     expect(log.append).toHaveBeenCalledTimes(1);
   });
   it("does not start a delayed startup check from an older settings revision", async () => {
-    const store = new AppStore(); const log = { append: vi.fn(async () => {}) };
+    const store = new AppStore(); const log = { append: vi.fn(async () => ({ success: true, newFailure: false })) };
     await checkTecsgenVersion(store, { version: async () => ({ kind: "ok", text: "version 1.9.1" }) }, log,
       undefined, "new-command", 2);
     const version = vi.fn(async () => ({ kind: "ok" as const, text: "obsolete" }));
@@ -41,14 +41,14 @@ describe("stage1 application version", () => {
     expect(version).not.toHaveBeenCalled(); expect(store.getTecsgenStatus().command).toBe("new-command");
   });
   it("rejects a late Generate failure from a previous tool setting", async () => {
-    const store = new AppStore(); const log = { append: vi.fn(async () => {}) };
+    const store = new AppStore(); const log = { append: vi.fn(async () => ({ success: true, newFailure: false })) };
     await checkTecsgenVersion(store, { version: async () => ({ kind: "ok", text: "version 1.9.1" }) }, log,
       undefined, "new-command", 2);
     store.setTecsgenDiagnostics([{ severity: "error", code: "E-TECSGEN-LAUNCH-FAILED", message: "old" }], 1);
     expect(store.getReport().errorCount).toBe(0);
   });
   it("retains a newer Generate failure under the same settings during startup version checking", async () => {
-    const store = new AppStore(); const log = { append: vi.fn(async () => {}) };
+    const store = new AppStore(); const log = { append: vi.fn(async () => ({ success: true, newFailure: false })) };
     let resolve!: (result: TecsgenVersionResult) => void;
     const pending = checkTecsgenVersion(store, { version: () => new Promise((r) => { resolve = r; }) }, log,
       undefined, "same-command", 1);
