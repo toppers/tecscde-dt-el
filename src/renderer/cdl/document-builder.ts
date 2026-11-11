@@ -437,6 +437,7 @@ export class CdlDocumentLoader {
         generated: source.generated === true,
         composite,
         hasUnsupportedSyntax: isOrdinaryCelltype(ct) ? false : ct.hasUnsupportedSyntax,
+        active: ct.active,
       });
       celltypes.set(typeName, celltype);
       qualifiedCelltypes.set(isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name, celltype);

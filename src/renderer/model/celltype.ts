@@ -28,6 +28,7 @@ export interface CelltypeRefCreateParams {
   readonly generated?: boolean;
   readonly composite?: CompositeStructure;
   readonly hasUnsupportedSyntax?: boolean;
+  readonly active?: boolean;
 }
 
 export class CelltypeRef {
@@ -42,6 +43,7 @@ export class CelltypeRef {
     readonly generated: boolean,
     readonly composite: CompositeStructure | undefined,
     readonly hasUnsupportedSyntax: boolean,
+    readonly active: boolean,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -56,6 +58,7 @@ export class CelltypeRef {
       params.generated ?? false,
       params.composite,
       params.hasUnsupportedSyntax ?? false,
+      params.active ?? false,
     );
   }
 }

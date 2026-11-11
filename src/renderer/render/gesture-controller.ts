@@ -151,6 +151,13 @@ export class GestureController {
     }
 
     if (hit.kind === "cport") {
+      const portSelection = SelectionState.ofPort({
+        cellId: hit.cellId,
+        portName: hit.portName,
+        portKind: "cport",
+        subscript: hit.subscript,
+      });
+      this.host.setSelection(portSelection);
       const cell = doc.getCell(hit.cellId);
       const port = cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);
       if (port && port.joinId === null) {
@@ -158,10 +165,18 @@ export class GestureController {
           kind: "joining",
           from: { cellId: hit.cellId, portName: hit.portName, subscript: hit.subscript },
         });
-      } else {
-        // 既に結合済みの呼び口はハイライトのみ（結合モードには入らない、外部仕様6.4.1）。
-        this.host.setSelection(SelectionState.empty());
       }
+      return;
+    }
+
+    if (hit.kind === "eport") {
+      const portSelection = SelectionState.ofPort({
+        cellId: hit.cellId,
+        portName: hit.portName,
+        portKind: "eport",
+        subscript: hit.subscript,
+      });
+      this.host.setSelection(portSelection);
       return;
     }
 

@@ -27,6 +27,8 @@ export const W_CODES = {
   C_TYPE_UNRESOLVED: "W-C-TYPE-UNRESOLVED",
   PORT_SIGNATURE_UNRESOLVED: "W-PORT-SIGNATURE-UNRESOLVED",
   REGION_MISMATCH: "W-REGION-MISMATCH",
+  ACTIVE_TOP_OVERFLOW: "W-ACTIVE-TOP-OVERFLOW",
+  ACTIVE_TOP_FAILED: "W-ACTIVE-TOP-FAILED",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -113,3 +115,28 @@ export function cdeclParseError(headerPath: string): Diagnostic {
     message: `\`${headerPath}\` の一部を解析できませんでした（構文エラー）。捕捉できた範囲のtypedef/structのみ反映しています`,
   };
 }
+
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 06C V0.2.0表示と配置#6C.4]], [[TECSCDE-DT-EL内部仕様 - 08 整合性チェックとメッセージ設計#8.5]]:
+ * activeセルの最上段配置で最上段以外の行へ送った対象セル数を通知する。
+ */
+export function activeTopOverflow(count: number): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.ACTIVE_TOP_OVERFLOW,
+    message: `対象のうち ${count} 個が、最上段に置ききれず、次の行以降へ送られました。`,
+  };
+}
+
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 06C V0.2.0表示と配置#6C.4]], [[TECSCDE-DT-EL内部仕様 - 08 整合性チェックとメッセージ設計#8.5]]:
+ * 用紙内に重ならずに配置できないため操作全体を拒否したことを通知する。
+ */
+export function activeTopFailed(): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.ACTIVE_TOP_FAILED,
+    message: "現在の用紙内に重ならずに配置できないため、最上段への移動を行いませんでした。",
+  };
+}
+

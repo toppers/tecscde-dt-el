@@ -30,12 +30,28 @@ export interface CanvasView {
   readonly hiddenRegionIds: ReadonlySet<RegionId>;
   /** リージョンごとの色（第6B章6B.3）。`null` は色分けなし。根には色が無い。 */
   readonly regionColors: ReadonlyMap<RegionId, string> | null;
+  /** アクティブセルのみ表示（外部仕様7.3.x、内部仕様6C.1・監査#45）。 */
+  readonly activeOnly?: boolean;
+  /** 結合強調表示の対象となる結合ID集合（内部仕様6C.3・監査#46）。 */
+  readonly focusedJoinIds?: ReadonlySet<JoinId>;
+  /** リージョン矩形表示モード（内部仕様6C.5・監査#47）。 */
+  readonly regionOutlineMode?: boolean;
 }
 
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
 // これはそのフィルタ無し・ズーム100%の既定値であり、`ViewState.initial()` の射影と一致する。
 export function defaultCanvasView(): CanvasView {
-  return { zoom: 1, gridVisible: false, showSignatureNames: true, emphasizeCellName: false, hiddenRegionIds: new Set(), regionColors: null };
+  return {
+    zoom: 1,
+    gridVisible: false,
+    showSignatureNames: true,
+    emphasizeCellName: false,
+    hiddenRegionIds: new Set(),
+    regionColors: null,
+    activeOnly: false,
+    focusedJoinIds: undefined,
+    regionOutlineMode: false,
+  };
 }
 
 /** モデル座標(mm)1つあたりの画面ピクセル数。 */
@@ -54,8 +70,15 @@ export interface Rect {
   readonly b: Point;
 }
 
+export interface SelectedPort {
+  readonly cellId: CellId;
+  readonly portName: string;
+  readonly portKind: "cport" | "eport";
+  readonly subscript: number | null;
+}
+
 /**
- * 選択集合（セル・結合）。不変。空の選択は `SelectionState.empty()`。
+ * 選択集合（セル・結合・ポート）。不変。空の選択は `SelectionState.empty()`。
  * 移動・削除・コピーのコマンド（第4章）は、この一時集合をそのまま対象に取れる
  * （[[TECSCDE内部仕様]] 6.5節）。
  */
@@ -63,18 +86,27 @@ export class SelectionState {
   private constructor(
     readonly cellIds: ReadonlySet<CellId>,
     readonly joinIds: ReadonlySet<JoinId>,
+    readonly selectedPorts: readonly SelectedPort[] = [],
   ) {}
 
   static empty(): SelectionState {
-    return new SelectionState(new Set(), new Set());
+    return new SelectionState(new Set(), new Set(), []);
   }
 
   static ofCells(ids: Iterable<CellId>): SelectionState {
-    return new SelectionState(new Set(ids), new Set());
+    return new SelectionState(new Set(ids), new Set(), []);
   }
 
   static ofJoin(id: JoinId): SelectionState {
-    return new SelectionState(new Set(), new Set([id]));
+    return new SelectionState(new Set(), new Set([id]), []);
+  }
+
+  static ofPort(port: SelectedPort): SelectionState {
+    return new SelectionState(new Set(), new Set(), [port]);
+  }
+
+  static ofPorts(ports: readonly SelectedPort[]): SelectionState {
+    return new SelectionState(new Set(), new Set(), ports);
   }
 
   get isEmpty(): boolean {
@@ -89,18 +121,29 @@ export class SelectionState {
     return this.joinIds.has(id);
   }
 
+  hasPort(port: SelectedPort): boolean {
+    return this.selectedPorts.some(
+      (p) => p.cellId === port.cellId && p.portName === port.portName && p.portKind === port.portKind && p.subscript === port.subscript,
+    );
+  }
+
   /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（結合選択はクリアする）。 */
   withCellToggled(id: CellId): SelectionState {
     const next = new Set(this.cellIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    return new SelectionState(next, new Set());
+    return new SelectionState(next, new Set(), []);
   }
 
   /** Shift+クリック相当: セルを追加する（既存のセル選択は保つ）。 */
   withCellAdded(id: CellId): SelectionState {
     const next = new Set(this.cellIds);
     next.add(id);
-    return new SelectionState(next, new Set());
+    return new SelectionState(next, new Set(), []);
+  }
+
+  withPortAdded(port: SelectedPort): SelectionState {
+    if (this.hasPort(port)) return this;
+    return new SelectionState(new Set(), new Set(), [...this.selectedPorts, port]);
   }
 }

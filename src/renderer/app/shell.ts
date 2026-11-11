@@ -45,6 +45,9 @@ import { ModelessDialog } from "./modeless-dialog";
 import { documentStatusText, documentTitle, inputModeLabel } from "./status-text";
 import { DefinitionFileView } from "./definition-file-view";
 import { CelltypeDetailsView } from "./celltype-details-view";
+import { resolveHighlightedJoinIds } from "../render/connection-focus";
+import { canMoveActiveToTop, prepareMoveActiveToTop, MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
+import { activeTopFailed, activeTopOverflow } from "../cdl/messages";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -86,6 +89,7 @@ export class AppShell {
   private readonly filterColor: HTMLInputElement;
   private readonly filterSignature: HTMLInputElement;
   private readonly filterEmphasize: HTMLInputElement;
+  private readonly filterActiveOnly: HTMLInputElement | null;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
@@ -145,6 +149,7 @@ export class AppShell {
     this.filterColor = requireEl<HTMLInputElement>(root, "#filter-color");
     this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
     this.filterEmphasize = requireEl<HTMLInputElement>(root, "#filter-emphasize");
+    this.filterActiveOnly = root.querySelector<HTMLInputElement>("#filter-active-only");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
@@ -258,7 +263,11 @@ export class AppShell {
     this.information?.refreshStatus();
     const doc = this.store.getDocument();
     const view = this.store.view;
-    const canvasView = view.toCanvasView(doc.regions);
+    const focusedJoinIds =
+      this.store.isConnectionFocusEnabled() && this.store.selection.selectedPorts.length > 0
+        ? resolveHighlightedJoinIds(doc, this.store.selection.selectedPorts)
+        : undefined;
+    const canvasView = view.toCanvasView(doc.regions, focusedJoinIds);
     const hits = searchDocument(doc, view.searchQuery, canvasView.hiddenRegionIds);
     const cellIds = new Set<CellId>();
     const joinIds = new Set<JoinId>();
@@ -351,6 +360,26 @@ export class AppShell {
         break;
       case "alignLeft":
         alignSelection(this.store, "left");
+        break;
+      case "moveActiveToTop": {
+        const doc = this.store.getDocument();
+        const plan = prepareMoveActiveToTop(doc);
+        if (!plan.success) {
+          this.store.setTransientActionDiagnostics([activeTopFailed()]);
+        } else {
+          this.store.dispatch(new MoveActiveCellsToTopCommand(plan));
+          if (plan.spilledCellIds.length > 0) {
+            this.store.setCommandDiagnostics(this.store.history.nodeId, [activeTopOverflow(plan.spilledCellIds.length)]);
+          }
+          this.statusRegion.textContent = `アクティブセル ${plan.moves.size} 個を最上段へ配置しました`;
+        }
+        break;
+      }
+      case "toggleConnectionFocus":
+        this.store.toggleConnectionFocus();
+        break;
+      case "toggleRegionOutlineMode":
+        this.store.setView(this.store.view.toggleRegionOutlineMode());
         break;
       case "undo":
         this.store.undo();
@@ -457,13 +486,20 @@ export class AppShell {
       const f = this.store.view.filters;
       this.store.setView(this.store.view.withFilters(f.withEmphasizeCellName(this.filterEmphasize.checked)));
     };
+    const onActiveOnly = (): void => {
+      if (!this.filterActiveOnly) return;
+      const f = this.store.view.filters;
+      this.store.setView(this.store.view.withFilters(f.withActiveOnly(this.filterActiveOnly.checked)));
+    };
     this.filterColor.addEventListener("change", onColor);
     this.filterSignature.addEventListener("change", onSignature);
     this.filterEmphasize.addEventListener("change", onEmphasize);
+    this.filterActiveOnly?.addEventListener("change", onActiveOnly);
     this.disposers.push(() => {
       this.filterColor.removeEventListener("change", onColor);
       this.filterSignature.removeEventListener("change", onSignature);
       this.filterEmphasize.removeEventListener("change", onEmphasize);
+      this.filterActiveOnly?.removeEventListener("change", onActiveOnly);
     });
   }
 
@@ -473,16 +509,24 @@ export class AppShell {
     // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
     this.setDisabled("[data-action='alignTop']", !canAlign(this.store, "top"));
     this.setDisabled("[data-action='alignLeft']", !canAlign(this.store, "left"));
+    // 第6C章6C.4節: activeかつ編集可能なセルが1つ以上あるときだけ有効。
+    this.setDisabled("[data-action='moveActiveToTop']", !canMoveActiveToTop(this.store.getDocument()));
     const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
     this.setDisabled("[data-action='generate']", !canGenerate);
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
     // 外部仕様3.2.1: スライダはボタン・ホイール・キーボードいずれのズーム変更にも追従する。
     this.zoomSlider.value = String(Math.round(this.store.view.zoom * 100));
-    // 第6B章6B.6: 表示制御バーのチェックは常に `DisplayFilters` の状態に従う。
+    // 第6B章6B.6 / 第6C章6C.1: 表示制御バーのチェックは常に `DisplayFilters` の状態に従う。
     const filters = this.store.view.filters;
     this.filterColor.checked = filters.colorByRegion;
     this.filterSignature.checked = filters.showSignatureNames;
     this.filterEmphasize.checked = filters.emphasizeCellName;
+    if (this.filterActiveOnly) this.filterActiveOnly.checked = filters.activeOnly;
+    // 第6C章6C.3 / 6C.5: トグルの aria-pressed 同期
+    const cfBtn = this.toolbar.querySelector<HTMLButtonElement>("[data-action='toggleConnectionFocus']");
+    if (cfBtn) cfBtn.setAttribute("aria-pressed", String(this.store.isConnectionFocusEnabled()));
+    const roBtn = this.toolbar.querySelector<HTMLButtonElement>("[data-action='toggleRegionOutlineMode']");
+    if (roBtn) roBtn.setAttribute("aria-pressed", String(this.store.view.regionOutlineMode));
   }
 
   private setDisabled(selector: string, disabled: boolean): void {
@@ -494,8 +538,13 @@ export class AppShell {
 
   private refreshStatus(): void {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
-    // 外部仕様4.9.2: 選択したセルの所属リージョンをステータス表示に示す。
-    this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
+    // 外部仕様4.9.2 / 第6C章6C.3節: 選択したセルの所属リージョン、またはポート選択時の「結合なし」をステータス表示に示す。
+    if (this.store.selection.selectedPorts.length > 0) {
+      const highlighted = resolveHighlightedJoinIds(this.store.getDocument(), this.store.selection.selectedPorts);
+      this.statusRegion.textContent = highlighted.size === 0 ? "結合なし" : regionStatusText(this.store.getDocument(), this.store.selection);
+    } else {
+      this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
+    }
     this.statusMode.textContent = inputModeLabel(this.store.getMode());
     const path = this.store.filePath;
     const dirty = this.store.isDirty();

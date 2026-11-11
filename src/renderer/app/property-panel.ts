@@ -11,6 +11,7 @@ import type { Region } from "../model/region";
 import type { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 import { definitionFooter, definitionLocation, type DefinitionSource } from "./definition-source";
+import { deriveCellVisualState } from "../render/cell-visual-state";
 
 function field(labelText: string): { wrapper: HTMLDivElement; input: HTMLInputElement } {
   const wrapper = document.createElement("div");
@@ -99,6 +100,7 @@ export class PropertyPanelView {
       .map(([k, v]) => `${k}=${v}`)
       .join(",");
     const definition = definitionLocation(cell.locale, this.store.getGeneratedTypeSources());
+    const visual = deriveCellVisualState(doc, cell);
     return [
       "cell",
       cell.id,
@@ -106,6 +108,8 @@ export class PropertyPanelView {
       cell.name,
       cell.celltypeName,
       cell.celltypeUnresolved,
+      visual.incompleteReasons.join(";"),
+      visual.unconnectedCallPortIds ? visual.unconnectedCallPortIds.join(",") : "null",
       cell.locale,
       definition.label,
       definition.source?.kind === "virtual" ? definition.source.content : "",
@@ -127,9 +131,37 @@ export class PropertyPanelView {
   }
 
   private renderCell(doc: TecscdeDocument, cell: Cell): void {
+    const visual = deriveCellVisualState(doc, cell);
     if (!cell.editable) {
       this.root.appendChild(note("このセルは読み込み専用ファイル由来のため編集できません。", "prop-readonly-note"));
     }
+
+    const statusBox = document.createElement("div");
+    statusBox.className = "prop-status-box";
+
+    const editStatus = document.createElement("div");
+    editStatus.className = "prop-status-item";
+    editStatus.textContent = `編集可否: ${visual.readOnly ? "読み取り専用" : "編集可能"}`;
+    statusBox.appendChild(editStatus);
+
+    if (visual.incompleteReasons.length > 0) {
+      const incomplete = document.createElement("div");
+      incomplete.className = "prop-status-item prop-incomplete-reasons";
+      incomplete.textContent = `不完全の理由: ${visual.incompleteReasons.join("、")}`;
+      statusBox.appendChild(incomplete);
+    }
+
+    const unconnected = document.createElement("div");
+    unconnected.className = "prop-status-item prop-unconnected-ports";
+    if (visual.unconnectedCallPortIds === null) {
+      unconnected.textContent = "未結合の呼び口: 判定不能（型未解決）";
+    } else if (visual.unconnectedCallPortIds.length > 0) {
+      unconnected.textContent = `未結合の呼び口: ${visual.unconnectedCallPortIds.join(", ")}`;
+    } else {
+      unconnected.textContent = "未結合の呼び口: なし";
+    }
+    statusBox.appendChild(unconnected);
+    this.root.appendChild(statusBox);
 
     const nameField = field("name");
     nameField.input.value = cell.name;

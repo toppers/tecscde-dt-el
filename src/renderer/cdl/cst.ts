@@ -33,6 +33,7 @@ export interface CelltypeDecl {
   readonly qualifiedName: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly active: boolean;
 }
 
 export interface JoinAssignDecl {
@@ -96,6 +97,7 @@ export interface CompositeDecl {
   readonly attributes: readonly string[];
   readonly structure: CompositeStructure;
   readonly hasUnsupportedSyntax: boolean;
+  readonly active: boolean;
 }
 
 export interface ParsedCdl {
@@ -144,6 +146,23 @@ function innermostIdentifier(node: Node): string | undefined {
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+function hasActiveSpecifier(node: Node): boolean {
+  const container = node.type === "specified_statement" || node.type === "specified_composite_celltype_statement"
+    ? node
+    : (node.parent?.type === "specified_statement" || node.parent?.type === "specified_composite_celltype_statement")
+    ? node.parent
+    : undefined;
+  if (!container) return false;
+  for (let i = 0; i < container.namedChildCount; i += 1) {
+    const child = container.namedChild(i);
+    if (!child) continue;
+    if (child.type === "specifier_list" || child.type.includes("specifier")) {
+      if (/\bactive\b/.test(child.text)) return true;
+    }
+  }
+  return false;
 }
 
 export class CdlDocumentBuilder {
@@ -402,6 +421,7 @@ export class CdlDocumentBuilder {
       attributes,
       structure: { internalCells, portExports, rawText: compositeNode.text },
       hasUnsupportedSyntax,
+      active: hasActiveSpecifier(compositeNode),
     };
   }
 
@@ -434,7 +454,7 @@ export class CdlDocumentBuilder {
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: name.text, qualifiedName, ports, attributes };
+    return { name: name.text, qualifiedName, ports, attributes, active: hasActiveSpecifier(celltypeNode) };
   }
 
   private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {

@@ -18,7 +18,7 @@
 
 import { DisplayFilters, resolveHiddenRegionIds } from "./display-filters";
 import type { Point } from "../model/geometry";
-import type { RegionId } from "../model/ids";
+import type { JoinId, RegionId } from "../model/ids";
 import type { RegionTree } from "../model/region";
 import { MM_TO_PX, type CanvasView } from "../render/view";
 import { regionColorMap } from "./region-colors";
@@ -59,10 +59,12 @@ export class ViewState {
     readonly filters: DisplayFilters,
     /** モデル全体を対象とする検索クエリ。空は null（6.4節）。 */
     readonly searchQuery: string | null,
+    /** リージョン矩形外周表示モード（内部仕様6C.5・監査#47）。既定 false。 */
+    readonly regionOutlineMode: boolean = false,
   ) {}
 
   static initial(): ViewState {
-    return new ViewState(1.0, { x: 0, y: 0 }, false, DisplayFilters.allVisible(), null);
+    return new ViewState(1.0, { x: 0, y: 0 }, false, DisplayFilters.allVisible(), null, false);
   }
 
   /**
@@ -81,36 +83,44 @@ export class ViewState {
       x: anchor.x - (anchor.x - this.panCenter.x) * ratio,
       y: anchor.y - (anchor.y - this.panCenter.y) * ratio,
     };
-    return new ViewState(nextZoom, panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(nextZoom, panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 倍率を保ったまま表示中心をリセットする（Ctrl+0 相当、7.1.2）。 */
   resetZoom(): ViewState {
-    return new ViewState(1.0, this.panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(1.0, this.panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 表示中心をモデル座標 `delta` だけ動かす（スペース+ドラッグ／スクロール、7.1.2）。 */
   panBy(delta: Point): ViewState {
     const panCenter: Point = { x: this.panCenter.x + delta.x, y: this.panCenter.y + delta.y };
-    return new ViewState(this.zoom, panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 表示中心をモデル座標 `center` に合わせる（ナビゲータのクリック等）。 */
   panTo(center: Point): ViewState {
-    return new ViewState(this.zoom, center, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, center, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   toggleGrid(): ViewState {
-    return new ViewState(this.zoom, this.panCenter, !this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, this.panCenter, !this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
+  }
+
+  toggleRegionOutlineMode(): ViewState {
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, !this.regionOutlineMode);
+  }
+
+  withRegionOutlineMode(on: boolean): ViewState {
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, on);
   }
 
   withFilters(filters: DisplayFilters): ViewState {
-    return new ViewState(this.zoom, this.panCenter, this.gridVisible, filters, this.searchQuery);
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, filters, this.searchQuery, this.regionOutlineMode);
   }
 
   withSearchQuery(query: string | null): ViewState {
     const normalized = query && query.trim() !== "" ? query : null;
-    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, normalized);
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, normalized, this.regionOutlineMode);
   }
 
   /** モデル座標(mm)1つあたりの画面ピクセル数。 */
@@ -123,7 +133,7 @@ export class ViewState {
    * ここで `RegionTree` を使い非表示リージョンID集合へ解決される（`ViewState` 自体は
    * モデルを参照しない）。
    */
-  toCanvasView(regions: RegionTree): CanvasView {
+  toCanvasView(regions: RegionTree, focusedJoinIds?: ReadonlySet<JoinId>): CanvasView {
     const hiddenRegionIds: ReadonlySet<RegionId> = resolveHiddenRegionIds(this.filters, regions);
     return {
       zoom: this.zoom,
@@ -131,7 +141,10 @@ export class ViewState {
       showSignatureNames: this.filters.showSignatureNames,
       emphasizeCellName: this.filters.emphasizeCellName,
       hiddenRegionIds,
-      regionColors: this.filters.colorByRegion ? cachedColorMap(regions) : null,
+      regionColors: this.filters.colorByRegion || this.regionOutlineMode ? cachedColorMap(regions) : null,
+      activeOnly: this.filters.activeOnly,
+      regionOutlineMode: this.regionOutlineMode,
+      focusedJoinIds,
     };
   }
 }

@@ -110,6 +110,12 @@ export class AppStore {
   private tecsgenStatus = { version: "未確認", command: "未確認" };
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
+  /** 第6C章6C.3節: 結合強調モード（監査#46）。 */
+  private connectionFocusEnabled = false;
+  /** 第6C章6C.4節: コマンド実行に伴う診断（Undoで解除、Redoで再構成）。ノードIDキーで保持。 */
+  private historyDiagnostics = new Map<number, readonly Diagnostic[]>();
+  /** コマンド確定を伴わない操作由来の診断（配置不能など）。次の編集や文書読込で解除。 */
+  private transientActionDiagnostics: readonly Diagnostic[] = [];
   private readonly listeners = new Set<StoreListener>();
 
   constructor(
@@ -137,6 +143,15 @@ export class AppStore {
 
   get selection(): SelectionState {
     return this.selectionState;
+  }
+
+  isConnectionFocusEnabled(): boolean {
+    return this.connectionFocusEnabled;
+  }
+
+  toggleConnectionFocus(): void {
+    this.connectionFocusEnabled = !this.connectionFocusEnabled;
+    this.notify();
   }
 
   getMode(): InputMode {
@@ -324,7 +339,21 @@ export class AppStore {
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);
     collector.reportAll(this.environmentDiagnostics);
+    const activeHistoryDiags = this.historyDiagnostics.get(this.history.nodeId);
+    if (activeHistoryDiags) collector.reportAll(activeHistoryDiags);
+    collector.reportAll(this.transientActionDiagnostics);
     return collector.toReport();
+  }
+
+  setCommandDiagnostics(historyNodeId: number, diagnostics: readonly Diagnostic[]): void {
+    this.historyDiagnostics.set(historyNodeId, diagnostics);
+    this.transientActionDiagnostics = [];
+    this.notify();
+  }
+
+  setTransientActionDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.transientActionDiagnostics = diagnostics;
+    this.notify();
   }
 
   // --- 更新（すべて通知を伴う） ---
@@ -332,6 +361,7 @@ export class AppStore {
   /** 新しいコマンドを確定する（Undo で戻せる）。適用不能なら History が doc を素通しする。 */
   dispatch(command: Command): void {
     if (this.closing) return;
+    this.transientActionDiagnostics = [];
     const previous = this.historyState;
     this.historyState = this.historyState.commit(command);
     if (this.historyState !== previous) this.documentRevision++;
@@ -462,6 +492,8 @@ export class AppStore {
     this.systemDirs = systemDirs;
     this.generatedTypeSources = generatedTypeSources;
     this.portTypeIndex = portTypeIndex;
+    this.historyDiagnostics.clear();
+    this.transientActionDiagnostics = [];
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
     // 第6B章6B.7: 非表示にしたリージョンのIDは前のドキュメントのものなので、別のファイルを開くときは

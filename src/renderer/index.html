@@ -343,6 +343,38 @@
       #region-legend[hidden] {
         display: none;
       }
+      #status-legend {
+        position: absolute;
+        left: 8px;
+        top: 8px;
+        display: flex;
+        gap: 8px;
+        padding: 4px 8px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        font-size: 11px;
+        pointer-events: none;
+        z-index: 5;
+      }
+      #status-legend .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      #status-legend .badge {
+        display: inline-block;
+        padding: 0 3px;
+        font-size: 10px;
+        font-weight: bold;
+        border-radius: 2px;
+        border: 1px solid #333333;
+        background: #ffffff;
+      }
+      #status-legend .badge-warn {
+        color: #b05a00;
+        border-color: #d29922;
+      }
       .legend-item {
         display: flex;
         align-items: center;
@@ -445,6 +477,20 @@
         font-size: 11px;
         margin-bottom: 6px;
       }
+      .prop-status-box {
+        margin-bottom: 8px;
+        padding: 4px 6px;
+        background: #f9f9f9;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        font-size: 11px;
+      }
+      .prop-status-item {
+        margin: 2px 0;
+      }
+      .prop-incomplete-reasons {
+        color: #b45309;
+      }
       #search-results {
         position: absolute;
         top: 100%;
@@ -540,17 +586,42 @@
       }
 
       /* --- SvgRenderer / CellRenderer / JoinRenderer が出すクラス --- */
+      :root {
+        --cell-fill: #ffffff;
+        --cell-stroke: #333333;
+        --cell-fill-readonly: #f0f0f0;
+        --cell-stroke-readonly: #999999;
+        --cell-fill-active: #cce5ff;
+        --cell-stroke-unresolved: #d29922;
+      }
       .cell-rect {
-        fill: #ffffff;
-        stroke: #333333;
+        fill: var(--cell-fill, #ffffff);
+        stroke: var(--cell-stroke, #333333);
         stroke-width: 1;
       }
       .cell-rect.readonly {
-        fill: #f0f0f0;
-        stroke: #999999;
+        fill: var(--cell-fill-readonly, #f0f0f0);
+        stroke: var(--cell-stroke-readonly, #999999);
+      }
+      .cell-rect.active {
+        fill: var(--cell-fill-active, #cce5ff);
       }
       .cell-rect.unresolved {
-        stroke: #d29922;
+        stroke: var(--cell-stroke-unresolved, #d29922);
+        stroke-dasharray: 3 2;
+      }
+      .cell-rect.active.readonly {
+        fill: var(--cell-fill-active, #cce5ff);
+        stroke: var(--cell-stroke-readonly, #999999);
+      }
+      .cell-rect.active.unresolved {
+        fill: var(--cell-fill-active, #cce5ff);
+        stroke: var(--cell-stroke-unresolved, #d29922);
+        stroke-dasharray: 3 2;
+      }
+      .cell-rect.active.readonly.unresolved {
+        fill: var(--cell-fill-active, #cce5ff);
+        stroke: var(--cell-stroke-unresolved, #d29922);
         stroke-dasharray: 3 2;
       }
       .cell-label {
@@ -579,9 +650,17 @@
         stroke: #444444;
         stroke-width: 1.25;
       }
+      .join-line.join-focus {
+        stroke: #d32f2f;
+        stroke-width: 3;
+      }
       .join-stub-tick {
         stroke: #444444;
         stroke-width: 1.25;
+      }
+      .join-stub-tick.join-focus {
+        stroke: #d32f2f;
+        stroke-width: 3;
       }
       .signature-label {
         font-size: 9px;
@@ -624,6 +703,7 @@
         <button data-action="redo" type="button">やり直し</button>
         <button data-action="alignTop" type="button" title="選択したセルの上端を、最初に選んだセルにそろえる（外部仕様7.3.2）">上端をそろえる</button>
         <button data-action="alignLeft" type="button" title="選択したセルの左端を、最初に選んだセルにそろえる（外部仕様7.3.2）">左端をそろえる</button>
+        <button data-action="moveActiveToTop" type="button" title="アクティブセルを用紙最上段に並べる（外部仕様7.3.y）">アクティブを最上段へ</button>
         <span class="sep"></span>
         <button data-action="zoomReset" type="button">Reset Rate</button>
         <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" title="表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）" />
@@ -647,9 +727,12 @@
             <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
             <div id="region-filter-popover" hidden></div>
           </div>
+          <button data-action="toggleRegionOutlineMode" type="button" id="toggle-region-outline" aria-pressed="false" title="リージョンの外周矩形を表示する（外部仕様4.9.x）">リージョン矩形</button>
           <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
           <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
           <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+          <label title="アクティブなセルだけを表示する（外部仕様7.3.x）"><input type="checkbox" id="filter-active-only" /> アクティブのみ</label>
+          <button data-action="toggleConnectionFocus" type="button" id="toggle-connection-focus" aria-pressed="false" title="選択したポートの結合を赤色太線で強調する（外部仕様7.6）">結合強調</button>
         </div>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
@@ -665,6 +748,11 @@
             <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
           </div>
           <div id="region-legend" hidden></div>
+          <div id="status-legend" class="status-legend" aria-label="状態凡例">
+            <span class="legend-item"><span class="badge badge-ro">RO</span> 編集不可</span>
+            <span class="legend-item"><span class="badge badge-warn">!</span> 不完全</span>
+            <span class="legend-item"><span class="badge badge-u">U</span> 未結合</span>
+          </div>
         <div id="navigator">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
           </div>

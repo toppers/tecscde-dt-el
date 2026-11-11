@@ -23,3 +23,9 @@ export {
   pasteFromAppClipboard,
   pasteFromCdlFragment,
 } from "./clipboard-commands";
+export {
+  canMoveActiveToTop,
+  prepareMoveActiveToTop,
+  MoveActiveCellsToTopCommand,
+  type ActiveTopPlan,
+} from "./move-active-to-top";
