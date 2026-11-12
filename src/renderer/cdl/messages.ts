@@ -5,6 +5,15 @@
 
 import type { Diagnostic, SourceLocation } from "../diagnostics/types";
 import type { CellId } from "../model/ids";
+import type { CppOriginReason } from "../../shared/ipc-types.js";
+
+export interface CppFallbackOptions {
+  readonly command?: string;
+  readonly originReason?: CppOriginReason;
+  readonly fullPath?: string;
+  readonly failureKind?: "not-found" | "failed" | "timeout";
+  readonly failureDetail?: string;
+}
 
 export const G_CODES = {
   UNEXPECTED_EOF: "G1015",
@@ -114,16 +123,33 @@ export function unresolvedReferenceFile(fileName: string): Diagnostic {
 }
 
 /**
- * [[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09 tecsgen連携設計#9.6]]:
+ * [[TECSCDE-DT外部仕様 - Cプリプロセッサ設定と失敗詳細(V0.2.1用)#2.1]],
+ * [[TECSCDE-DT-EL内部仕様 - 09E V0.2.1 Cプリプロセッサ設定と失敗詳細#9E.4]]:
  * import_CのCヘッダに対しCプリプロセッサの実行が見つからない・失敗したため、未展開の
- * 生ヘッダテキストへフォールバックしたことを利用者に提示する。#include未展開・#ifdef
- * 未評価の差分が生じ得る（[[work/active/TECSCDE外部仕様/TECSCDE外部仕様 - 08 CDL 連携#8.1.2]]）。
+ * 生ヘッダテキストへフォールバックしたことを利用者に提示する。
  */
-export function cppFallback(headerPath: string): Diagnostic {
+export function cppFallback(headerPath: string, options?: CppFallbackOptions): Diagnostic {
+  const command = options?.command?.trim() || "gcc";
+  const metaParts: string[] = [];
+  if (options?.fullPath) metaParts.push(`フルパス: ${options.fullPath}`);
+  if (options?.originReason) metaParts.push(`決定理由: ${options.originReason}`);
+  const metaLabel = metaParts.length > 0 ? `（${metaParts.join("、")}）` : "";
+
+  let body: string;
+  if (options?.failureKind === "not-found") {
+    body = `Cプリプロセッサ '${command}'${metaLabel}が見つからないため、'${headerPath}' は未展開のまま型を抽出しました（パス設定またはインストールを確認してください）`;
+  } else if (options?.failureKind === "failed") {
+    const detail = options.failureDetail ? `（${options.failureDetail}）` : "";
+    body = `Cプリプロセッサ '${command}'${metaLabel}の実行が失敗したため${detail}、'${headerPath}' は未展開のまま型を抽出しました`;
+  } else {
+    const detail = options?.failureDetail ? `（${options?.failureDetail}）` : "";
+    body = `Cプリプロセッサ '${command}'${metaLabel}を起動・実行できなかったため${detail}、'${headerPath}' は未展開のまま型を抽出しました`;
+  }
+
   return {
     severity: "warning",
     code: W_CODES.CPP_FALLBACK,
-    message: `Cプリプロセッサを実行できなかったため、\`${headerPath}\` は未展開のまま型を抽出しました（#include未展開・#ifdef未評価の差分が生じ得ます）`,
+    message: body,
   };
 }
 
@@ -175,4 +201,3 @@ export function logWriteFailed(): Diagnostic {
     message: "診断ログを作れない、または追記できない。診断パネルの内容は、このファイルに残らない",
   };
 }
-

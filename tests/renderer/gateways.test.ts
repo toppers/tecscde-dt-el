@@ -52,6 +52,7 @@ function stubApi(): TecscdeApi {
       getToolSettings: vi.fn(),
       updateToolSettings: vi.fn(),
       chooseTecsgenPath: vi.fn(),
+      chooseCppPath: vi.fn().mockResolvedValue(null),
       getAppInformation: vi.fn(),
     },
     window: {
@@ -179,5 +180,18 @@ describe("SettingsGateway", () => {
     const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
     await expect(new SettingsGateway().get()).resolves.toEqual({ allowEditSystemDefined: false });
     expect(api.settings.get).toHaveBeenCalled();
+  });
+
+  it("delegates chooseCppPath to window.tecscde.settings", async () => {
+    const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
+    await new SettingsGateway().chooseCppPath("/suggested/path");
+    expect(api.settings.chooseCppPath).toHaveBeenCalledWith("/suggested/path");
+  });
+
+  it("delegates updateToolSettings to window.tecscde.settings with ToolSettingsUpdate", async () => {
+    const api = (globalThis as unknown as { window: { tecscde: TecscdeApi } }).window.tecscde;
+    const patch = { cppPath: "arm-none-eabi-gcc", cppArgs: "-E -DTECSGEN" };
+    await new SettingsGateway().updateToolSettings(patch);
+    expect(api.settings.updateToolSettings).toHaveBeenCalledWith(patch);
   });
 });

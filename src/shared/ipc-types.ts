@@ -108,12 +108,26 @@ export interface GeneratedCdlResult {
   readonly sources: readonly GeneratedCdlFile[];
 }
 
+/** V0.2.1: Cプリプロセッサ実行ファイルの決定理由 */
+export type CppOriginReason = "ユーザ直接指定" | "自動検出" | "フォールバック";
+export type CppOrigin = "cdl" | "settings" | "path" | "default";
+
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.preprocess() の戻り値。 */
 export interface CppResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
   readonly executableFound: boolean;
+  /** V0.2.1: 実行されたコマンド文字列 */
+  readonly command?: string;
+  /** V0.2.1: 実行ファイルの決定理由 */
+  readonly originReason?: CppOriginReason;
+  /** V0.2.1: 解決された実行ファイルへのフルパス（未解決の場合は "未検出 (PATH上)" 等） */
+  readonly fullPath?: string;
+  /** V0.2.1: 失敗の分類 */
+  readonly failureKind?: "not-found" | "failed" | "timeout";
+  /** V0.2.1: 失敗の具体的詳細（終了コード、stderrの抜粋、エラーメッセージ等） */
+  readonly failureDetail?: string;
 }
 
 /** tree-sitterランタイムとCDL/cdecl文法のWASMバイト列。 */
@@ -189,6 +203,18 @@ export interface ToolSettings {
   readonly executable: string;
   readonly prefixArgs: readonly string[];
   readonly override: boolean;
+  /** V0.2.1: Cプリプロセッサ設定 */
+  readonly cppPath?: string;
+  readonly cppArgs?: string;
+  readonly effectiveCppCommand?: string;
+  readonly effectiveCppFullPath?: string;
+  readonly cppOrigin?: CppOrigin;
+  readonly cppOriginReason?: CppOriginReason;
+}
+export interface ToolSettingsUpdate {
+  readonly tecsgenPath?: string;
+  readonly cppPath?: string;
+  readonly cppArgs?: string;
 }
 export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
   | { readonly ok: false; readonly error: string };
@@ -285,8 +311,9 @@ export interface TecscdeApi {
   readonly settings: {
     get(): Promise<AppSettingsView>;
     getToolSettings(): Promise<ToolSettings>;
-    updateToolSettings(patch: { readonly tecsgenPath: string }): Promise<ToolSettingsUpdateResult>;
+    updateToolSettings(patch: ToolSettingsUpdate): Promise<ToolSettingsUpdateResult>;
     chooseTecsgenPath(): Promise<string | null>;
+    chooseCppPath(currentPath?: string): Promise<string | null>;
     getAppInformation(): Promise<AppInformation>;
     getCdlFilesRoot(): Promise<string>;
     setCdlFilesRoot(root: string): Promise<void>;
