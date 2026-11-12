@@ -107,10 +107,17 @@ async function resolveImportClosure(
   seedResolvedPaths: ReadonlySet<string>,
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
+  useManualToolInfo = false,
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."],
     ...(systemDirs.length > 0 ? { systemDirs: [...systemDirs] } : {}) };
   const resolvedPaths = new Set([...seedResolvedPaths].map(sourceKey));
+  const sourceContexts = new Map<string, ToolInfoTecsgen>();
+  const contextFor = (path: string): ToolInfoTecsgen => sourceContexts.get(sourceKey(path)) ?? toolInfo;
+  const optionsFor = (path: string): ImportResolutionOptions => {
+    const context = contextFor(path);
+    return { ...options, baseDir: context.baseDir, importPaths: context.importPath ?? options.importPaths };
+  };
   const extraSearchDirs: string[] = []; // 第7D章7.5.3節: 解決が進むごとに成長する
   for (const r of existingReferences) {
     const dir = dirnameOf(r.path);
@@ -126,8 +133,12 @@ async function resolveImportClosure(
   }
 
   type FrontierEntry = { readonly request: ImportRequest; readonly sourcePath: string };
-  let frontier: readonly FrontierEntry[] = initialFrontier.map((request) => ({ request, sourcePath: editablePath }));
-  while (frontier.length > 0) {
+  // Finish a manual root's import closure before considering the next root.
+  // A later root may be a descendant already reached with its parent's context.
+  const pendingRoots = useManualToolInfo ? [...initialFrontier] : [];
+  let frontier: readonly FrontierEntry[] = useManualToolInfo ? [] : initialFrontier.map((request) => ({ request, sourcePath: editablePath }));
+  while (frontier.length > 0 || pendingRoots.length > 0) {
+    if (frontier.length === 0) frontier = [{ request: pendingRoots.shift()!, sourcePath: editablePath }];
     const resolved: Array<ResolvedImport | undefined> = new Array(frontier.length);
     const groups = new Map<string, { sourcePath: string; requests: ImportRequest[]; indices: number[] }>();
     frontier.forEach(({ request: req, sourcePath }, index) => {
@@ -144,7 +155,7 @@ async function resolveImportClosure(
       }
     });
     await Promise.all([...groups.values()].map(async (group) => {
-      const results = await gateway.resolveImports(group.sourcePath, group.requests, { ...options, extraSearchDirs: [...extraSearchDirs] });
+      const results = await gateway.resolveImports(group.sourcePath, group.requests, { ...optionsFor(group.sourcePath), extraSearchDirs: [...extraSearchDirs] });
       group.indices.forEach((index, offset) => { resolved[index] = results[offset]; });
     }));
     const nextFrontier: FrontierEntry[] = [];
@@ -163,11 +174,16 @@ async function resolveImportClosure(
       const content = existing?.content ?? r.content;
       if (content === undefined) { diagnostics.push(unresolvedReferenceFile(r.request.specifier)); continue; }
       resolvedPaths.add(key);
+      const inherited = contextFor(sourcePath);
+      const own = useManualToolInfo && r.request.kind === "manual" ? extractToolInfoTecsgen(content) : inherited;
+      sourceContexts.set(key, { ...inherited, ...own,
+        baseDir: own.baseDir ?? inherited.baseDir, importPath: own.importPath ?? inherited.importPath,
+        cpp: own.cpp ?? inherited.cpp, defineMacro: own.defineMacro ?? inherited.defineMacro });
       const dir = dirnameOf(canonicalPath);
       if (!extraSearchDirs.includes(dir)) extraSearchDirs.push(dir); // tecsgenの$base_dir累積に相当
 
       if (r.request.kind === "import_C") {
-        const result = await ingestImportC(tecsgenGateway, canonicalPath, content, toolInfo.cpp, includeDirsFor(sourcePath, options), diagnostics);
+        const result = await ingestImportC(tecsgenGateway, canonicalPath, content, inherited.cpp, includeDirsFor(sourcePath, optionsFor(sourcePath)), diagnostics);
         cdeclResults.set(canonicalPath, result);
       } else {
         references.push({ path: canonicalPath, content });
@@ -193,27 +209,29 @@ async function resolveImportClosure(
 export async function resolveAllImports(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
-  editablePath: string,
+  editablePath: string | null,
   editableText: string,
   toolInfo: ToolInfoTecsgen,
   extraImportPaths: readonly string[] = [],
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
+  useManualToolInfo = false,
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
   return resolveImportClosure(
     gateway,
     tecsgenGateway,
-    editablePath,
+    editablePath ?? "",
     mergedToolInfo,
     [
       ...extractImportRequests(editableText),
       ...existingReferences.map((reference): ImportRequest => ({ kind: "manual", specifier: reference.path })),
     ],
-    new Set([editablePath]),
+    new Set(editablePath ? [editablePath] : []),
     existingReferences,
     systemDirs,
+    useManualToolInfo,
   );
 }
 
@@ -226,12 +244,12 @@ export async function resolveAllImports(
 export async function resolveAddedReference(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
-  editablePath: string,
+  editablePath: string | null,
   toolInfo: ToolInfoTecsgen,
   path: string,
   alreadyLoadedPaths: readonly string[],
   systemDirs: readonly string[] = [],
 ): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
-  const seed = new Set([editablePath, ...alreadyLoadedPaths]);
-  return resolveImportClosure(gateway, tecsgenGateway, editablePath, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs);
+  const seed = new Set([...(editablePath ? [editablePath] : []), ...alreadyLoadedPaths]);
+  return resolveImportClosure(gateway, tecsgenGateway, editablePath ?? path, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs, true);
 }

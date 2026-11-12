@@ -199,7 +199,7 @@
       #main {
         flex: 1;
         display: flex;
-        min-height: 0;
+        min-height: 120px;
       }
       #file-browser {
         background: var(--panel);
@@ -209,6 +209,12 @@
       .file-browser-empty {
         color: #888888;
         font-size: 11px;
+      }
+      .file-browser-selected-path {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        margin-bottom: 6px;
+        user-select: text;
       }
       .file-browser-tree {
         list-style: none;
@@ -344,18 +350,20 @@
         position: absolute;
         inset: 0;
         overflow: auto;
+        scrollbar-gutter: stable;
         background: #fafafa;
         /* 2026-09-21: 用紙(#canvas)がビューポートより小さいとき（低〜中倍率で頻発）、
            overflow:autoの既定block整列だとSVGが左上に張り付き、scrollLeft/Topも
            スクロール範囲なしで常に0にクランプされる（pan-scroll.ts）。結果、
            ズームの固定点計算（view-state.ts zoomAt）は正しくてもカーソル位置ではなく
            常に画面左上を中心にズームしているように見えていた（実機対話確認で発見）。
-           flex+safe centerは「収まる時は中央寄せ、はみ出す時は通常のスクロール開始位置
+           横方向のflex+safe centerは「収まる時は中央寄せ、はみ出す時は通常のスクロール開始位置
            （左上0）」を両立する標準的な手法——コンテンツが実際にビューポートを超える
            軸ではこれまで通りscrollLeft/Topの計算がそのまま機能する。 */
         display: flex;
         justify-content: safe center;
-        align-items: safe center;
+        /* 下端の診断パネルで高さが変わっても、用紙の上端を動かさない（外部仕様9.6）。 */
+        align-items: flex-start;
       }
       #canvas {
         display: block;
@@ -566,6 +574,7 @@
       #statusbar {
         position: relative;
         display: flex;
+        min-height: 30px;
         gap: 16px;
         padding: 3px 10px;
         background: var(--panel);
@@ -666,21 +675,22 @@
       #about-dialog .about-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
       #about-dialog .about-actions button { font: inherit; }
       #diagnostics-panel {
-        position: absolute;
-        bottom: 100%;
-        left: 0;
-        right: 0;
-        max-height: 240px;
+        --diag-row-height: 27px;
+        box-sizing: content-box;
+        flex: 0 1 auto;
+        min-height: 0;
+        height: auto;
+        max-height: calc(var(--diag-row-height) * 10);
         overflow-y: auto;
         background: #fff;
-        border: 1px solid var(--border);
-        border-bottom: none;
-        z-index: 1;
+        border-top: 1px solid var(--border);
       }
       .diag-item {
         padding: 4px 10px;
         font-size: 11px;
+        line-height: 18px;
         border-bottom: 1px solid var(--border);
+        overflow-wrap: anywhere;
       }
       .diag-error {
         color: #b91c1c;
@@ -789,6 +799,7 @@
         </div>
         <div id="property-panel"></div>
       </div>
+      <div id="diagnostics-panel" hidden></div>
       <div id="statusbar">
         <span id="status-mode"></span>
         <span id="status-pos"></span>
@@ -797,7 +808,6 @@
         <span id="status-region"></span>
         <span id="status-message" role="status" aria-live="polite"></span>
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>
-        <div id="diagnostics-panel" hidden></div>
         <span id="status-file"></span>
       </div>
       <div id="file-browser" hidden></div>

@@ -288,6 +288,7 @@ export class AppShell {
     this.bindSpacePan();
     this.bindWheel();
     this.bindScroll();
+    this.bindCanvasResize();
     this.bindDirtyReport();
     // 7.6.6節: 記憶済みのルートフォルダがあれば起動時に一度だけ自動復元する。
     this.gateway.onRestoreFileBrowserRoot((path) =>
@@ -917,6 +918,24 @@ export class AppShell {
     };
     this.scrollEl.addEventListener("scroll", onScroll);
     this.disposers.push(() => this.scrollEl.removeEventListener("scroll", onScroll));
+  }
+
+  /** 8.7節: 高さの変化では表示中心だけを追従させ、用紙の左上とスクロール位置を保つ。 */
+  private bindCanvasResize(): void {
+    const onResize = (): void => {
+      this.diagnosticsPanel.updateHeightLimit();
+      const k = this.store.view.pxPerMm;
+      if (!Number.isFinite(k) || k <= 0) return;
+      const panCenter = panCenterFromScroll(k,
+        { left: this.scrollEl.scrollLeft, top: this.scrollEl.scrollTop },
+        { width: this.scrollEl.clientWidth, height: this.scrollEl.clientHeight });
+      if (panCenter.x === this.store.view.panCenter.x && panCenter.y === this.store.view.panCenter.y) return;
+      this.suppressScrollSync = true;
+      this.store.setView(this.store.view.panTo(panCenter));
+    };
+    const observer = new ResizeObserver(onResize);
+    observer.observe(this.scrollEl);
+    this.disposers.push(() => observer.disconnect());
   }
 
   /**

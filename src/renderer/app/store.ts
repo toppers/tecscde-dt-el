@@ -464,6 +464,17 @@ export class AppStore {
     this.notify();
   }
 
+  /** 消去は参照ソースの保存チェックポイントを維持し、新しい空主だけをcleanにする。 */
+  clearPrimaryDocument(document: TecscdeDocument): void {
+    const previousPrimary = this.getDocument().editingFileName ?? null;
+    this.savedStates.delete(previousPrimary);
+    this.savedSequences.delete(previousPrimary);
+    this.savedStates.set(null, sourceSaveState(document, null));
+    this.documentEpoch++;
+    this.loadDocument(document, null, [], this.referenceFilePaths, this.referenceSources,
+      this.extraImportPaths, this.optionsFilePath, this.generatedTypeSources, this.portTypeIndex, true, this.systemDirs);
+  }
+
   /** ファイル読み込み後、履歴・選択・dirty マーカ・ロード診断をまとめて初期化する。 */
   loadDocument(
     document: TecscdeDocument,

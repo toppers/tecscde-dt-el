@@ -12,6 +12,7 @@ import { fileKind } from "../../shared/file-kind";
 
 export class FileBrowserView {
   private root: string | null = null;
+  private selectedDir: string | null = null;
   /** 3.5.1節: 展開状態・選択位置はアプリケーション実行中の状態としてのみ保持する（保存内容に含めない）。 */
   private readonly expanded = new Set<string>();
   private readonly children = new Map<string, readonly DirEntry[]>();
@@ -40,6 +41,8 @@ export class FileBrowserView {
     if (!node) return;
     const path = node.dataset["path"]!;
     if (node.dataset["kind"] === "directory") {
+      this.selectedDir = path;
+      this.render();
       void this.toggle(path);
       return;
     }
@@ -68,6 +71,7 @@ export class FileBrowserView {
       await this.setRoot(dir);
     } catch {
       this.root = null;
+      this.selectedDir = null;
       this.render();
     }
   }
@@ -77,6 +81,7 @@ export class FileBrowserView {
     this.expanded.clear();
     this.children.clear();
     await this.loadChildren(dir);
+    this.selectedDir = dir;
     this.expanded.add(dir);
     this.render();
   }
@@ -99,11 +104,12 @@ export class FileBrowserView {
 
   render(): void {
     this.el.replaceChildren();
+    const selectedPath = document.createElement("div");
+    selectedPath.className = "file-browser-selected-path";
+    selectedPath.textContent = this.selectedDir ?? "(フォルダ未選択)";
+    this.el.appendChild(selectedPath);
     if (!this.root) {
-      const empty = document.createElement("div");
-      empty.className = "file-browser-empty";
-      empty.textContent = "(フォルダ未選択)";
-      this.el.appendChild(empty);
+      selectedPath.classList.add("file-browser-empty");
       return;
     }
     const rootEntry: DirEntry = { name: baseName(this.root), path: this.root, kind: "directory" };
