@@ -5,7 +5,7 @@
 
 import { ToolInfoValidator } from "../cdl/tool-info";
 import { CdlDocumentBuilder, type ImportDecl } from "../cdl/cst";
-import { cdeclParseError, cppFallback, unresolvedReferenceFile } from "../cdl/messages";
+import { cdeclParseError, cppFallback, unresolvedReferenceFile, type CppFallbackOptions } from "../cdl/messages";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
@@ -69,7 +69,22 @@ async function ingestImportC(
   const cpp = await tecsgenGateway.preprocess(canonicalPath, cppCommand, includeDirs);
   const usedFallback = !cpp.executableFound || cpp.exitCode !== 0;
   const text = usedFallback ? rawContent : cpp.stdout;
-  if (usedFallback) diagnostics.push(cppFallback(canonicalPath));
+  if (usedFallback) {
+    let failureDetail = cpp.failureDetail;
+    if (!failureDetail && cpp.exitCode !== null && cpp.exitCode !== 0) {
+      const trimmedStderr = cpp.stderr?.trim();
+      const firstLine = trimmedStderr ? (trimmedStderr.split(/\r?\n/)[0] ?? "").slice(0, 200) : "";
+      failureDetail = `終了コード ${cpp.exitCode}${firstLine ? `: ${firstLine}` : ""}`;
+    }
+    const fallbackOptions: CppFallbackOptions = {
+      command: cpp.command ?? cppCommand ?? "gcc",
+      originReason: cpp.originReason ?? (cppCommand ? "ユーザ直接指定" : "フォールバック"),
+      fullPath: cpp.fullPath ?? (!cpp.executableFound ? (cppCommand ? cppCommand.trim().split(/\s+/)[0] : "未検出 (PATH上)") : undefined),
+      failureKind: cpp.failureKind ?? (!cpp.executableFound ? "not-found" : "failed"),
+      failureDetail,
+    };
+    diagnostics.push(cppFallback(canonicalPath, fallbackOptions));
+  }
 
   const result = CdeclExtractor.extract(text);
   if (result.hasErrors) diagnostics.push(cdeclParseError(canonicalPath));

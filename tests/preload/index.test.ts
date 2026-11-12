@@ -152,6 +152,11 @@ describe("preload", () => {
     expect(invoke).toHaveBeenCalledWith("settings:get");
   });
 
+  it("settings.chooseCppPath invokes settings:chooseCppPath with currentPath", () => {
+    exposedApi().settings.chooseCppPath("/usr/bin/gcc");
+    expect(invoke).toHaveBeenCalledWith("settings:chooseCppPath", "/usr/bin/gcc");
+  });
+
   it("clipboard.writeText invokes clipboard:writeText with the text", () => {
     exposedApi().clipboard.writeText("hello");
     expect(invoke).toHaveBeenCalledWith("clipboard:writeText", "hello");

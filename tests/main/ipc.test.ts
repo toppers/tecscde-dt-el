@@ -21,6 +21,9 @@ vi.mock("electron", () => ({
     removeHandler: (channel: string) => handlers.delete(channel),
   },
   clipboard: clipboardMock,
+  dialog: {
+    showOpenDialog: vi.fn().mockResolvedValue({ canceled: false, filePaths: ["/usr/bin/gcc"] }),
+  },
 }));
 
 // 第7C章7.7.1節: file:saveSessionはFileServiceを経由せずsaveAppSettingsを直接呼ぶため、
@@ -115,6 +118,7 @@ describe("registerIpcHandlers", () => {
         "settings:updateToolSettings",
         "settings:getAppInformation",
         "settings:chooseTecsgenPath",
+        "settings:chooseCppPath",
         "tecsgen:generate",
         "tecsgen:generatedTypes",
         "tecsgen:preprocess",
@@ -205,6 +209,10 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("clipboard:readText")!({});
     expect(clipboardMock.readText).toHaveBeenCalled();
+
+    // settings:chooseCppPath の呼び出し
+    const chosen = await handlers.get("settings:chooseCppPath")!({}, "/suggested/path");
+    expect(chosen).toBe("/usr/bin/gcc");
   });
   // macOSでウィンドウを閉じてDockから開き直すと createWindow() → registerIpcHandlers() が
   // 2回目に呼ばれる。二重登録で例外にならず、新しいサービスに置き換わること。

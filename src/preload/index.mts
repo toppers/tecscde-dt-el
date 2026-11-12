@@ -21,6 +21,7 @@ import type {
   CloseStateResponse,
   SourceWriteReceipt,
   LogAppendResult,
+  ToolSettingsUpdate,
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
@@ -94,8 +95,9 @@ const api: TecscdeApi = {
   settings: {
     get: (): Promise<AppSettingsView> => ipcRenderer.invoke("settings:get"),
     getToolSettings: () => ipcRenderer.invoke("settings:getToolSettings"),
-    updateToolSettings: (patch) => ipcRenderer.invoke("settings:updateToolSettings", patch),
+    updateToolSettings: (patch: ToolSettingsUpdate) => ipcRenderer.invoke("settings:updateToolSettings", patch),
     chooseTecsgenPath: () => ipcRenderer.invoke("settings:chooseTecsgenPath"),
+    chooseCppPath: (currentPath?: string) => ipcRenderer.invoke("settings:chooseCppPath", currentPath),
     getAppInformation: () => ipcRenderer.invoke("settings:getAppInformation"),
     getCdlFilesRoot: () => ipcRenderer.invoke("settings:getCdlFilesRoot"),
     setCdlFilesRoot: (root) => ipcRenderer.invoke("settings:setCdlFilesRoot", root),

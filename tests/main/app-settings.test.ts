@@ -244,4 +244,17 @@ describe("app-settings", () => {
     expect(observedBeforeRelease).toBe(false);
     expect((await read).fileBrowserRoot).toBe("/new");
   });
+
+  it("saveAppSettings then loadAppSettings round-trips cppPath and cppArgs", async () => {
+    await saveAppSettings({ cppPath: "/usr/bin/gcc", cppArgs: "-E -DTECSGEN" });
+    await expect(loadAppSettings()).resolves.toEqual({
+      cppPath: "/usr/bin/gcc",
+      cppArgs: "-E -DTECSGEN",
+    });
+  });
+
+  it("normalizeAppSettings strips non-string cppPath and cppArgs", async () => {
+    seed({ cppPath: 123, cppArgs: true, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+  });
 });

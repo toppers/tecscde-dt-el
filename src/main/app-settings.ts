@@ -10,6 +10,12 @@ import type { SessionSnapshot } from "../shared/ipc-types.js";
 export interface AppSettings {
   readonly [key: string]: unknown;
   readonly fileBrowserRoot?: string;
+  readonly tecsgenPath?: string;
+  readonly cdlFilesRoot?: string;
+  /** V0.2.1: Cプリプロセッサ実行ファイルへのパス */
+  readonly cppPath?: string;
+  /** V0.2.1: Cプリプロセッサ引数列 */
+  readonly cppArgs?: string;
   /**
    * 第3章3.2節: `true`なら、システム定義CDL（`-S`のディレクトリ配下）のセルも通常のCDLと同じく
    * 編集可能にする。既定は`false`（閲覧のみ）。現状は`settings.json`を直接編集して設定する。
@@ -87,7 +93,7 @@ export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | unde
 export function normalizeAppSettings(value: unknown): AppSettings {
   if (!isRecord(value)) return {};
   const normalized = { ...value };
-  for (const key of ["fileBrowserRoot", "tecsgenPath", "cdlFilesRoot"]) {
+  for (const key of ["fileBrowserRoot", "tecsgenPath", "cdlFilesRoot", "cppPath", "cppArgs"]) {
     if (normalized[key] !== undefined && typeof normalized[key] !== "string") delete normalized[key];
   }
   if (typeof normalized.allowEditSystemDefined !== "boolean") delete normalized.allowEditSystemDefined;

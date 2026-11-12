@@ -8,9 +8,18 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { TecsgenResult, TecsgenVersionResult, TecsgenLaunchFailure, CppResult, GeneratedCdlResult, ResolvedTecsgenCommand } from "../shared/ipc-types.js";
+import type {
+  TecsgenResult,
+  TecsgenVersionResult,
+  TecsgenLaunchFailure,
+  CppResult,
+  CppOriginReason,
+  GeneratedCdlResult,
+  ResolvedTecsgenCommand,
+} from "../shared/ipc-types.js";
 import { environmentCommand, snapshotTecsgenEnvironment, splitCommand } from "./tecsgen-path-resolver.js";
 import { createTecsgenInvocation } from "./tecsgen-invocation.js";
+import { findOnPath, type ResolvedCppCommand } from "./tool-settings.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,6 +110,21 @@ export function classifyLaunchFailure(err: unknown, command: string): TecsgenLau
   if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return { kind: "output-overflow", command, detail };
   if (e.killed) return { kind: "timeout", command, detail: e.signal ?? detail };
   return { kind: "launch-error", command, detail };
+}
+
+/**
+ * 標準エラー出力を最大 maxLen 文字に要約する。
+ * 空行を除き、改行を空白に置換して切り詰める。
+ */
+export function summarizeStderr(stderr: string, maxLen = 200): string {
+  if (!stderr) return "";
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return "";
+  const joined = lines.join(" ");
+  return joined.length <= maxLen ? joined : joined.slice(0, maxLen);
 }
 
 export class TecsgenRunner {
@@ -223,22 +247,123 @@ export class TecsgenRunner {
    * `includeDirs`はtecsgenの`-I`/import_pathに相当する探索ディレクトリ。これを渡さないと
    * `#include "kernel.h"`のようなプロジェクト内のヘッダを解決できず、プリプロセスが失敗する。
    */
-  async preprocess(headerPath: string, cppCommand?: string, includeDirs: readonly string[] = []): Promise<CppResult> {
-    const cmd = cppCommand?.trim() || "gcc -E -DTECSGEN";
+  async preprocess(
+    headerPath: string,
+    cppCommand?: string | ResolvedCppCommand,
+    includeDirs: readonly string[] = [],
+  ): Promise<CppResult> {
+    let cmd: string;
+    let executable: string;
+    let fullPath: string;
+    let originReason: CppOriginReason;
+
+    if (typeof cppCommand === "object" && cppCommand !== null) {
+      cmd = cppCommand.command;
+      executable = cppCommand.executable;
+      fullPath = cppCommand.fullPath;
+      originReason = cppCommand.originReason;
+    } else if (typeof cppCommand === "string" && cppCommand.trim().length > 0) {
+      cmd = cppCommand.trim();
+      originReason = "ユーザ直接指定";
+      try {
+        const parts = splitCommand(cmd);
+        executable = parts[0] ?? "";
+      } catch {
+        executable = cmd.split(/\s+/)[0] ?? "";
+      }
+      fullPath = isAbsolute(executable) ? executable : (findOnPath(executable) ?? executable);
+    } else {
+      cmd = "gcc -E -DTECSGEN";
+      originReason = "フォールバック";
+      executable = "gcc";
+      const fallbackFound = findOnPath("gcc");
+      fullPath = fallbackFound ?? "未検出 (PATH上)";
+    }
+
     try {
-      const [executable, ...baseArgs] = splitCommand(cmd);
+      const parts = splitCommand(cmd);
+      const exe = parts[0];
+      const baseArgs = parts.slice(1);
+      if (!exe) {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          executableFound: false,
+          command: cmd,
+          originReason,
+          fullPath: fullPath || "未検出 (PATH上)",
+          failureKind: "not-found",
+          failureDetail: `'${executable || cmd}' が見つかりません`,
+        };
+      }
+      executable = exe;
+
       const includeArgs = [...new Set(includeDirs.map((dir) => `-I${resolve(dir)}`))];
-      const { stdout, stderr } = await execFileAsync(executable!, [...baseArgs, ...includeArgs, headerPath], {
+      const { stdout, stderr } = await execFileAsync(executable, [...baseArgs, ...includeArgs, headerPath], {
         timeout: 30_000,
       });
-      return { stdout, stderr, exitCode: 0, executableFound: true };
+      return {
+        stdout,
+        stderr,
+        exitCode: 0,
+        executableFound: true,
+        command: cmd,
+        originReason,
+        fullPath,
+      };
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
       if (e.code === "ENOENT") {
-        return { stdout: "", stderr: "", exitCode: null, executableFound: false };
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          executableFound: false,
+          command: cmd,
+          originReason,
+          fullPath: fullPath || "未検出 (PATH上)",
+          failureKind: "not-found",
+          failureDetail: `'${executable}' が見つかりません`,
+        };
       }
+
+      const isTimeout =
+        e.killed === true ||
+        e.signal === "SIGTERM" ||
+        e.code === "ETIMEDOUT" ||
+        (typeof e.message === "string" && e.message.toLowerCase().includes("timed out"));
+
+      if (isTimeout) {
+        return {
+          stdout: e.stdout ?? "",
+          stderr: e.stderr ?? "",
+          exitCode: typeof e.code === "number" ? e.code : null,
+          executableFound: true,
+          command: cmd,
+          originReason,
+          fullPath,
+          failureKind: "timeout",
+          failureDetail: "30秒以内に完了しなかったためタイムアウトしました",
+        };
+      }
+
       const exitCode = typeof e.code === "number" ? e.code : 1;
-      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode, executableFound: true };
+      const rawStderr = e.stderr ?? "";
+      const stderrExcerpt = summarizeStderr(rawStderr);
+      const failureDetail = stderrExcerpt ? `終了コード ${exitCode}: ${stderrExcerpt}` : `終了コード ${exitCode}`;
+
+      return {
+        stdout: e.stdout ?? "",
+        stderr: rawStderr,
+        exitCode,
+        executableFound: true,
+        command: cmd,
+        originReason,
+        fullPath,
+        failureKind: "failed",
+        failureDetail,
+      };
     }
   }
 

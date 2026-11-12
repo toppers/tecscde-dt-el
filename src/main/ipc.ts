@@ -8,11 +8,11 @@ import type { FileService } from "./file-service.js";
 import type { TecsgenRunner } from "./tecsgen-runner.js";
 import type { LogService } from "./log-service.js";
 import { loadAppSettings, saveAppSettings } from "./app-settings.js";
-import { ToolSettingsService } from "./tool-settings.js";
+import { ToolSettingsService, chooseCppPath } from "./tool-settings.js";
 import { getAppInformation } from "./app-information.js";
 import { formatTecsgenCommand } from "./tecsgen-command-copy.js";
 import { CdlFileListService } from "./cdl-file-list.js";
-import type { ExportFormat, ImportRequest, ImportResolutionOptions, PdfPage, SessionSnapshot } from "../shared/ipc-types.js";
+import type { ExportFormat, ImportRequest, ImportResolutionOptions, PdfPage, SessionSnapshot, ToolSettingsUpdate } from "../shared/ipc-types.js";
 
 /**
  * macOSでは全ウィンドウを閉じてもアプリは終了せず、Dockから再度開くと`createWindow()`が
@@ -100,9 +100,13 @@ export function registerIpcHandlers(
   ipcMain.handle("tecsgen:generatedTypes", (_e, args: readonly string[], editingFilePath: string, optionsFilePath?: string) =>
     tecsgenRunner.generatedTypes(args, editingFilePath, optionsFilePath),
   );
-  ipcMain.handle("tecsgen:preprocess", (_e, headerPath: string, cppCommand?: string, includeDirs?: readonly string[]) =>
-    tecsgenRunner.preprocess(headerPath, cppCommand, includeDirs),
-  );
+  ipcMain.handle("tecsgen:preprocess", async (_e, headerPath: string, cppCommand?: string, includeDirs?: readonly string[]) => {
+    if (cppCommand !== undefined && cppCommand.trim().length > 0) {
+      return tecsgenRunner.preprocess(headerPath, cppCommand, includeDirs);
+    }
+    const resolved = await toolSettings.resolveForPreprocess();
+    return tecsgenRunner.preprocess(headerPath, resolved, includeDirs);
+  });
   ipcMain.handle("tecsgen:version", () => tecsgenRunner.version());
   ipcMain.handle("tecsgen:checkPath", (_event, path: string) => toolSettings.checkPath(path));
   ipcMain.handle("tecsgen:commandLine", async (_event, args: unknown, shell: unknown, cwd: unknown) => {
@@ -113,7 +117,7 @@ export function registerIpcHandlers(
     return formatTecsgenCommand(command, args, shell, cwd ?? process.cwd());
   });
   ipcMain.handle("settings:getToolSettings", () => toolSettings.get());
-  ipcMain.handle("settings:updateToolSettings", (_event, patch: { tecsgenPath: string }) => toolSettings.update(patch));
+  ipcMain.handle("settings:updateToolSettings", (_event, patch: ToolSettingsUpdate) => toolSettings.update(patch));
   ipcMain.handle("settings:getAppInformation", () => getAppInformation());
   ipcMain.handle("settings:getCdlFilesRoot", async () => (await loadAppSettings()).cdlFilesRoot ?? "");
   ipcMain.handle("settings:setCdlFilesRoot", (_e, root: unknown) => {
@@ -130,6 +134,7 @@ export function registerIpcHandlers(
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
+  ipcMain.handle("settings:chooseCppPath", (_event, currentPath?: string) => chooseCppPath(currentPath, window));
   // 第3章3.2節: rendererが読む設定（現状は`allowEditSystemDefined`のみ）。
   ipcMain.handle("settings:get", async () => ({
     allowEditSystemDefined: (await loadAppSettings()).allowEditSystemDefined === true,
