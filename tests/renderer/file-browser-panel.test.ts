@@ -39,6 +39,52 @@ function fakeGateway(opts: {
 }
 
 describe("FileBrowserView", () => {
+  it("shows the exact selected directory above the tree and keeps it on file click and cancel", async () => {
+    const el = document.createElement("div");
+    const root = "C:\\Users\\a long directory\\project\\";
+    const sub = `${root}nested <folder> & directory\\`;
+    const chooseFolder = vi.fn().mockResolvedValueOnce(root).mockResolvedValueOnce(null).mockResolvedValueOnce(root);
+    const { gateway } = fakeGateway({ chooseFolder, listDirectory: async (dir) => dir === root
+      ? [{ name: "nested", path: sub, kind: "directory" }]
+      : [{ name: "main.cdl", path: `${sub}main.cdl`, kind: "file" }],
+    });
+    const onOpen = vi.fn();
+    const view = new FileBrowserView(el, fakeStore(null), gateway, onOpen, vi.fn(), vi.fn());
+    const selectedPath = () => el.querySelector<HTMLElement>(".file-browser-selected-path")!;
+    view.render();
+    expect(selectedPath()?.textContent).toBe("(フォルダ未選択)");
+    await view.chooseRoot();
+    expect(el.firstElementChild).toBe(selectedPath());
+    expect(selectedPath().textContent).toBe(root);
+    el.querySelectorAll<HTMLElement>('[data-kind="directory"]')[1]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(selectedPath().textContent).toBe(sub);
+    expect(selectedPath().children).toHaveLength(0);
+    el.querySelector<HTMLElement>('[data-kind="file"]')!.click();
+    expect(onOpen).toHaveBeenCalledWith(`${sub}main.cdl`);
+    expect(selectedPath().textContent).toBe(sub);
+    await view.chooseRoot();
+    expect(selectedPath().textContent).toBe(sub);
+    await view.chooseRoot();
+    expect(selectedPath().textContent).toBe(root);
+    // Collapsing a directory also selects it, without loading children again.
+    el.querySelector<HTMLElement>('[data-kind="directory"]')!.click();
+    expect(selectedPath().textContent).toBe(root);
+  });
+
+  it("selects a restored root and clears its selected path when restoration fails", async () => {
+    const el = document.createElement("div");
+    const { gateway } = fakeGateway({ listDirectory: async (path) => {
+      if (path === "/missing") throw new Error("missing");
+      return [];
+    } });
+    const view = new FileBrowserView(el, fakeStore(null), gateway, vi.fn(), vi.fn(), vi.fn());
+    await view.restoreRoot("/saved/path/");
+    expect(el.querySelector(".file-browser-selected-path")?.textContent).toBe("/saved/path/");
+    await view.restoreRoot("/missing");
+    expect(el.querySelector(".file-browser-selected-path")?.textContent).toBe("(フォルダ未選択)");
+  });
+
   it("shows a placeholder when no root folder has been chosen", () => {
     const el = document.createElement("div");
     const { gateway } = fakeGateway({});

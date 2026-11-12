@@ -488,7 +488,7 @@ cell tRegular Regular {};
     );
   });
 
-  it("diagnostics panel is hidden until #status-diag is clicked, then lists the diagnostics (第8章8.4節)", () => {
+  it("diagnostics panel opens when diagnostics appear and the count button closes/reopens it (第8章8.7節)", () => {
     const { store } = mountShell();
     const text = [
       "cell tUndefinedType cFoo {",
@@ -502,6 +502,8 @@ cell tRegular Regular {};
     store.loadDocument(doc, "broken.cde", diagnostics);
 
     const panel = document.querySelector<HTMLElement>("#diagnostics-panel")!;
+    expect(panel.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>("#status-diag")!.click();
     expect(panel.hidden).toBe(true);
 
     document.querySelector<HTMLButtonElement>("#status-diag")!.click();
@@ -1366,7 +1368,7 @@ describe("AppShell — unsaved-changes report to main (7.9)", () => {
     const panel = document.querySelector<HTMLElement>("#diagnostics-panel")!;
     expect(panel.hidden).toBe(true);
     store.setEnvironmentDiagnostics([{ severity: "warning", code: "W-TECSGEN-VERSION-OLD", message: "tecsgen の版 1.2.0 は古い" }]);
-    expect(panel.hidden).toBe(true); // 通知だけでは開かない
+    expect(panel.hidden).toBe(false);
     shell.openDiagnostics();
     expect(panel.hidden).toBe(false);
     expect(panel.textContent).toContain("W-TECSGEN-VERSION-OLD");

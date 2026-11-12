@@ -11,6 +11,7 @@ import type { AppStore } from "./store";
 
 export class DiagnosticsPanelView {
   private visible = false;
+  private previousCount = 0;
 
   constructor(
     private readonly toggleEl: HTMLButtonElement,
@@ -45,6 +46,8 @@ export class DiagnosticsPanelView {
 
   render(): void {
     const report = this.store.getReport();
+    if (report.items.length > this.previousCount) this.visible = true;
+    this.previousCount = report.items.length;
     this.toggleEl.textContent = report.isEmpty ? "" : `⚠ ${report.errorCount} エラー / ${report.warningCount} 警告`;
     this.toggleEl.disabled = report.isEmpty;
 
@@ -63,6 +66,15 @@ export class DiagnosticsPanelView {
       item.textContent = formatDiagnostic(d);
       this.panelEl.appendChild(item);
     });
+    this.updateHeightLimit();
+  }
+
+  /** 折り返し行も1診断として、先頭10件の実際の高さ（padding・罫線込み）まで表示する。 */
+  updateHeightLimit(): void {
+    if (this.panelEl.hidden) return;
+    const rows = Array.from(this.panelEl.querySelectorAll<HTMLElement>(".diag-item")).slice(0, 10);
+    const height = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+    if (height > 0) this.panelEl.style.maxHeight = `${height}px`;
   }
 
   private jumpTarget(d: Diagnostic): boolean {

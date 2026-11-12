@@ -6,12 +6,15 @@
 import { CdlDocumentLoader } from "../cdl/document-builder";
 import type { CdlSource } from "../cdl/document-builder";
 import { CdlSerializer } from "../cdl/serializer";
+import { W_CODES } from "../cdl/messages";
 import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
 import { describeLaunchFailure, describeTecsgenFailure } from "../tecsgen/failure-summary";
 import type { GeneratedCdlFile, OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { TecscdeDocument } from "../model/document";
+import { cascadeDeleteCell } from "../commands/support";
+import { Cell } from "../model/cell";
 import { ViewState } from "../view-state/view-state";
 import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports } from "./import-resolution";
 import type { AppStore, LoadGuard } from "./store";
@@ -183,12 +186,26 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
       const proceed = await gateway.confirmDiscardChanges();
       if (!proceed || !await store.canApplyLoad(guard)) return;
     }
-    const referenceFilePaths = store.getReferenceFilePaths();
-    const referenceSources = store.getReferenceSources(); // #8: 消去後もaddAsReferenceが使えるよう維持する
-    const document = TecscdeDocument.empty();
+    const current = store.getDocument();
+    let retained = current;
+    for (const cell of current.cellValues()) {
+      if ((cell.locale ?? null) === current.primarySourceKey) retained = cascadeDeleteCell(retained, cell.id);
+    }
+    const empty = TecscdeDocument.empty();
+    const document = TecscdeDocument.build({
+      cells: new Map(retained.cellValues().map((cell) => [cell.id, cell])),
+      joins: new Map(retained.joinValues().map((join) => [join.id, join])),
+      celltypes: new Map(current.celltypeValues().filter((type) =>
+        !type.sourcePath || type.sourcePath !== current.primarySourceKey).map((type) => [type.name, type])),
+      regions: retained.regions, toolInfoTecsgen: empty.toolInfoTecsgen, paper: empty.paper,
+      referenceFiles: current.referenceFiles, primarySourceKey: null,
+      sourceOrder: current.sourceOrder.filter((key) => key !== current.primarySourceKey),
+      sourceTemplates: new Map([...current.sourceTemplates].filter(([key]) => key !== current.primarySourceKey)),
+      unknownToolInfoTecscde: {},
+    });
     if (store.isClosing && !await store.canApplyLoad(guard)) return;
     if (!store.isLoadCurrent(guard)) return;
-    store.loadDocument(document, null, [], referenceFilePaths, referenceSources, []);
+    store.clearPrimaryDocument(document);
     // openFromPath/applyOpenResultと同じく、読み込み直後は表示中心を図の中心に戻す。
     const { width, height } = document.paper.contentSize();
     store.setView(ViewState.initial().panTo({ x: width / 2, y: height / 2 }));
@@ -211,14 +228,13 @@ export async function addAsReference(
   try {
     if (store.isClosing && !await store.canApplyLoad(guard)) return;
     const editablePath = store.filePath;
-    if (!editablePath) return; // 消去直後など編集対象未確定では参照追加の起点が無い
     const existingPaths = store.getReferenceFilePaths();
     if (path === editablePath || existingPaths.includes(path)) return;
 
     const toolInfo = store.getDocument().toolInfoTecsgen;
     const extraImportPaths = store.getExtraImportPaths();
     const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
-    const { references: discovered, diagnostics: importDiagnostics } = await resolveAddedReference(
+    const { references: discovered, diagnostics: importDiagnostics, cdeclResults: addedCdeclResults } = await resolveAddedReference(
       gateway,
       tecsgenGateway,
       editablePath,
@@ -228,7 +244,7 @@ export async function addAsReference(
       store.getSystemDirs(),
     );
     if (!await store.canApplyLoad(guard)) return;
-    if (discovered.length === 0) return; // 重複（種付けにより検出）または解決失敗
+    if (discovered.length === 0 || importDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
 
     const mergedSources = new Map(store.getReferenceSources());
     for (const referencePath of store.getReferenceFilePaths()) {
@@ -241,11 +257,15 @@ export async function addAsReference(
     const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
     const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
     const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
-      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(),
+      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(), true,
     );
-    const sourceTexts = new Map([...mergedSources, [editablePath, editableText] as const]);
+    if (!await store.canApplyLoad(guard) || allImportDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
+    // An empty key is only a transient loader input for the in-memory primary;
+    // it never enters the session or ordinary reference paths.
+    const primaryKey = editablePath ?? "";
+    const sourceTexts = new Map([...mergedSources, [primaryKey, editableText] as const]);
     const sourceOrder = [...new Set([
-      ...store.getDocument().sourceOrder.map((key) => key === store.getDocument().primarySourceKey ? editablePath : key)
+      ...store.getDocument().sourceOrder.map((key) => key === store.getDocument().primarySourceKey ? primaryKey : key)
         .filter((key) => sourceTexts.has(key)), ...sourceTexts.keys(),
     ])];
     const sources: CdlSource[] = [
@@ -254,9 +274,26 @@ export async function addAsReference(
         text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
       })),
     ];
-    const { document, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
-      cdeclResults, systemDirs: store.getSystemDirs(), allowEditSystemDefined: store.getAllowEditSystemDefined(),
-      primarySourceKey: editablePath,
+    const { document: loaded, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
+      cdeclResults: new Map([...addedCdeclResults, ...cdeclResults]),
+      systemDirs: store.getSystemDirs(), allowEditSystemDefined: store.getAllowEditSystemDefined(),
+      primarySourceKey: primaryKey,
+    });
+    const document = TecscdeDocument.build({
+      cells: new Map(loaded.cellValues().map((cell) => [cell.id,
+        editablePath === null && cell.locale === "" ? Cell.create({ ...cell, locale: undefined }) : cell])),
+      joins: new Map(loaded.joinValues().map((join) => [join.id, join])),
+      celltypes: new Map(loaded.celltypeValues().map((type) => [type.name, type])),
+      regions: loaded.regions, toolInfoTecsgen: loaded.toolInfoTecsgen, paper: loaded.paper,
+      referenceFiles: loaded.referenceFiles, primarySourceKey: editablePath,
+      editingFileName: editablePath ?? undefined,
+      sourceOrder: sourceOrder.filter((key) => key !== ""),
+      sourceTemplate: store.getDocument().sourceTemplate ?? loaded.sourceTemplate,
+      sourceTemplates: new Map([
+        ...loaded.sourceTemplates,
+        ...[...store.getDocument().sourceTemplates].filter(([key]) => sourceTexts.has(key)),
+      ].filter(([key]) => key !== "")),
+      preservedImports: loaded.preservedImports, unknownToolInfoTecscde: loaded.unknownToolInfoTecscde,
     });
     if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return;
     store.loadDocument(
@@ -265,7 +302,7 @@ export async function addAsReference(
       [...allImportDiagnostics, ...importDiagnostics.filter((first) =>
         !allImportDiagnostics.some((later) => first.code === later.code && first.message === later.message)
       ), ...diagnostics],
-      sourceOrder.filter((key) => key !== editablePath),
+      sourceOrder.filter((key) => key !== primaryKey),
       mergedSources,
       extraImportPaths,
       store.getOptionsFilePath(),
