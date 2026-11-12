@@ -4,6 +4,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   OpenResult,
+  PdfPage,
   TecsgenResult,
   AppSettingsView,
   TecsgenVersionResult,
@@ -11,6 +12,7 @@ import type {
   CppResult,
   TecscdeApi,
   DirEntry,
+  ExportFormat,
   ImportRequest,
   ImportResolutionOptions,
   ResolvedImport,
@@ -22,6 +24,13 @@ import type {
 } from "../shared/ipc-types.js";
 
 const api: TecscdeApi = {
+  // 外部仕様3.8: バージョン情報ダイアログ用。値を渡すだけで、操作の経路は持たない。
+  versions: {
+    electron: process.versions.electron ?? "",
+    chrome: process.versions.chrome ?? "",
+    node: process.versions.node,
+    platform: process.platform,
+  },
   cdl: {
     loadGrammarAssets: () => ipcRenderer.invoke("cdl:grammar-assets"),
   },
@@ -34,7 +43,11 @@ const api: TecscdeApi = {
     chooseSavePath: (suggestedName: string): Promise<string | null> => ipcRenderer.invoke("file:chooseSavePath", suggestedName),
     saveAs: (content: string, suggestedName: string): Promise<string | null> =>
       ipcRenderer.invoke("file:saveAs", content, suggestedName),
-    export: (path: string, data: string): Promise<void> => ipcRenderer.invoke("file:export", path, data),
+    export: (path: string, data: string | Uint8Array): Promise<void> => ipcRenderer.invoke("file:export", path, data),
+    exportPdf: (path: string, svg: string, page: PdfPage): Promise<void> =>
+      ipcRenderer.invoke("file:exportPdf", path, svg, page),
+    chooseExportPath: (format: ExportFormat, suggestedName: string): Promise<string | null> =>
+      ipcRenderer.invoke("file:chooseExportPath", format, suggestedName),
     chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("file:chooseFolder"),
     listDirectory: (dirPath: string): Promise<readonly DirEntry[]> => ipcRenderer.invoke("file:listDirectory", dirPath),
     openPath: (path: string): Promise<OpenResult> => ipcRenderer.invoke("file:openPath", path),

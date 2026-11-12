@@ -5,9 +5,11 @@
 
 import type {
   DirEntry,
+  ExportFormat,
   ImportRequest,
   ImportResolutionOptions,
   OpenResult,
+  PdfPage,
   ResolvedImport,
   TecsgenOptionsFile,
   SessionSnapshot,
@@ -34,8 +36,16 @@ export class FileGateway {
     return window.tecscde.file.saveAs(content, suggestedName);
   }
 
-  export(path: string, data: string): Promise<void> {
+  export(path: string, data: string | Uint8Array): Promise<void> {
     return window.tecscde.file.export(path, data);
+  }
+
+  exportPdf(path: string, svg: string, page: PdfPage): Promise<void> {
+    return window.tecscde.file.exportPdf(path, svg, page);
+  }
+
+  chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null> {
+    return window.tecscde.file.chooseExportPath(format, suggestedName);
   }
 
   /** 7.6.1節: ファイルブラウザのルートフォルダ選択。 */

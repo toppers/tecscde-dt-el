@@ -11,8 +11,11 @@
 // 検索ボックス／ナビゲータパネル／診断パネル（2026-09-11・09-12、各パネルは専用クラスへ委譲する）。
 
 import { GestureController } from "../render/gesture-controller";
+import { SelectionState } from "../render/view";
 import { SvgRenderer } from "../render/svg-renderer";
 import type { Point } from "../model/geometry";
+import type { PaperOrientation, PaperSize } from "../model/paper";
+import { ChangePaperCommand } from "../commands";
 import type { TecscdeDocument } from "../model/document";
 import { ZOOM_STEP } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
@@ -20,19 +23,28 @@ import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import type { WindowGateway } from "../gateways/window-gateway";
 import { AppGestureHost } from "./gesture-host";
-import { addAsReference, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
+import { addAsReference, baseName, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
 import { FileBrowserView } from "./file-browser-panel";
 import { pasteFromClipboard } from "./clipboard-actions";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
+import { APP_COMMIT, APP_VERSION } from "../app-info";
+import { CDE_FORMAT_VERSION } from "../model/tool-info-types";
+import type { RuntimeVersions } from "../../shared/ipc-types.js";
+import { AboutDialogView } from "./about-dialog";
+import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
+import { autoPlace, canAutoPlace } from "./auto-place-actions";
 import { regionStatusText } from "./status-region";
 import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { searchDocument } from "../view-state/search";
+import { SvgExporter, type SvgExportRange } from "../export/svg-exporter";
+import { PngExporter, PngExportTooLargeError, type PngScale } from "../export/png-exporter";
+import type { ExportFormat, PdfPage } from "../../shared/ipc-types";
 import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
@@ -49,7 +61,9 @@ import { resolveHighlightedJoinIds } from "../render/connection-focus";
 import { canMoveActiveToTop, prepareMoveActiveToTop, MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
 import { activeTopFailed, activeTopOverflow } from "../cdl/messages";
 
-const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+/** 案内・拒否理由をステータスバーに残す時間（ms）。 */
+const STATUS_MESSAGE_MS = 5000;
+const TEXT_INPUT_TAGS =new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 export interface AppShellOptions {
   /** 要素の探索起点（Electron では document、テストでは差し込んだ DOM）。 */
@@ -63,6 +77,8 @@ export interface AppShellOptions {
   readonly settings?: SettingsGateway;
   /** 第7章7.9節: 未保存かどうかをmain（CloseGuard）へ知らせる。省略時は通知しない（テスト用）。 */
   readonly windowGateway?: Pick<WindowGateway, "setDirty">;
+  /** 外部仕様3.8: バージョン情報ダイアログに出す実行環境の版。省略時は「不明」と表示する（テスト用）。 */
+  readonly runtimeVersions?: RuntimeVersions;
   /** window 相当（キーボード・スクロールの結線先）。既定は globalThis の window。 */
   readonly win?: Window;
 }
@@ -85,6 +101,7 @@ export class AppShell {
   private readonly scrollEl: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly zoomSlider: HTMLInputElement;
+  private readonly paperSelect: HTMLSelectElement;
   /** 6C.1: toolbar display settings (color, signature labels and name emphasis). */
   private readonly filterColor: HTMLInputElement;
   private readonly filterSignature: HTMLInputElement;
@@ -94,7 +111,15 @@ export class AppShell {
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
   private readonly statusRegion: HTMLElement;
+  private readonly statusMessage: HTMLElement;
   private readonly statusMode: HTMLElement;
+  private statusMessageTimer: number | undefined;
+  private readonly exportDialog: HTMLElement;
+  private readonly exportFormat: HTMLSelectElement;
+  private readonly exportRange: HTMLSelectElement;
+  private readonly pngScaleField: HTMLElement;
+  private readonly pngScale: HTMLSelectElement;
+  private readonly exportConfirm: HTMLButtonElement;
 
   private readonly renderer: SvgRenderer;
   /** ドラッグ FSM。DOM 結線は `attach` 済み。テストはこの公開メソッドを直接叩ける。 */
@@ -102,6 +127,9 @@ export class AppShell {
 
   /** モジュールG次段（外部仕様3.3〜3.5節）。各パネルは自身のDOM配線・描画を持つ。 */
   private readonly palette: PaletteView;
+  private readonly celltypeDetails: CelltypeDetailsView;
+  private readonly aboutDialog: AboutDialogView;
+  private readonly panelVisibility: PanelVisibilityView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
   private readonly propertyPanel: PropertyPanelView;
@@ -113,7 +141,6 @@ export class AppShell {
   private readonly fileDialog: ModelessDialog;
   private readonly celltypesDialog: ModelessDialog;
   private readonly definitionView: DefinitionFileView;
-  private readonly celltypeDetails: CelltypeDetailsView;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -124,6 +151,7 @@ export class AppShell {
   private spaceHeld = false;
   private panDragLast: Point | undefined;
   private copyCommandGeneration = 0;
+  private exportBusy = false;
 
   constructor(opts: AppShellOptions) {
     this.store = opts.store;
@@ -146,6 +174,7 @@ export class AppShell {
     this.scrollEl = requireEl<HTMLElement>(root, "#canvas-scroll");
     this.toolbar = requireEl<HTMLElement>(root, "#toolbar");
     this.zoomSlider = requireEl<HTMLInputElement>(root, "#zoom-slider");
+    this.paperSelect = requireEl<HTMLSelectElement>(root, "#paper-select");
     this.filterColor = requireEl<HTMLInputElement>(root, "#filter-color");
     this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
     this.filterEmphasize = requireEl<HTMLInputElement>(root, "#filter-emphasize");
@@ -154,25 +183,47 @@ export class AppShell {
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
     this.statusRegion = requireEl<HTMLElement>(root, "#status-region");
+    this.statusMessage = requireEl<HTMLElement>(root, "#status-message");
     this.statusMode = requireEl<HTMLElement>(root, "#status-mode");
+    this.exportDialog = requireEl<HTMLElement>(root, "#export-dialog");
+    this.exportFormat = requireEl<HTMLSelectElement>(root, "#export-format");
+    this.exportRange = requireEl<HTMLSelectElement>(root, "#export-range");
+    this.pngScaleField = requireEl<HTMLElement>(root, "#png-scale-field");
+    this.pngScale = requireEl<HTMLSelectElement>(root, "#png-scale");
+    this.exportConfirm = requireEl<HTMLButtonElement>(root, "#export-confirm");
 
     this.renderer = new SvgRenderer(this.svg);
     const host = new AppGestureHost(
       this.store,
       () => this.render(),
       (p) => this.updateStatusPos(p),
+      (msg) => this.showMessage(msg),
     );
     this.gesture = new GestureController(this.renderer, host);
 
     const docForViews = this.svg.ownerDocument;
     this.definitionView = new DefinitionFileView({ document: docForViews, readFile: (path) => this.gateway.readDefinitionFile(path) });
+    this.aboutDialog = new AboutDialogView(
+      requireEl<HTMLDialogElement>(root, "#about-dialog"),
+      () => ({
+        appVersion: APP_VERSION,
+        commit: APP_COMMIT,
+        formatVersion: CDE_FORMAT_VERSION,
+        ...(this.store.getTecsgenInfo() ? { tecsgen: this.store.getTecsgenInfo()! } : {}),
+        ...(opts.runtimeVersions ? { runtime: opts.runtimeVersions } : {}),
+      }),
+      (text) => this.clipboard.writeText(text),
+      (err) => this.reportActionError("about", err),
+    );
     this.celltypeDetails = new CelltypeDetailsView({ document: docForViews, store: this.store,
       onShowDefinition: (source) => void this.definitionView.open(source, "セルタイプ定義ファイルウィンドウ") });
     this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store, (name) => this.celltypeDetails.open(name));
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store,
-      { onShowDefinition: (source) => void this.definitionView.open(source, "セル定義ファイルウィンドウ") });
+      { onShowDefinition: (source) => void this.definitionView.open(source, "セル定義ファイルウィンドウ") },
+      (msg) => this.showMessage(msg),
+    );
     this.searchBox = new SearchBoxView(requireEl<HTMLElement>(root, "#search-box"), this.store);
     this.navigator = new NavigatorView(requireEl<HTMLElement>(root, "#navigator"), this.store, this.scrollEl);
     this.diagnosticsPanel = new DiagnosticsPanelView(
@@ -217,6 +268,7 @@ export class AppShell {
       content: fileContent, initialPosition: { x: 16, y: 110 } });
     this.celltypesDialog = new ModelessDialog({ document: doc, title: "セルタイプ一覧", id: "celltypes-dialog",
       content: paletteRoot, initialPosition: { x: 280, y: 110 } });
+    this.panelVisibility = new PanelVisibilityView(root, () => this.render());
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -224,9 +276,14 @@ export class AppShell {
     this.disposers.push(this.store.subscribe(() => this.render()));
     this.disposers.push(this.gesture.attach(this.svg));
     this.bindToolbar();
+    this.bindExportDialog();
     this.bindZoomSlider();
+    this.bindPaperSelect();
     this.bindDisplayControls();
     this.disposers.push(() => this.regionFilter.dispose());
+    this.disposers.push(() => this.panelVisibility.dispose());
+    this.disposers.push(() => this.palette.dispose());
+    this.disposers.push(() => this.celltypeDetails.dispose());
     this.bindKeyboard();
     this.bindSpacePan();
     this.bindWheel();
@@ -264,8 +321,8 @@ export class AppShell {
     const doc = this.store.getDocument();
     const view = this.store.view;
     const focusedJoinIds =
-      this.store.isConnectionFocusEnabled() && this.store.selection.selectedPorts.length > 0
-        ? resolveHighlightedJoinIds(doc, this.store.selection.selectedPorts)
+      this.store.isConnectionFocusEnabled() && this.store.selection.ports.length > 0
+        ? resolveHighlightedJoinIds(doc, this.store.selection.ports)
         : undefined;
     const canvasView = view.toCanvasView(doc.regions, focusedJoinIds);
     const hits = searchDocument(doc, view.searchQuery, canvasView.hiddenRegionIds);
@@ -352,6 +409,15 @@ export class AppShell {
       case "saveAs":
         void saveAs(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
+      case "exportDiagram":
+        if (this.exportBusy) break;
+        this.exportDialog.hidden = false;
+        this.exportFormat.value = "svg";
+        this.exportRange.value = "paper";
+        this.pngScale.value = "2";
+        this.pngScaleField.hidden = true;
+        this.exportFormat.focus();
+        break;
       case "clear":
         void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
@@ -380,6 +446,12 @@ export class AppShell {
         break;
       case "toggleRegionOutlineMode":
         this.store.setView(this.store.view.toggleRegionOutlineMode());
+        break;
+      case "autoPlace":
+        autoPlace(this.store, "selection");
+        break;
+      case "autoPlaceAll":
+        autoPlace(this.store, "all");
         break;
       case "undo":
         this.store.undo();
@@ -410,6 +482,9 @@ export class AppShell {
       case "copyTecsgenCommand":
         this.copyTecsgenCommand();
         break;
+      case "about":
+        this.aboutDialog.open(this.toolbar.querySelector<HTMLElement>("[data-action='about']") ?? this.toolbar);
+        break;
       default:
         break;
     }
@@ -422,6 +497,87 @@ export class AppShell {
    */
   private reportActionError(action: string, err: unknown): void {
     console.error(`[AppShell] action "${action}" failed:`, err);
+  }
+
+  private bindExportDialog(): void {
+    const cancel = requireEl<HTMLButtonElement>(this.exportDialog, "#export-cancel");
+    const onCancel = (): void => { this.exportDialog.hidden = true; };
+    const onConfirm = (): void => { void this.exportDiagram(); };
+    const onFormat = (): void => { this.pngScaleField.hidden = this.exportFormat.value !== "png"; };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      } else if (event.key === "Tab") {
+        const first = this.exportFormat;
+        const last = this.exportConfirm;
+        if (event.shiftKey && this.win.document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && this.win.document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+      // ダイアログ表示中に背後の編集ショートカットへ伝えない。
+      event.stopPropagation();
+    };
+    const onWindowKey = (event: KeyboardEvent): void => {
+      if (this.exportDialog.hidden || this.exportDialog.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === "Escape") onCancel();
+    };
+    cancel.addEventListener("click", onCancel);
+    this.exportConfirm.addEventListener("click", onConfirm);
+    this.exportFormat.addEventListener("change", onFormat);
+    this.exportDialog.addEventListener("keydown", onKey);
+    this.win.addEventListener("keydown", onWindowKey, true);
+    this.disposers.push(() => {
+      cancel.removeEventListener("click", onCancel);
+      this.exportConfirm.removeEventListener("click", onConfirm);
+      this.exportFormat.removeEventListener("change", onFormat);
+      this.exportDialog.removeEventListener("keydown", onKey);
+      this.win.removeEventListener("keydown", onWindowKey, true);
+    });
+  }
+
+  private async exportDiagram(): Promise<void> {
+    if (this.exportBusy) return;
+    this.exportBusy = true;
+    this.exportConfirm.disabled = true;
+    const doc = this.store.getDocument();
+    const view = this.store.view.toCanvasView(doc.regions);
+    const range = this.exportRange.value as SvgExportRange;
+    const format = this.exportFormat.value as ExportFormat;
+    const scale = Number(this.pngScale.value) as PngScale;
+    const title = this.store.filePath ? baseName(this.store.filePath) : "untitled";
+    const suggestedName = `${title.replace(/\.[^.]+$/, "")}.${format}`;
+    this.exportDialog.hidden = true;
+    try {
+      const path = await this.gateway.chooseExportPath(format, suggestedName);
+      if (!path) return;
+      const result = SvgExporter.build(doc, view, range, title);
+      if (format === "pdf") {
+        const page: PdfPage = result.range === "paper"
+          ? { kind: "paper", size: doc.paper.size, orientation: doc.paper.orientation }
+          : { kind: "custom", widthMm: result.widthMm, heightMm: result.heightMm };
+        await this.gateway.exportPdf(path, result.svg, page);
+      } else {
+        const data = format === "svg" ? result.svg : await PngExporter.rasterize(result, scale);
+        await this.gateway.export(path, data);
+      }
+      this.store.setExportDiagnostics([]);
+    } catch (err: unknown) {
+      this.reportActionError("exportDiagram", err);
+      const message = err instanceof Error ? err.message : String(err);
+      const code = err instanceof PngExportTooLargeError ? "E-EXPORT-TOO-LARGE" : "E-EXPORT-FAILED";
+      this.store.setExportDiagnostics([{ severity: "error", code, message }]);
+      this.diagnosticsPanel.open();
+    } finally {
+      this.exportBusy = false;
+      this.exportConfirm.disabled = false;
+    }
   }
 
   /** 外部仕様8.4.2: 実行に加えて、生成コマンドの提示・コピー経路も残す。 */
@@ -472,6 +628,20 @@ export class AppShell {
     this.disposers.push(() => this.zoomSlider.removeEventListener("input", onInput));
   }
 
+  private bindPaperSelect(): void {
+    const onChange = (): void => {
+      if (this.store.isEditingFileReadOnlySystemDefined()) return;
+      const [size, orientation] = this.paperSelect.value.split(":") as [PaperSize, PaperOrientation];
+      if (!(["A4", "A3", "A2"] as string[]).includes(size) ||
+          !(["LANDSCAPE", "PORTRAIT"] as string[]).includes(orientation)) return;
+      const paper = this.store.getDocument().paper;
+      if (size === paper.size && orientation === paper.orientation) return;
+      this.store.dispatch(new ChangePaperCommand(size, orientation));
+    };
+    this.paperSelect.addEventListener("change", onChange);
+    this.disposers.push(() => this.paperSelect.removeEventListener("change", onChange));
+  }
+
   /** 6C.1: toolbar display controls retain the existing DisplayFilters state. */
   private bindDisplayControls(): void {
     const onColor = (): void => {
@@ -509,13 +679,19 @@ export class AppShell {
     // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
     this.setDisabled("[data-action='alignTop']", !canAlign(this.store, "top"));
     this.setDisabled("[data-action='alignLeft']", !canAlign(this.store, "left"));
+    // 外部仕様7.3.x: 自動配置は、動かせる（編集できる）対象のセルがあるときだけ有効。
     // 第6C章6C.4節: activeかつ編集可能なセルが1つ以上あるときだけ有効。
     this.setDisabled("[data-action='moveActiveToTop']", !canMoveActiveToTop(this.store.getDocument()));
+    this.setDisabled("[data-action='autoPlace']", !canAutoPlace(this.store, "selection"));
+    this.setDisabled("[data-action='autoPlaceAll']", !canAutoPlace(this.store, "all"));
     const canGenerate = this.store.filePath !== null && !this.store.isGenerating;
     this.setDisabled("[data-action='generate']", !canGenerate);
     this.setDisabled("[data-action='copyTecsgenCommand']", this.store.filePath === null);
     // 外部仕様3.2.1: スライダはボタン・ホイール・キーボードいずれのズーム変更にも追従する。
     this.zoomSlider.value = String(Math.round(this.store.view.zoom * 100));
+    const paper = this.store.getDocument().paper;
+    this.paperSelect.value = `${paper.size}:${paper.orientation}`;
+    this.paperSelect.disabled = this.store.isEditingFileReadOnlySystemDefined();
     // 第6B章6B.6 / 第6C章6C.1: 表示制御バーのチェックは常に `DisplayFilters` の状態に従う。
     const filters = this.store.view.filters;
     this.filterColor.checked = filters.colorByRegion;
@@ -539,8 +715,8 @@ export class AppShell {
   private refreshStatus(): void {
     this.statusZoom.textContent = `${Math.round(this.store.view.zoom * 100)}%`;
     // 外部仕様4.9.2 / 第6C章6C.3節: 選択したセルの所属リージョン、またはポート選択時の「結合なし」をステータス表示に示す。
-    if (this.store.selection.selectedPorts.length > 0) {
-      const highlighted = resolveHighlightedJoinIds(this.store.getDocument(), this.store.selection.selectedPorts);
+    if (this.store.selection.ports.length > 0) {
+      const highlighted = resolveHighlightedJoinIds(this.store.getDocument(), this.store.selection.ports);
       this.statusRegion.textContent = highlighted.size === 0 ? "結合なし" : regionStatusText(this.store.getDocument(), this.store.selection);
     } else {
       this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
@@ -554,6 +730,16 @@ export class AppShell {
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
+  }
+
+  /** 操作の拒否理由や案内をステータスバーに出す。マウス移動では消えず、一定時間後に消える。 */
+  private showMessage(message: string): void {
+    this.statusMessage.textContent = message;
+    if (this.statusMessageTimer !== undefined) this.win.clearTimeout(this.statusMessageTimer);
+    this.statusMessageTimer = this.win.setTimeout(() => {
+      this.statusMessage.textContent = "";
+      this.statusMessageTimer = undefined;
+    }, STATUS_MESSAGE_MS);
   }
 
   private updateStatusPos(p: Point | undefined): void {
@@ -600,6 +786,15 @@ export class AppShell {
         case "v":
           e.preventDefault();
           void pasteFromClipboard(this.store, this.clipboard);
+          break;
+        case "a":
+          e.preventDefault();
+          {
+            const doc = this.store.getDocument();
+            if (doc.cellCount > 0) {
+              this.store.setSelection(SelectionState.ofCells(doc.cellValues().map((c) => c.id)));
+            }
+          }
           break;
         case "=":
         case "+":

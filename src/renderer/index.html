@@ -10,7 +10,7 @@
          引き続き禁止のまま（'unsafe-eval'とは異なる、Chromiumの狭いWASM専用許可）。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'"
     />
     <title>TECSCDE</title>
     <style>
@@ -94,6 +94,33 @@
         gap: 12px;
         max-width: 100%;
       }
+      #toolbar[hidden], #palette[hidden], #property-panel[hidden], #statusbar[hidden], #file-browser[hidden] {
+        display: none;
+      }
+      #panel-visibility { position: relative; flex: none; }
+      #panel-visibility > summary {
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: #fff;
+        cursor: pointer;
+      }
+      #panel-visibility-options {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 180px;
+        padding: 8px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+      }
+      #panel-visibility:not([open]) #panel-visibility-options { display: none; }
       #region-filter {
         position: relative;
       }
@@ -148,6 +175,8 @@
       #zoom-slider {
         width: 100px;
       }
+      #paper-select { font: inherit; }
+      #paper-control { margin-left: auto; white-space: nowrap; }
       #toolbar label {
         display: inline-flex;
         align-items: center;
@@ -269,7 +298,8 @@
         margin-bottom: 8px;
       }
       #palette-mode button,
-      .palette-celltype {
+      .palette-celltype,
+      .palette-celltype-details {
         font: inherit;
         padding: 3px 6px;
         border: 1px solid var(--border);
@@ -278,6 +308,9 @@
         cursor: pointer;
         text-align: left;
       }
+      .palette-celltype-row { display: flex; gap: 4px; align-items: stretch; }
+      .palette-celltype-row .palette-celltype { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .palette-celltype-details { flex: none; padding: 3px; font-size: 11px; }
       #palette-mode button.active,
       .palette-celltype.active {
         background: var(--accent);
@@ -326,6 +359,10 @@
       }
       #canvas {
         display: block;
+        /* 親(#canvas-scroll)がflexのため、既定のflex-shrink:1だとSVGが親の幅へ縮められ、
+           はみ出した部分が切れて横スクロールもできなくなる（拡大時に一部のセルしか
+           見えず、ナビゲータでも動かない不具合の原因）。縮めない。 */
+        flex: none;
       }
       #region-legend {
         position: absolute;
@@ -462,6 +499,12 @@
         border: 1px solid var(--border);
         border-radius: 3px;
       }
+      .prop-path-value {
+        font-size: 11px;
+        color: #444444;
+        overflow-wrap: anywhere;
+        user-select: text;
+      }
       .prop-field input:read-only {
         background: #eeeeee;
         color: #666666;
@@ -530,6 +573,9 @@
         font-variant-numeric: tabular-nums;
         flex: none;
       }
+      #status-message {
+        color: #b45309;
+      }
       #status-diag {
         font: inherit;
         font-weight: bold;
@@ -555,6 +601,70 @@
         font-weight: bold;
         color: #b45309;
       }
+      #export-dialog[hidden] { display: none; }
+      #export-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-items: center;
+        background: rgb(0 0 0 / 35%);
+      }
+      #export-dialog-panel {
+        min-width: 300px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+      }
+      #export-dialog-panel h2 { margin: 0 0 12px; font-size: 15px; }
+      #export-dialog-panel label { display: flex; gap: 12px; align-items: center; }
+      #export-dialog-panel label + label { margin-top: 8px; }
+      #png-scale-field[hidden] { display: none; }
+      #export-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      #celltype-details-dialog {
+        width: 640px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 40px);
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--ink);
+        overflow: auto;
+      }
+      #celltype-details-dialog:not([open]) { display: none; }
+      #celltype-details-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+      #celltype-details-dialog h2 { margin: 0 0 12px; font-size: 17px; }
+      #celltype-details-dialog h3 { margin: 16px 0 6px; font-size: 14px; }
+      #celltype-details-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+      #celltype-details-dialog dd { margin: 0; overflow-wrap: anywhere; }
+      #celltype-details-dialog .celltype-details-path { margin: 0; overflow-wrap: anywhere; user-select: text; }
+      #celltype-details-dialog table { width: 100%; border-collapse: collapse; }
+      #celltype-details-dialog th, #celltype-details-dialog td {
+        padding: 4px 6px;
+        border: 1px solid var(--border);
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
+      #celltype-details-dialog .celltype-details-close { display: block; margin: 16px 0 0 auto; font: inherit; }
+      #about-dialog {
+        width: 520px;
+        max-width: calc(100vw - 32px);
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      #about-dialog:not([open]) { display: none; }
+      #about-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+      #about-dialog h2 { margin: 0 0 12px; font-size: 17px; }
+      #about-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+      #about-dialog dd { margin: 0; overflow-wrap: anywhere; }
+      #about-dialog .about-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      #about-dialog .about-actions button { font: inherit; }
       #diagnostics-panel {
         position: absolute;
         bottom: 100%;
@@ -585,109 +695,6 @@
         background: #eeeeee;
       }
 
-      /* --- SvgRenderer / CellRenderer / JoinRenderer が出すクラス --- */
-      :root {
-        --cell-fill: #ffffff;
-        --cell-stroke: #333333;
-        --cell-fill-readonly: #f0f0f0;
-        --cell-stroke-readonly: #999999;
-        --cell-fill-active: #cce5ff;
-        --cell-stroke-unresolved: #d29922;
-      }
-      .cell-rect {
-        fill: var(--cell-fill, #ffffff);
-        stroke: var(--cell-stroke, #333333);
-        stroke-width: 1;
-      }
-      .cell-rect.readonly {
-        fill: var(--cell-fill-readonly, #f0f0f0);
-        stroke: var(--cell-stroke-readonly, #999999);
-      }
-      .cell-rect.active {
-        fill: var(--cell-fill-active, #cce5ff);
-      }
-      .cell-rect.unresolved {
-        stroke: var(--cell-stroke-unresolved, #d29922);
-        stroke-dasharray: 3 2;
-      }
-      .cell-rect.active.readonly {
-        fill: var(--cell-fill-active, #cce5ff);
-        stroke: var(--cell-stroke-readonly, #999999);
-      }
-      .cell-rect.active.unresolved {
-        fill: var(--cell-fill-active, #cce5ff);
-        stroke: var(--cell-stroke-unresolved, #d29922);
-        stroke-dasharray: 3 2;
-      }
-      .cell-rect.active.readonly.unresolved {
-        fill: var(--cell-fill-active, #cce5ff);
-        stroke: var(--cell-stroke-unresolved, #d29922);
-        stroke-dasharray: 3 2;
-      }
-      .cell-label {
-        font-size: 11px;
-        fill: #111111;
-      }
-      .cell-label.emphasized {
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .celltype-label {
-        font-size: 9px;
-        fill: #666666;
-      }
-      .port-symbol {
-        stroke: #333333;
-        stroke-width: 0.75;
-      }
-      .port-symbol-cport {
-        fill: #ffffff;
-      }
-      .port-symbol-eport {
-        fill: #333333;
-      }
-      .join-line {
-        stroke: #444444;
-        stroke-width: 1.25;
-      }
-      .join-line.join-focus {
-        stroke: #d32f2f;
-        stroke-width: 3;
-      }
-      .join-stub-tick {
-        stroke: #444444;
-        stroke-width: 1.25;
-      }
-      .join-stub-tick.join-focus {
-        stroke: #d32f2f;
-        stroke-width: 3;
-      }
-      .signature-label {
-        font-size: 9px;
-        fill: #555555;
-      }
-      .grid-line {
-        stroke: #e2e2e2;
-        stroke-width: 0.5;
-      }
-      .selection-outline {
-        stroke: var(--accent);
-        stroke-width: 1.5;
-        stroke-dasharray: 4 2;
-      }
-      .selection-outline.join-selected {
-        stroke-width: 2.5;
-      }
-      .join-preview {
-        stroke: var(--accent);
-        stroke-width: 1.5;
-        stroke-dasharray: 5 3;
-      }
-      .rubber-band {
-        stroke: var(--accent);
-        stroke-width: 1;
-        stroke-dasharray: 3 2;
-      }
     </style>
   </head>
   <body>
@@ -697,6 +704,7 @@
         <button data-action="openCelltypes" type="button" title="セルタイプ一覧を開く">セルタイプ一覧</button>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
+        <button data-action="exportDiagram" type="button">エクスポート</button>
         <button data-action="clear" type="button" title="編集対象をクリアし、新規作成する（外部仕様5.2節）">消去</button>
         <span class="sep"></span>
         <button data-action="undo" type="button">元に戻す</button>
@@ -704,6 +712,8 @@
         <button data-action="alignTop" type="button" title="選択したセルの上端を、最初に選んだセルにそろえる（外部仕様7.3.2）">上端をそろえる</button>
         <button data-action="alignLeft" type="button" title="選択したセルの左端を、最初に選んだセルにそろえる（外部仕様7.3.2）">左端をそろえる</button>
         <button data-action="moveActiveToTop" type="button" title="アクティブセルを用紙最上段に並べる（外部仕様7.3.y）">アクティブを最上段へ</button>
+        <button data-action="autoPlace" type="button" title="選択した編集できるセルを、重ならない位置へ置き直す（外部仕様7.3.x）">再配置</button>
+        <button data-action="autoPlaceAll" type="button" title="編集できるすべてのセルを、重ならない位置へ置き直す（用紙を変えたあとなど。外部仕様7.3.x）">全体再配置</button>
         <span class="sep"></span>
         <button data-action="zoomReset" type="button">Reset Rate</button>
         <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" title="表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）" />
@@ -720,9 +730,19 @@
           </select>
           <span id="tecsgen-copy-result" role="status" aria-live="polite"></span>
         </div>
-        <button data-action="information" type="button">情報</button>
+        <button data-action="about" type="button" title="バージョン情報を表示する（外部仕様3.8）">情報</button>
         <span class="sep"></span>
         <div id="display-controls" role="group" aria-label="表示設定">
+          <details id="panel-visibility">
+            <summary>表示</summary>
+            <div id="panel-visibility-options">
+              <label><input type="checkbox" data-panel="toolbar" aria-controls="toolbar" checked /> ツールバー</label>
+              <label><input type="checkbox" data-panel="palette" aria-controls="palette" checked /> セルタイプ一覧</label>
+              <label><input type="checkbox" data-panel="property-panel" aria-controls="property-panel" checked /> プロパティ</label>
+              <label><input type="checkbox" data-panel="statusbar" aria-controls="statusbar" checked /> ステータス表示</label>
+              <label><input type="checkbox" data-panel="file-browser" aria-controls="file-browser" checked /> ファイルブラウザ</label>
+            </div>
+          </details>
           <div id="region-filter">
             <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
             <div id="region-filter-popover" hidden></div>
@@ -733,6 +753,16 @@
           <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
           <label title="アクティブなセルだけを表示する（外部仕様7.3.x）"><input type="checkbox" id="filter-active-only" /> アクティブのみ</label>
           <button data-action="toggleConnectionFocus" type="button" id="toggle-connection-focus" aria-pressed="false" title="選択したポートの結合を赤色太線で強調する（外部仕様7.6）">結合強調</button>
+          <label id="paper-control">用紙
+            <select id="paper-select" aria-label="用紙サイズと向き">
+              <option value="A4:LANDSCAPE">A4 横</option>
+              <option value="A4:PORTRAIT">A4 縦</option>
+              <option value="A3:LANDSCAPE">A3 横</option>
+              <option value="A3:PORTRAIT">A3 縦</option>
+              <option value="A2:LANDSCAPE">A2 横</option>
+              <option value="A2:PORTRAIT">A2 縦</option>
+            </select>
+          </label>
         </div>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
@@ -763,7 +793,9 @@
         <span id="status-mode"></span>
         <span id="status-pos"></span>
         <span id="status-zoom"></span>
+        <span id="status-mode"></span>
         <span id="status-region"></span>
+        <span id="status-message" role="status" aria-live="polite"></span>
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>
         <div id="diagnostics-panel" hidden></div>
         <span id="status-file"></span>
@@ -777,6 +809,48 @@
         <div id="palette-celltypes"></div>
       </div>
     </div>
+    <div id="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" hidden>
+      <div id="export-dialog-panel">
+        <h2 id="export-dialog-title">図のエクスポート</h2>
+        <label>形式
+          <select id="export-format">
+            <option value="svg">SVG</option>
+            <option value="png">PNG</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </label>
+        <label>出力範囲
+          <select id="export-range">
+            <option value="paper">用紙に合わせる</option>
+            <option value="content">図の内容に合わせる</option>
+          </select>
+        </label>
+        <label id="png-scale-field" hidden>PNG倍率
+          <select id="png-scale">
+            <option value="1">1×</option>
+            <option value="2" selected>2×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+        <div id="export-dialog-actions">
+          <button id="export-cancel" type="button">キャンセル</button>
+          <button id="export-confirm" type="button">保存先を選ぶ</button>
+        </div>
+      </div>
+    </div>
+    <dialog id="celltype-details-dialog" aria-labelledby="celltype-details-title">
+      <h2 id="celltype-details-title">セルタイプの詳細</h2>
+      <div class="celltype-details-content"></div>
+      <button class="celltype-details-close" type="button">閉じる</button>
+    </dialog>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <h2 id="about-title">バージョン情報</h2>
+      <div class="about-content"></div>
+      <div class="about-actions">
+        <button class="about-copy" type="button">コピー</button>
+        <button class="about-close" type="button">閉じる</button>
+      </div>
+    </dialog>
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>

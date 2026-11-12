@@ -19,7 +19,7 @@ export function resolveHighlightedJoinIds(
   const highlighted = new Set<JoinId>();
 
   for (const port of selectedPorts) {
-    if (port.portKind === "cport") {
+    if (port.kind === "cport") {
       const cell = doc.getCell(port.cellId);
       if (cell) {
         const cport = cell.cports.find(

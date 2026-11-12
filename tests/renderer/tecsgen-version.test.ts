@@ -73,6 +73,28 @@ describe("evaluateTecsgenVersion", () => {
   });
 });
 
+describe("checkTecsgenVersion — information for the version dialog (3.8)", () => {
+  const log = { append: vi.fn().mockResolvedValue(undefined) };
+  it("keeps the confirmed version and the command that was used", async () => {
+    const store = new AppStore();
+    await checkTecsgenVersion(store, { version: async () => ({ kind: "ok", text: "tecsgen  version 1.9.1", command: "tecsgen" }) }, log);
+    expect(store.getTecsgenInfo()).toEqual({ version: [1, 9, 1], command: "tecsgen" });
+  });
+  it("keeps only the command when tecsgen was not found", async () => {
+    const store = new AppStore();
+    await checkTecsgenVersion(store, { version: async () => ({ kind: "not-found", command: "tecsgen" }) }, log);
+    expect(store.getTecsgenInfo()).toEqual({ command: "tecsgen" });
+  });
+  it("keeps only the command when the version could not be read", async () => {
+    const store = new AppStore();
+    await checkTecsgenVersion(store, { version: async () => ({ kind: "failed", detail: "x", command: "ruby t.rb" }) }, log);
+    expect(store.getTecsgenInfo()).toEqual({ command: "ruby t.rb" });
+  });
+  it("has no information before the check runs", () => {
+    expect(new AppStore().getTecsgenInfo()).toBeUndefined();
+  });
+});
+
 describe("checkTecsgenVersion", () => {
   it("stores the warning so that it survives document loads and Generate results", async () => {
     const store = new AppStore();

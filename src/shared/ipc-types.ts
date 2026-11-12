@@ -68,10 +68,22 @@ export interface TecsgenLaunchFailure {
  * [[TECSCDE-DT-EL内部仕様]] 第9C章9C.2節: `tecsgen --version`の結果。tecsgenは版を標準エラー出力へ出す
  * ため、`text`は標準出力、空なら標準エラー出力（trim済み）。
  */
+/**
+ * 起動に使われたコマンド（環境変数 TECSGEN_COMMAND、無ければ既定の tecsgen）。バージョン情報
+ * ダイアログ（外部仕様3.8）に出す。mainは常に付けるが、型は省略可（呼び出し側の既存の値のため）。
+ */
 export type TecsgenVersionResult =
-  | { readonly kind: "ok"; readonly text: string }
-  | { readonly kind: "not-found" }
-  | { readonly kind: "failed"; readonly detail: string };
+  | { readonly kind: "ok"; readonly text: string; readonly command?: string }
+  | { readonly kind: "not-found"; readonly command?: string }
+  | { readonly kind: "failed"; readonly detail: string; readonly command?: string };
+
+/** 外部仕様3.8: バージョン情報ダイアログに出す実行環境の版。preload が読み取り専用で公開する。 */
+export interface RuntimeVersions {
+  readonly electron: string;
+  readonly chrome: string;
+  readonly node: string;
+  readonly platform: string;
+}
 
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
@@ -123,12 +135,16 @@ export interface ImportRequest {
 
 /** 第7D章7.5.2節: 探索候補ディレクトリの構築に使う入力。 */
 export interface ImportResolutionOptions {
-  readonly systemDirs?: readonly string[];
   readonly baseDir?: string;
   readonly importPaths: readonly string[];
   readonly cpp?: string;
   /** 第7D章7.5.3節: 解決が進むごとにrendererが蓄積する追加の探索ディレクトリ。 */
   readonly extraSearchDirs?: readonly string[];
+  /**
+   * `.tecsgen-opts`の`-S`で指定されたディレクトリ（絶対パス、外部仕様5.3節）。このうち`_CDL_FILES.txt`を
+   * 持つものは、ディレクトリを直接調べる代わりに、その一覧から`import`の参照先を探す。
+   */
+  readonly systemDirs?: readonly string[];
 }
 
 /** 第7D章7.5.2節: `resolveImports()`の1件あたりの結果。 */
@@ -188,15 +204,21 @@ export interface AppInformation {
   readonly arch: string;
 }
 
-/** 外部仕様9.5節 / 監査#66: ログファイル追記の結果型。初回失敗時のみ newFailure が true になる。 */
+export type ExportFormat = "svg" | "png" | "pdf";
+
+export type PdfPage =
+  | { readonly kind: "paper"; readonly size: "A4" | "A3" | "A2"; readonly orientation: "LANDSCAPE" | "PORTRAIT" }
+  | { readonly kind: "custom"; readonly widthMm: number; readonly heightMm: number };
+
+/** `log.append` の結果。`newFailure` は、ログを書けなくなった最初の一度だけ入る理由。 */
 export interface LogAppendResult {
-  readonly success: boolean;
-  readonly newFailure: boolean;
-  readonly error?: string;
+  readonly newFailure?: string;
 }
 
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
+  /** 外部仕様3.8: 実行環境の版（Electron・Chromium・Node・OS）。 */
+  readonly versions: RuntimeVersions;
   readonly cdl: {
     loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
   };
@@ -208,7 +230,9 @@ export interface TecscdeApi {
     save(path: string, content: string): Promise<void | SourceWriteReceipt>;
     chooseSavePath?(suggestedName: string): Promise<string | null>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
-    export(path: string, data: string): Promise<void>;
+    chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null>;
+    export(path: string, data: string | Uint8Array): Promise<void>;
+    exportPdf(path: string, svg: string, page: PdfPage): Promise<void>;
     /** 第7章7.6.1節: ファイルブラウザのルートフォルダ選択。 */
     chooseFolder(): Promise<string | null>;
     /** 第7章7.6.1節: ディレクトリ直下のみを1階層返す（遅延展開）。 */
@@ -268,7 +292,10 @@ export interface TecscdeApi {
     setCdlFilesRoot(root: string): Promise<void>;
     chooseCdlFilesRoot(): Promise<string | null>;
   };
-  /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
+  /**
+   * 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。
+   * 結果の `newFailure` は、書けなくなった最初の一度だけ入る理由（外部仕様9.5.2の規定13）。
+   */
   readonly log: {
     append(lines: readonly string[]): Promise<LogAppendResult>;
   };

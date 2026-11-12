@@ -93,7 +93,11 @@ export class Cell {
   }
 
   withCPort(port: CPort): Cell {
-    const cports = this.cports.map((p) => (p.name === port.name ? port : p));
+    const cports = this.cports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
+    return this.withCPorts(cports);
+  }
+
+  withCPorts(cports: readonly CPort[]): Cell {
     return new Cell(
       this.id,
       this.name,
@@ -115,7 +119,11 @@ export class Cell {
   }
 
   withEPort(port: EPort): Cell {
-    const eports = this.eports.map((p) => (p.name === port.name ? port : p));
+    const eports = this.eports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
+    return this.withEPorts(eports);
+  }
+
+  withEPorts(eports: readonly EPort[]): Cell {
     return new Cell(
       this.id,
       this.name,
@@ -136,11 +144,11 @@ export class Cell {
     );
   }
 
-  findCPort(name: string): CPort | undefined {
-    return this.cports.find((p) => p.name === name);
+  findCPort(name: string, subscript?: number | null): CPort | undefined {
+    return this.cports.find((p) => p.name === name && (subscript === undefined || p.subscript === subscript));
   }
 
-  findEPort(name: string): EPort | undefined {
-    return this.eports.find((p) => p.name === name);
+  findEPort(name: string, subscript?: number | null): EPort | undefined {
+    return this.eports.find((p) => p.name === name && (subscript === undefined || p.subscript === subscript));
   }
 }

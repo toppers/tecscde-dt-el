@@ -1,0 +1,20 @@
+/* 実機確認 #9: 配列ポートの Insert / Delete（セル4個。150%前後で全体が収まる） */
+import("check-types.cdl");
+
+cell tT t1 {
+};
+/* 可変長配列の呼び口(2要素) */
+cell tVar v1 {
+	cVar[0] = t1.e;
+	cVar[1] = t1.e;
+};
+/* 固定長配列の呼び口(3要素) */
+cell tFixed f1 {
+	cFixed[0] = t1.e;
+	cFixed[1] = t1.e;
+	cFixed[2] = t1.e;
+};
+/* 通常の呼び口 */
+cell tPlain p1 {
+	cPlain = t1.e;
+};

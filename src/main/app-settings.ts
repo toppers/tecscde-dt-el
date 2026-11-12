@@ -113,7 +113,7 @@ export function settingsDir(): string {
   return app.getPath("userData");
 }
 
-/** 外部仕様9.5節 / 監査#64: 診断ログの固定出力先ディレクトリ（設定ディレクトリ直下の logs/）。 */
+/** 外部仕様9.5.2の規定2: 診断ログは、設定ファイルと同じフォルダの `logs/` に置く。 */
 export function logsDirectory(): string {
   return join(settingsDir(), "logs");
 }

@@ -14,25 +14,35 @@ vi.mock("electron", () => ({
   app: { getPath: (...args: unknown[]) => getPath(...args) },
 }));
 
-const { loadAppSettings, saveAppSettings } = await import("../../src/main/app-settings.js");
+const { loadAppSettings, saveAppSettings, logsDirectory } = await import("../../src/main/app-settings.js");
 
 describe("app-settings", () => {
   let userDataDir: string;
   let localAppDataDir: string;
+  let originalPlatform: PropertyDescriptor;
 
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-userdata-"));
     localAppDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-localappdata-"));
     getPath.mockReturnValue(userDataDir);
-    // このマシン自体がWindowsのため、LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    // LOCALAPPDATA分岐はWindows限定のため、実行OSに関わらずwin32として扱い、
+    // LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
     vi.stubEnv("LOCALAPPDATA", localAppDataDir);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(process, "platform", originalPlatform);
     vi.unstubAllEnvs();
     rmSync(userDataDir, { recursive: true, force: true });
     rmSync(localAppDataDir, { recursive: true, force: true });
+  });
+
+  it("logsDirectory is logs/ in the same folder as settings.json: LOCALAPPDATA/tecscde-dt-el/logs (spec 9.5.2 rule 2)", () => {
+    expect(logsDirectory()).toBe(join(localAppDataDir, "tecscde-dt-el", "logs"));
+    expect(getPath).not.toHaveBeenCalled(); // Roaming の userData には置かない
   });
 
   it("loadAppSettings returns {} when no settings file exists yet (初回起動)", async () => {

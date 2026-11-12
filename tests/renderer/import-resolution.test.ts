@@ -255,6 +255,31 @@ describe("resolveAllImports", () => {
       { baseDir: undefined, importPaths: [".", "./opts-dir"], extraSearchDirs: [] },
     );
   });
+
+  it("passes the -S directories to the gateway as systemDirs (so main can use _CDL_FILES.txt, spec 5.3)", async () => {
+    const { gateway } = fakeGateway({ "B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
+    const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
+
+    await resolveAllImports(
+      gateway, tecsgenGateway, "/root/A.cdl", 'import("B.cdl");', { ...toolInfo, importPath: ["."] },
+      ["/sys"], [], ["/sys"],
+    );
+
+    expect(resolveImportsSpy).toHaveBeenCalledWith(
+      "/root/A.cdl",
+      [{ kind: "import", specifier: "B.cdl" }],
+      { baseDir: undefined, importPaths: [".", "/sys"], extraSearchDirs: [], systemDirs: ["/sys"] },
+    );
+  });
+
+  it("passes the -S directories when resolving an added reference as well", async () => {
+    const { gateway } = fakeGateway({ "/root/B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
+    const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
+
+    await resolveAddedReference(gateway, tecsgenGateway, "/root/A.cdl", toolInfo, "/root/B.cdl", [], ["/sys"]);
+
+    expect(resolveImportsSpy.mock.calls[0]![2]).toMatchObject({ systemDirs: ["/sys"] });
+  });
 });
 
 describe("resolveAddedReference", () => {

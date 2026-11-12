@@ -7,7 +7,6 @@ import type { TecsgenVersionResult } from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
-import type { LogGateway } from "../gateways/log-gateway";
 
 /** 本アプリが対象とするtecsgenの最低版（外部仕様2.2節: V1.3.1.0以降）。定義はここ1か所。 */
 export const MIN_TECSGEN_VERSION: readonly number[] = [1, 3, 1, 0];
@@ -80,10 +79,10 @@ function unknown(reason: string): Diagnostic {
  * 警告を出したときは`onWarning`を呼ぶ（診断一覧を自動で開くため。外部仕様8.4.2）。
  */
 export async function checkTecsgenVersion(
-  store: Pick<AppStore, "setEnvironmentDiagnostics"> &
+  store: Pick<AppStore, "setEnvironmentDiagnostics" | "setTecsgenInfo"> &
     Partial<Pick<AppStore, "replaceTecsgenEnvironmentDiagnostics" | "setTecsgenStatus" | "setToolSettingsRevision">>,
   tecsgen: Pick<TecsgenGateway, "version">,
-  log: Pick<LogGateway, "append">,
+  log: { append(lines: readonly string[]): Promise<unknown> },
   onWarning?: () => void,
   command = "未確認",
   revision?: number,
@@ -102,6 +101,12 @@ export async function checkTecsgenVersion(
     result = { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
   }
   if (checkGenerations.get(store) !== generation || (revision !== undefined && settingsRevisions.get(store) !== revision)) return result;
+  // 外部仕様3.8: 版（読み取れたとき）と使われた起動コマンドを、バージョン情報ダイアログ用に保持する。
+  const version = result.kind === "ok" ? parseTecsgenVersion(result.text) : undefined;
+  store.setTecsgenInfo({
+    ...(version ? { version } : {}),
+    ...(result.command !== undefined ? { command: result.command } : {}),
+  });
   const { diagnostics, logLine } = evaluateTecsgenVersion(result);
   if (store.replaceTecsgenEnvironmentDiagnostics) store.replaceTecsgenEnvironmentDiagnostics(diagnostics, revision);
   else store.setEnvironmentDiagnostics(diagnostics);

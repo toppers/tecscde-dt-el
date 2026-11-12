@@ -15,7 +15,7 @@ describe("stage 2 panel lifecycle", () => {
     const store = new AppStore();
     const mode = vi.spyOn(store, "setMode");
     const active = vi.spyOn(store, "setActiveCelltype");
-    const palette = new PaletteView(root, store);
+    const palette = new PaletteView(root, store, () => {});
     const select = root.querySelector<HTMLButtonElement>('[data-mode="select"]')!;
     const newCell = root.querySelector<HTMLButtonElement>('[data-mode="newCell"]')!;
     const celltype = root.querySelector<HTMLButtonElement>('[data-celltype]')!;

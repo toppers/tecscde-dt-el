@@ -11,36 +11,38 @@ export class PaletteView {
   private readonly newCellModeBtn: HTMLButtonElement;
   private readonly celltypeList: HTMLElement;
   private lastCelltypeSignature = "";
+  private readonly disposers: Array<() => void> = [];
 
-  constructor(private readonly root: HTMLElement, private readonly store: AppStore,
-    private readonly onShowDetails?: (name: string) => void) {
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly store: AppStore,
+    onDetails: (name: string, trigger: HTMLElement) => void,
+  ) {
     this.selectModeBtn = this.requireEl("[data-mode='select']");
     this.newCellModeBtn = this.requireEl("[data-mode='newCell']");
     this.celltypeList = this.requireEl("#palette-celltypes");
 
-    this.selectModeBtn.addEventListener("click", this.onSelectMode);
-    this.newCellModeBtn.addEventListener("click", this.onNewCellMode);
-    this.celltypeList.addEventListener("click", this.onCelltypeClick);
+    const onSelect = (): void => this.store.setMode("select");
+    const onNew = (): void => this.store.setMode("newCell");
+    const onClick = (e: Event): void => {
+      const target = e.target as HTMLElement | null;
+      const details = target?.closest<HTMLElement>("[data-celltype-details]");
+      const detailsName = details?.dataset["celltypeDetails"];
+      if (details && detailsName) { onDetails(detailsName, details); return; }
+      const name = target?.closest<HTMLElement>("[data-celltype]")?.dataset["celltype"];
+      if (!name) return;
+      this.store.setActiveCelltype(name);
+      this.store.setMode("newCell");
+    };
+    this.selectModeBtn.addEventListener("click", onSelect);
+    this.newCellModeBtn.addEventListener("click", onNew);
+    this.celltypeList.addEventListener("click", onClick);
+    this.disposers.push(() => {
+      this.selectModeBtn.removeEventListener("click", onSelect);
+      this.newCellModeBtn.removeEventListener("click", onNew);
+      this.celltypeList.removeEventListener("click", onClick);
+    });
   }
-
-  /** Called when the shell is destroyed, never when its modeless dialog closes. */
-  dispose(): void {
-    this.selectModeBtn.removeEventListener("click", this.onSelectMode);
-    this.newCellModeBtn.removeEventListener("click", this.onNewCellMode);
-    this.celltypeList.removeEventListener("click", this.onCelltypeClick);
-  }
-
-  private readonly onSelectMode = (): void => this.store.setMode("select");
-  private readonly onNewCellMode = (): void => this.store.setMode("newCell");
-  private readonly onCelltypeClick = (event: Event): void => {
-    const target = event.target as HTMLElement | null;
-    const details = target?.closest<HTMLElement>("[data-celltype-details]")?.dataset["celltypeDetails"];
-    if (details) { this.onShowDetails?.(details); return; }
-    const name = target?.closest<HTMLElement>("[data-celltype]")?.dataset["celltype"];
-    if (!name) return;
-    this.store.setActiveCelltype(name);
-    this.store.setMode("newCell");
-  };
 
   private requireEl<T extends Element>(selector: string): T {
     const el = this.root.querySelector<T>(selector);
@@ -67,6 +69,11 @@ export class PaletteView {
     // （抜けずに続けると、再入した呼び出しとこの呼び出しの両方がDOMへ追加し二重になる）。
     if (names.length > 0 && (!active || !names.includes(active))) {
       this.store.setActiveCelltype(names[0]);
+      return;
+    }
+    // セルタイプが0件なら、前の文書のアクティブ名を残さない（残ると新規作成の案内が出ず、追加も無反応になる）。
+    if (names.length === 0 && active) {
+      this.store.setActiveCelltype(undefined);
       return;
     }
 
@@ -96,9 +103,12 @@ export class PaletteView {
       details.dataset["celltypeDetails"] = name;
       details.textContent = "詳細";
       details.setAttribute("aria-label", `${name}の詳細`);
-      details.disabled = !this.onShowDetails;
       row.append(item, details);
       this.celltypeList.appendChild(row);
     }
+  }
+
+  dispose(): void {
+    for (const dispose of this.disposers.splice(0)) dispose();
   }
 }

@@ -31,7 +31,7 @@ describe("Connection focus and port selection (Audit #46, #21)", () => {
     const callPort: SelectedPort = {
       cellId: client1.id,
       portName: "c1",
-      portKind: "cport",
+      kind: "cport",
       subscript: null,
     };
     const callJoins = resolveHighlightedJoinIds(doc, [callPort]);
@@ -41,7 +41,7 @@ describe("Connection focus and port selection (Audit #46, #21)", () => {
     const entryPort: SelectedPort = {
       cellId: server.id,
       portName: "e1",
-      portKind: "eport",
+      kind: "eport",
       subscript: null,
     };
     const entryJoins = resolveHighlightedJoinIds(doc, [entryPort]);
@@ -51,7 +51,7 @@ describe("Connection focus and port selection (Audit #46, #21)", () => {
     const emptyPort: SelectedPort = {
       cellId: server.id,
       portName: "e2",
-      portKind: "eport",
+      kind: "eport",
       subscript: null,
     };
     const emptyJoins = resolveHighlightedJoinIds(doc, [emptyPort]);
@@ -62,14 +62,14 @@ describe("Connection focus and port selection (Audit #46, #21)", () => {
     const port: SelectedPort = {
       cellId: "c1" as any,
       portName: "p1",
-      portKind: "cport",
+      kind: "cport",
       subscript: null,
     };
     const sel = SelectionState.ofPort(port);
-    expect(sel.selectedPorts).toHaveLength(1);
-    expect(sel.selectedPorts[0]).toEqual(port);
+    expect(sel.ports).toHaveLength(1);
+    expect(sel.ports[0]).toEqual(port);
 
     const empty = SelectionState.empty();
-    expect(empty.selectedPorts).toHaveLength(0);
+    expect(empty.ports).toHaveLength(0);
   });
 });

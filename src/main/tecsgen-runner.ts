@@ -59,6 +59,30 @@ function withoutOutputOption(args: readonly string[]): string[] {
   return filtered;
 }
 
+/**
+ * `-S`/`--system-dir`（システム定義ディレクトリ）をtecsgen向けの`-I`に置き換える（記述順を保つ）。
+ * tecsgen本体は`-S`を持たない（アプリ独自。外部仕様5.3・8.x）。そのまま渡すと、`-S`をCDLのファイル名と
+ * 取り違えて失敗し、Plugin生成型が読み込まれない。`-S<dir>`・`--system-dir=<dir>`の形も扱う。
+ */
+function systemDirsAsImportPaths(args: readonly string[]): string[] {
+  const converted: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "-S" || arg === "--system-dir") {
+      const value = args[i + 1];
+      if (value !== undefined) converted.push("-I", value);
+      i += 1;
+    } else if (arg.startsWith("--system-dir=")) {
+      converted.push("-I", arg.slice("--system-dir=".length));
+    } else if (arg.startsWith("-S") && !arg.startsWith("--")) {
+      converted.push("-I", arg.slice(2));
+    } else {
+      converted.push(arg);
+    }
+  }
+  return converted;
+}
+
 /** `-k`/`--kcode`（CDLの文字コード指定）が書かれているか。`-k <code>`、`-k<code>`、`--kcode <code>`、`--kcode=<code>`の各形を見る。 */
 function hasKcodeOption(args: readonly string[]): boolean {
   return args.some((arg) => arg === "-k" || arg === "--kcode" || arg.startsWith("--kcode=") || (arg.startsWith("-k") && !arg.startsWith("--")));
@@ -113,16 +137,30 @@ export class TecsgenRunner {
     cwd?: string,
     execOptions?: { readonly timeout: number; readonly cwd?: string },
   ): Promise<TecsgenResult> {
+    return (await this.runCommandWithText(resolved, args, cwd, execOptions)).result;
+  }
+
+  /** `result`に加え、実際に使った起動コマンド（引数込み）を返す。バージョン情報ダイアログ用（外部仕様3.8）。 */
+  private async runCommandWithText(
+    resolved: Promise<ResolvedTecsgenCommand>,
+    args: readonly string[],
+    cwd?: string,
+    execOptions?: { readonly timeout: number; readonly cwd?: string },
+  ): Promise<{ readonly result: TecsgenResult; readonly command: string }> {
+    let commandText = "tecsgen";
     let command = this.environment.TECSGEN_COMMAND ?? "tecsgen";
     let settingsRevision: number | undefined;
-    const withRevision = (result: TecsgenResult): TecsgenResult =>
-      settingsRevision === undefined ? result : { ...result, settingsRevision };
+    const done = (result: TecsgenResult): { readonly result: TecsgenResult; readonly command: string } => ({
+      result: settingsRevision === undefined ? result : { ...result, settingsRevision },
+      command: commandText,
+    });
     try {
       const snapshot = await resolved;
       settingsRevision = snapshot.revision;
       if (snapshot.source === "missing") throw Object.assign(new Error("tecsgen not found"), { code: "ENOENT" });
       if (!snapshot.executable) throw new Error("TECSGEN_COMMAND or tecsgen path is empty or invalid");
       command = snapshot.executable;
+      commandText = [snapshot.executable, ...snapshot.args].join(" ");
       // A script host can exist after its selected entry point has disappeared.
       // Preserve the normal not-found result instead of treating host exit 1 as
       // an unknown version, and do not resolve unqualified environment commands.
@@ -139,19 +177,19 @@ export class TecsgenRunner {
         ...(invocation.windowsVerbatimArguments !== undefined ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
         ...(invocation.env ? { env: { ...process.env, ...invocation.env } } : {}),
       });
-      return withRevision({ stdout, stderr, exitCode: 0, executableFound: true });
+      return done({ stdout, stderr, exitCode: 0, executableFound: true });
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
       const launchFailure = classifyLaunchFailure(err, command);
       if (launchFailure?.kind === "not-found") {
         // 実行ファイルが見つからない（第2章2.4節の新規制約、11.2節#3の未決事項）
-        return withRevision({ stdout: "", stderr: "", exitCode: null, executableFound: false, launchFailure });
+        return done({ stdout: "", stderr: "", exitCode: null, executableFound: false, launchFailure });
       }
       if (launchFailure) {
         // 権限なし・タイムアウト・出力過多など（第9章9.7節）。終了コードは無い。
-        return withRevision({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: null, executableFound: true, launchFailure });
+        return done({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: null, executableFound: true, launchFailure });
       }
-      return withRevision({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.code as number, executableFound: true });
+      return done({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.code as number, executableFound: true });
     }
   }
 
@@ -172,7 +210,7 @@ export class TecsgenRunner {
       const kcodeArgs = optionsFilePath && !hasKcodeOption(invocationArgs) ? ["-k", "utf8"] : [];
       const result = await this.runCommand(
         Promise.resolve(command),
-        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(invocationArgs)],
+        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(systemDirsAsImportPaths(invocationArgs))],
         dirname(optionsFilePath ?? editingFilePath),
       );
       return { result, sources: await generatedCdlSources(outputDir) };
@@ -209,16 +247,17 @@ export class TecsgenRunner {
    * 標準出力が空なら標準エラー出力から読む。
    */
   async version(): Promise<TecsgenVersionResult> {
-    const result = await this.run(["--version"]);
-    if (result.launchFailure?.kind === "not-found") return { kind: "not-found" };
+    // 外部仕様3.8: バージョン情報ダイアログに、使われた起動コマンドも出す。
+    const { result, command } = await this.runCommandWithText(this.command(), ["--version"]);
+    if (result.launchFailure?.kind === "not-found") return { kind: "not-found", command };
     if (result.launchFailure) {
       const { kind, detail } = result.launchFailure;
-      return { kind: "failed", detail: `${kind}: ${detail}` };
+      return { kind: "failed", detail: `${kind}: ${detail}`, command };
     }
     if (result.exitCode !== 0) {
       const reason = (result.stderr.trim() || result.stdout.trim()).slice(0, 1000);
-      return { kind: "failed", detail: `終了コード ${result.exitCode}${reason ? `: ${reason}` : ""}` };
+      return { kind: "failed", detail: `終了コード ${result.exitCode}${reason ? `: ${reason}` : ""}`, command };
     }
-    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim() };
+    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim(), command };
   }
 }

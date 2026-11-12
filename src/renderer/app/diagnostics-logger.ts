@@ -4,7 +4,7 @@
 // W-LOG-WRITE-FAILED 自身はログ追記から除外して再帰を防止する（監査#66）。
 
 import { formatDiagnostic } from "../diagnostics/format";
-import { W_CODES } from "../cdl/messages";
+import { LOG_WRITE_FAILED_CODE } from "./log-warning";
 import type { AppStore } from "./store";
 
 export class DiagnosticsLogger {
@@ -18,8 +18,12 @@ export class DiagnosticsLogger {
   ) {}
 
   sync(): void {
-    const reportItems = this.store.getReport().items.filter((item) => item.code !== W_CODES.LOG_WRITE_FAILED);
-    const lines = reportItems.map(formatDiagnostic);
+    // ログを書けない警告は、ログへ書かない（書けないため。外部仕様9.5.2の規定13）。
+    const lines = this.store
+      .getReport()
+      .items.filter((d) => d.code !== LOG_WRITE_FAILED_CODE)
+      .map(formatDiagnostic);
+    const out: string[] = [];
 
     const filePath = this.store.filePath;
     if (filePath !== this.currentFile) {

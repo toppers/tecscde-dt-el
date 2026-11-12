@@ -1,0 +1,12 @@
+/* 実機確認 #15: カーソルの形（セル3個） */
+import("check-types.cdl");
+
+cell tT t1 {
+};
+/* 呼び口が結合済み */
+cell tPlain p1 {
+	cPlain = t1.e;
+};
+/* 呼び口が未結合 */
+cell tPlain p2 {
+};

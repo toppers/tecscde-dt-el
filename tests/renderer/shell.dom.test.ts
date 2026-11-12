@@ -10,17 +10,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
-import type { TecscdeDocument } from "../../src/renderer/model/document";
+import { TecscdeDocument } from "../../src/renderer/model/document";
 import { asCellId, asJoinId, asRegionId } from "../../src/renderer/model/ids";
-import { MoveCellsCommand } from "../../src/renderer/commands";
+import { ChangeCellsRegionCommand, DeleteJoinCommand, MoveCellsCommand } from "../../src/renderer/commands";
 import { SelectionState } from "../../src/renderer/render/view";
 import { portPosition } from "../../src/renderer/model/geometry";
 import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
 import type { ClipboardGateway } from "../../src/renderer/gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
 import type { TecsgenResult } from "../../src/shared/ipc-types";
+import { APP_COMMIT, APP_VERSION } from "../../src/renderer/app-info";
 import { AppStore } from "../../src/renderer/app/store";
 import { AppShell } from "../../src/renderer/app/shell";
+import { PngExporter, PngExportTooLargeError } from "../../src/renderer/export/png-exporter";
 
 const celltypesText = readFileSync(resolve(__dirname, "../../public/samples/celltypes.cdl"), "utf-8");
 const mainText = readFileSync(resolve(__dirname, "../fixtures/main.cde"), "utf-8");
@@ -36,6 +38,8 @@ const noopGateway = {
   save: async () => undefined,
   saveAs: async () => null,
   export: async () => undefined,
+  exportPdf: async () => undefined,
+  chooseExportPath: async () => null,
   chooseFolder: async () => null,
   listDirectory: async () => [],
   openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -53,6 +57,8 @@ function fakeFileGateway(): { gateway: FileGateway; saveCalls: Array<[string, st
     },
     saveAs: async () => null,
     export: async () => undefined,
+    exportPdf: async () => undefined,
+    chooseExportPath: async () => null,
     chooseFolder: async () => null,
     listDirectory: async () => [],
     openPath: async () => ({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -99,6 +105,7 @@ const BODY_HTML = `
       <button data-action="openFolder" type="button">フォルダを開く</button>
       <button data-action="save" type="button">保存</button>
       <button data-action="saveAs" type="button">名前を付けて保存</button>
+      <button data-action="exportDiagram" type="button">エクスポート</button>
       <button data-action="clear" type="button">消去</button>
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
@@ -116,6 +123,7 @@ const BODY_HTML = `
         <option value="cmd">コマンドプロンプト</option>
       </select>
       <span id="tecsgen-copy-result" role="status" aria-live="polite"></span>
+      <button data-action="about" type="button">情報</button>
       <div id="search-box">
         <input type="search" id="search-input" />
         <span id="search-count"></span>
@@ -125,6 +133,16 @@ const BODY_HTML = `
       </div>
     </div>
     <div id="display-bar">
+      <details id="panel-visibility">
+        <summary>表示</summary>
+        <div id="panel-visibility-options">
+          <label><input type="checkbox" data-panel="toolbar" checked /> ツールバー</label>
+          <label><input type="checkbox" data-panel="palette" checked /> セルタイプ一覧</label>
+          <label><input type="checkbox" data-panel="property-panel" checked /> プロパティ</label>
+          <label><input type="checkbox" data-panel="statusbar" checked /> ステータス表示</label>
+          <label><input type="checkbox" data-panel="file-browser" checked /> ファイルブラウザ</label>
+        </div>
+      </details>
       <div id="region-filter">
         <button type="button" id="region-filter-toggle">リージョン</button>
         <div id="region-filter-popover" hidden></div>
@@ -132,6 +150,7 @@ const BODY_HTML = `
       <label><input type="checkbox" id="filter-color" /> 色分け</label>
       <label><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
       <label><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+      <select id="paper-select"><option value="A4:LANDSCAPE">A4 横</option><option value="A4:PORTRAIT">A4 縦</option><option value="A3:LANDSCAPE">A3 横</option><option value="A3:PORTRAIT">A3 縦</option><option value="A2:LANDSCAPE">A2 横</option><option value="A2:PORTRAIT">A2 縦</option></select>
     </div>
     <div id="main">
       <div id="file-browser"></div>
@@ -156,12 +175,32 @@ const BODY_HTML = `
     <div id="statusbar">
       <span id="status-pos"></span>
       <span id="status-zoom"></span>
+      <span id="status-mode"></span>
       <span id="status-region"></span>
       <span id="status-mode"></span>
+      <span id="status-message"></span>
       <button id="status-diag" type="button"></button>
       <div id="diagnostics-panel" hidden></div>
       <span id="status-file"></span>
     </div>
+    <div id="export-dialog" role="dialog" aria-modal="true" hidden>
+      <select id="export-format"><option value="svg">SVG</option><option value="png">PNG</option><option value="pdf">PDF</option></select>
+      <select id="export-range"><option value="paper">用紙</option><option value="content">内容</option></select>
+      <label id="png-scale-field" hidden><select id="png-scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select></label>
+      <button id="export-cancel" type="button">キャンセル</button>
+      <button id="export-confirm" type="button">保存先を選ぶ</button>
+    </div>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <h2 id="about-title">バージョン情報</h2>
+      <div class="about-content"></div>
+      <button class="about-copy" type="button">コピー</button>
+      <button class="about-close" type="button">閉じる</button>
+    </dialog>
+    <dialog id="celltype-details-dialog" aria-labelledby="celltype-details-title">
+      <h2 id="celltype-details-title">セルタイプの詳細</h2>
+      <div class="celltype-details-content"></div>
+      <button class="celltype-details-close" type="button">閉じる</button>
+    </dialog>
   </div>
 `;
 
@@ -176,10 +215,11 @@ function mountShell(
   gateway: FileGateway = noopGateway,
   tecsgen: TecsgenGateway = fakeTecsgen().gateway,
   windowGateway?: { setDirty(dirty: boolean): void },
+  runtimeVersions?: { electron: string; chrome: string; node: string; platform: string },
 ): { shell: AppShell; store: AppStore; clipboard: ClipboardGateway } {
   document.body.innerHTML = BODY_HTML;
   const store = new AppStore(doc);
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway, win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, windowGateway, runtimeVersions, win: window });
   shell.start();
   mounted = shell;
   return { shell, store, clipboard };
@@ -190,6 +230,302 @@ describe("AppShell — DOM wiring", () => {
     mounted?.dispose();
     mounted = undefined;
     document.body.innerHTML = "";
+  });
+
+  it("hides and restores every optional region from an always reachable menu without changing editor state", () => {
+    const { store } = mountShell();
+    store.setSelection(SelectionState.ofCells([store.getDocument().cellValues()[0]!.id]));
+    store.setView(store.view.withSearchQuery("Sensor"));
+    const doc = store.getDocument();
+    const view = store.view;
+    const selection = store.selection;
+    const history = store.history;
+    const menu = document.querySelector<HTMLDetailsElement>("#panel-visibility")!;
+    const ids = ["toolbar", "palette", "property-panel", "statusbar", "file-browser"];
+    const propertyInput = document.querySelector("#property-panel input");
+    const palette = document.querySelector<HTMLElement>("#palette")!;
+    palette.style.width = "222px";
+    menu.open = true;
+
+    for (const id of ids) {
+      const checkbox = document.querySelector<HTMLInputElement>(`[data-panel='${id}']`)!;
+      expect(checkbox.checked).toBe(true);
+      checkbox.click();
+      expect(document.getElementById(id)!.hidden).toBe(true);
+    }
+    store.setSelection(selection); // ストアの再描画でも非表示状態を維持する。
+    expect(document.querySelector<HTMLElement>("#display-bar")!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("#canvas-area")!.hidden).toBe(false);
+    expect(menu.open).toBe(true);
+    for (const id of ids) {
+      expect(document.getElementById(id)!.hidden).toBe(true);
+      document.querySelector<HTMLInputElement>(`[data-panel='${id}']`)!.click();
+      expect(document.getElementById(id)!.hidden).toBe(false);
+    }
+    expect(document.querySelector("#property-panel input")).toBe(propertyInput);
+    expect(palette.style.width).toBe("222px");
+    expect(store.getDocument()).toBe(doc);
+    expect(store.view).toBe(view);
+    expect(store.selection).toBe(selection);
+    expect(store.history).toBe(history);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("closes the visibility menu with Escape without clearing canvas search", () => {
+    const { store } = mountShell();
+    store.setView(store.view.withSearchQuery("Sensor"));
+    const menu = document.querySelector<HTMLDetailsElement>("#panel-visibility")!;
+    menu.open = true;
+    const checkbox = menu.querySelector<HTMLInputElement>("input")!;
+    checkbox.focus();
+    checkbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menu.open).toBe(false);
+    expect(store.view.searchQuery).toBe("Sensor");
+    expect(document.activeElement).toBe(menu.querySelector("summary"));
+  });
+
+  it("removes visibility handlers when the shell is disposed", () => {
+    const { shell } = mountShell();
+    shell.dispose();
+    document.querySelector<HTMLInputElement>("[data-panel='toolbar']")!.click();
+    expect(document.querySelector<HTMLElement>("#toolbar")!.hidden).toBe(false);
+  });
+
+  it("updates paper size from the toolbar and tracks it as one undoable change", () => {
+    const { store } = mountShell();
+    const select = document.querySelector<HTMLSelectElement>("#paper-select")!;
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    const original = store.getDocument();
+    expect(select.value).toBe("A4:LANDSCAPE");
+
+    select.value = "A3:PORTRAIT";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.getDocument().paper.contentSize()).toEqual({ width: 277, height: 400 });
+    expect(Number(svg.getAttribute("height"))).toBeCloseTo(400 * store.view.pxPerMm);
+    expect(store.history.past).toHaveLength(1);
+    expect(store.isDirty()).toBe(true);
+
+    store.undo();
+    expect(store.getDocument().paper).toBe(original.paper);
+    expect(select.value).toBe("A4:LANDSCAPE");
+    expect(store.isDirty()).toBe(false);
+    store.redo();
+    expect(select.value).toBe("A3:PORTRAIT");
+    expect(store.getDocument().paper.size).toBe("A3");
+  });
+
+  it("saves the selected paper size and leaves same-value selection out of history", async () => {
+    const { gateway, saveCalls } = fakeFileGateway();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    store.markSaved("C:/diagram.cde");
+    const select = document.querySelector<HTMLSelectElement>("#paper-select")!;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.history.past).toHaveLength(0);
+    expect(store.isDirty()).toBe(false);
+
+    select.value = "A2:LANDSCAPE";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
+    await flush();
+    expect(saveCalls).toHaveLength(1);
+    const saved = CdlDocumentLoader.loadSources([
+      { text: saveCalls[0]![1], fileName: "saved.cde", editable: true },
+    ]).document;
+    expect(saved.paper.size).toBe("A2");
+    expect(saved.paper.orientation).toBe("LANDSCAPE");
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("opens SVG options and leaves the document untouched when path selection is canceled", async () => {
+    const chooseExportPath = vi.fn().mockResolvedValue(null);
+    const exportFile = vi.fn();
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = chooseExportPath;
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const original = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    expect(document.querySelector<HTMLElement>("#export-dialog")!.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(chooseExportPath).toHaveBeenCalledWith("svg", "untitled.svg");
+    expect(exportFile).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(original);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("exports the selected SVG range without changing history or selection", async () => {
+    const exportFile = vi.fn().mockResolvedValue(undefined);
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("C:\\out\\diagram.svg");
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const id = store.getDocument().cellValues()[0]!.id;
+    store.setSelection(SelectionState.ofCells([id]));
+    const original = store.getDocument();
+    const canUndo = store.canUndo;
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    document.querySelector<HTMLSelectElement>("#export-range")!.value = "content";
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(exportFile).toHaveBeenCalledOnce();
+    const [path, svg] = exportFile.mock.calls[0] as [string, string];
+    expect(path).toBe("C:\\out\\diagram.svg");
+    expect(svg).toContain('class="cell-rect"');
+    const exportedRoot = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+    expect(exportedRoot.querySelector(".export-frame, .selection-outline")).toBeNull();
+    expect(store.getDocument()).toBe(original);
+    expect(store.selection.hasCell(id)).toBe(true);
+    expect(store.canUndo).toBe(canUndo);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("exports PNG bytes at the selected scale without editing the document", async () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    const rasterize = vi.spyOn(PngExporter, "rasterize").mockResolvedValue(bytes);
+    const gateway = fakeFileGateway().gateway;
+    const chooseExportPath = vi.fn().mockResolvedValue("diagram.png");
+    const exportFile = vi.fn().mockResolvedValue(undefined);
+    gateway.chooseExportPath = chooseExportPath;
+    gateway.export = exportFile;
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const original = store.getDocument();
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+      format.value = "png";
+      format.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(document.querySelector<HTMLElement>("#png-scale-field")!.hidden).toBe(false);
+      expect(document.querySelector<HTMLSelectElement>("#png-scale")!.value).toBe("2");
+      document.querySelector<HTMLSelectElement>("#png-scale")!.value = "4";
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+
+      expect(chooseExportPath).toHaveBeenCalledWith("png", "untitled.png");
+      expect(rasterize).toHaveBeenCalledWith(expect.objectContaining({ svg: expect.stringContaining("<svg") }), 4);
+      expect(exportFile).toHaveBeenCalledWith("diagram.png", bytes);
+      expect(store.getDocument()).toBe(original);
+      expect(store.isDirty()).toBe(false);
+    } finally {
+      rasterize.mockRestore();
+    }
+  });
+
+  it("reports oversized PNGs with a size-specific diagnostic", async () => {
+    const rasterize = vi.spyOn(PngExporter, "rasterize").mockRejectedValue(new PngExportTooLargeError());
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.png");
+    gateway.export = vi.fn();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+      format.value = "png";
+      format.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "E-EXPORT-TOO-LARGE", severity: "error" }),
+      ]));
+      expect(gateway.export).not.toHaveBeenCalled();
+    } finally {
+      rasterize.mockRestore();
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("exports PDF using the document paper size and orientation", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockResolvedValue(undefined);
+    gateway.export = vi.fn();
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    const format = document.querySelector<HTMLSelectElement>("#export-format")!;
+    format.value = "pdf";
+    format.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.querySelector<HTMLElement>("#png-scale-field")!.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    expect(gateway.chooseExportPath).toHaveBeenCalledWith("pdf", "untitled.pdf");
+    expect(gateway.exportPdf).toHaveBeenCalledWith("diagram.pdf", expect.stringContaining("<svg"), {
+      kind: "paper", size: doc.paper.size, orientation: doc.paper.orientation,
+    });
+    expect(gateway.export).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("exports the content range as a custom one-page PDF", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockResolvedValue(undefined);
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+
+    document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+    document.querySelector<HTMLSelectElement>("#export-format")!.value = "pdf";
+    document.querySelector<HTMLSelectElement>("#export-range")!.value = "content";
+    document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+    await flush();
+
+    const [, svg, page] = vi.mocked(gateway.exportPdf).mock.calls[0]!;
+    expect(page.kind).toBe("custom");
+    if (page.kind !== "custom") throw new Error("expected custom page");
+    expect(page.widthMm).toBeLessThan(doc.paper.contentSize().width + 20);
+    expect(page.heightMm).toBeLessThan(doc.paper.contentSize().height + 20);
+    expect(new DOMParser().parseFromString(svg, "image/svg+xml").querySelector(".export-frame")).toBeNull();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("reports PDF generation failures without changing the document", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("diagram.pdf");
+    gateway.exportPdf = vi.fn().mockRejectedValue(new Error("print failed"));
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const doc = store.getDocument();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      document.querySelector<HTMLSelectElement>("#export-format")!.value = "pdf";
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "E-EXPORT-FAILED", message: "print failed" }),
+      ]));
+      expect(store.getDocument()).toBe(doc);
+      expect(store.isDirty()).toBe(false);
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("reports SVG write failures in diagnostics", async () => {
+    const gateway = fakeFileGateway().gateway;
+    gateway.chooseExportPath = vi.fn().mockResolvedValue("out.svg");
+    gateway.export = vi.fn().mockRejectedValue(new Error("disk full"));
+    const { store } = mountShell(fakeClipboard(), loadDoc(), gateway);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      document.querySelector<HTMLButtonElement>("[data-action='exportDiagram']")!.click();
+      document.querySelector<HTMLButtonElement>("#export-confirm")!.click();
+      await flush();
+      expect(store.getReport().items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ severity: "error", code: "E-EXPORT-FAILED", message: "disk full" }),
+      ]));
+      expect(document.querySelector<HTMLElement>("#diagnostics-panel")!.hidden).toBe(false);
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it("pans by space + drag without changing selection or document", () => {
@@ -230,7 +566,8 @@ describe("AppShell — DOM wiring", () => {
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: 90, clientY: 60, bubbles: true }));
     window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true }));
     expect(store.view).toBe(before);
-    expect(svg.style.cursor).toBe("");
+    expect(svg.style.cursor).not.toBe("grab");
+    expect(svg.style.cursor).not.toBe("grabbing");
   });
 
   it("shows only the outer composite cell after double-click and Enter", () => {
@@ -274,6 +611,68 @@ cell tRegular Regular {};
     const items = document.querySelectorAll<HTMLButtonElement>(".palette-celltype");
     expect(items.length).toBe(3);
     expect(store.getActiveCelltypeName()).toBe(items[0]!.dataset["celltype"]);
+  });
+
+  it("shows selected port properties and markers without changing the document or history", () => {
+    const { shell, store, clipboard } = mountShell();
+    const doc = store.getDocument();
+    const history = store.history;
+    const write = vi.spyOn(clipboard, "writeText");
+    const shift = { ctrl: false, shift: true, meta: false };
+    shell.gesture.pointerDown({ x: 120, y: 15 }, shift);
+    shell.gesture.pointerUp({ x: 120, y: 15 });
+    const panel = document.querySelector<HTMLElement>("#property-panel")!;
+    const value = (label: string) => panel.querySelector<HTMLInputElement>(`[aria-label='${label}']`)!.value;
+    expect(panel.textContent).toContain("呼び口: cLog");
+    expect(value("所属セル")).toBe("cController1");
+    expect(value("シグニチャ")).toBe("::sLog");
+    expect(value("辺")).toBe("左");
+    expect(value("位置 (mm)")).toBe("5");
+    expect(value("結合数")).toBe("1");
+    expect(Array.from(panel.querySelectorAll<HTMLInputElement>("input")).every((input) => input.readOnly)).toBe(true);
+    expect(document.querySelectorAll("circle.port-selected")).toHaveLength(1);
+    shell.gesture.pointerDown({ x: 120, y: 20 }, shift);
+    shell.gesture.pointerUp({ x: 120, y: 20 });
+    expect(panel.querySelectorAll(".prop-port")).toHaveLength(2);
+    expect(document.querySelectorAll("circle.port-selected")).toHaveLength(2);
+    expect(shell.gesture.keyDown("ArrowLeft")).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, bubbles: true }));
+    expect(write).not.toHaveBeenCalled();
+    expect(store.getDocument()).toBe(doc);
+    expect(store.history).toBe(history);
+    expect(store.isDirty()).toBe(false);
+    write.mockRestore();
+
+    store.dispatch(new DeleteJoinCommand(asJoinId("cController1.cLog")));
+    expect(value("結合数")).toBe("0");
+    store.undo();
+    expect(value("結合数")).toBe("1");
+
+    // 外部仕様 6.3.2: 呼び口選択からの結合削除
+    expect(shell.gesture.keyDown("Delete")).toBe(true);
+    expect(store.getDocument().getJoin(asJoinId("cController1.cLog"))).toBeUndefined();
+    shell.gesture.pointerDown({ x: 120, y: 15 });
+    shell.gesture.pointerUp({ x: 120, y: 15 });
+    expect(value("結合数")).toBe("0");
+    store.undo();
+    shell.gesture.pointerDown({ x: 120, y: 15 });
+    shell.gesture.pointerUp({ x: 120, y: 15 });
+    expect(value("結合数")).toBe("1");
+    shell.gesture.pointerDown({ x: 35, y: 18 });
+    shell.gesture.pointerUp({ x: 35, y: 18 });
+    expect(panel.textContent).toContain("受け口: eLog");
+    expect(value("所属セル")).toBe("cLogger1");
+    expect(panel.querySelectorAll(".prop-port")).toHaveLength(1);
+  });
+
+  it("allows inspecting a read-only cell's entry port", () => {
+    const { shell, store } = mountShell(fakeClipboard(), loadDoc(false));
+    shell.gesture.pointerDown({ x: 35, y: 18 });
+    shell.gesture.pointerUp({ x: 35, y: 18 });
+    const panel = document.querySelector<HTMLElement>("#property-panel")!;
+    expect(panel.textContent).toContain("受け口: eLog");
+    expect(panel.textContent).toContain("このセルは読み取り専用です。");
+    expect(store.isDirty()).toBe(false);
   });
 
   it("toggle-grid button flips the #grid layer visibility", () => {
@@ -406,6 +805,28 @@ cell tRegular Regular {};
     expect(statusFile().textContent).not.toContain("未保存");
   });
 
+  it("shows the unsaved state in the window title and clears it on save (#22)", () => {
+    const { store } = mountShell();
+    store.loadDocument(store.getDocument(), "main.cde");
+    expect(document.title).toBe("main.cde — TECSCDE");
+
+    store.dispatch(new MoveCellsCommand([asCellId("cController1")], 5, 0));
+    expect(document.title).toBe("* main.cde — TECSCDE");
+
+    store.markSaved(store.filePath!);
+    expect(document.title).toBe("main.cde — TECSCDE");
+  });
+
+  it("shows the current input mode as text in the status bar (#16)", () => {
+    const { store } = mountShell();
+    const text = () => document.querySelector<HTMLElement>("#status-mode")!.textContent;
+    expect(text()).toBe("選択");
+    store.setMode("newCell");
+    expect(text()).toContain("セル新規作成");
+    store.setMode("select");
+    expect(text()).toBe("選択");
+  });
+
   it("undo button reverts a committed edit and updates its disabled state", () => {
     const { store } = mountShell();
     const controller = asCellId("cController1");
@@ -446,6 +867,18 @@ cell tRegular Regular {};
 
     expect(store.getActiveCelltypeName()).toBe(other.dataset["celltype"]);
     expect(store.getMode()).toBe("newCell");
+  });
+
+  it("clears the active celltype when a document with no celltypes replaces one that had celltypes (audit #17)", () => {
+    const { shell, store } = mountShell();
+    expect(store.getActiveCelltypeName()).toBeDefined();
+
+    store.loadDocument(TecscdeDocument.empty(), null);
+
+    expect(store.getActiveCelltypeName()).toBeUndefined();
+    store.setMode("newCell");
+    shell.gesture.pointerDown({ x: 50, y: 50 });
+    expect(document.querySelector("#status-message")!.textContent).toBe("パレットでセルタイプを選択してください");
   });
 
   it("GestureController pointer sequence moves a cell via one command", () => {
@@ -582,6 +1015,28 @@ cell tRegular Regular {};
     expect(store.getDocument().getCell(controller)).toBeDefined();
   });
 
+  it("Ctrl+A selects all cells without modifying document or history", () => {
+    const { store } = mountShell();
+    expect(store.selection.isEmpty).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true }));
+
+    expect(store.selection.cellIds.size).toBe(store.getDocument().cellCount);
+    expect(store.selection.cellIds.size).toBeGreaterThan(0);
+    expect(store.canUndo).toBe(false);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("ignores Ctrl+A while focus is on a text input", () => {
+    const { store } = mountShell();
+    const input = document.querySelector<HTMLInputElement>("#search-input")!;
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }));
+
+    expect(store.selection.isEmpty).toBe(true);
+  });
+
   describe("PropertyPanelView", () => {
     it("shows (未選択) when nothing is selected", () => {
       mountShell();
@@ -644,6 +1099,25 @@ cell tRegular Regular {};
       const { store } = mountShell();
       store.setSelection(SelectionState.ofCells([asCellId("cLogger1"), asCellId("cSensor1")]));
       expect(document.querySelector("#property-panel")!.textContent).toContain("複数選択");
+    });
+
+    it("shows common properties and allows batch region/attribute editing for multiple cells (spec 3.4.2 / 6.5.2)", () => {
+      const { store } = mountShell();
+      const logger = asCellId("cLogger1");
+      const sensor = asCellId("cSensor1");
+      store.setSelection(SelectionState.ofCells([logger, sensor]));
+
+      const panel = document.querySelector<HTMLElement>("#property-panel")!;
+      expect(panel.textContent).toContain("複数選択: 2個のセル");
+
+      // リージョンの変更
+      const regionSelect = panel.querySelector<HTMLSelectElement>("select[aria-label='region']")!;
+      expect(regionSelect).not.toBeNull();
+      // ルートリージョンが選択されている
+      expect(regionSelect.value).toBe(store.getDocument().regions.root.id);
+
+      // コマンドのディスパッチテスト
+      store.dispatch(new ChangeCellsRegionCommand([logger, sensor], store.getDocument().regions.root.id));
     });
 
     it("shows join endpoints (read-only) when a join is selected", () => {
@@ -915,6 +1389,51 @@ cell tRegular Regular {};
       const paperRect = document.querySelector(".navigator-paper")!;
       expect(paperRect.getAttribute("width")).toBe(String(width));
       expect(paperRect.getAttribute("height")).toBe(String(height));
+    });
+
+    it("lets the user show the navigator while the paper fits, and keeps that choice (#21)", () => {
+      const { store } = mountShell();
+      const scroll = document.querySelector<HTMLElement>("#canvas-scroll")!;
+      // 用紙全体が収まる広いビューポート → 自動非表示。
+      Object.defineProperty(scroll, "clientWidth", { value: 100000, configurable: true });
+      Object.defineProperty(scroll, "clientHeight", { value: 100000, configurable: true });
+      store.setView(store.view.panTo({ x: 100, y: 100 }));
+      const nav = document.querySelector<HTMLElement>("#navigator")!;
+      const toggle = () => document.querySelector<HTMLButtonElement>("[data-action='toggleNavigator']")!.click();
+      expect(nav.hidden).toBe(true);
+
+      toggle(); // 自動非表示の最中でも、利用者が見せられる
+      expect(nav.hidden).toBe(false);
+      store.setView(store.view.panTo({ x: 120, y: 90 })); // 再描画しても自動判定に戻らない
+      expect(nav.hidden).toBe(false);
+
+      toggle(); // 隠す
+      expect(nav.hidden).toBe(true);
+    });
+
+    it("pans on press and follows the pointer while dragging, clamped to the paper (#20)", () => {
+      const { store } = mountShell();
+      const svg = document.querySelector<SVGSVGElement>("#navigator svg")!;
+      // happy-dom はレイアウトを持たないので、ナビゲータの画面上の矩形(100x50)を与える。
+      svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50, x: 0, y: 0 }) as DOMRect;
+      const { width, height } = store.getDocument().paper.contentSize();
+      const mouse = (type: string, x: number, y: number) =>
+        new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+
+      svg.dispatchEvent(mouse("mousedown", 50, 25));
+      expect(store.view.panCenter).toEqual({ x: width / 2, y: height / 2 });
+
+      window.dispatchEvent(mouse("mousemove", 100, 50));
+      expect(store.view.panCenter).toEqual({ x: width, y: height });
+
+      // 枠の外へ出ても用紙の端で止まる。
+      window.dispatchEvent(mouse("mousemove", 250, -40));
+      expect(store.view.panCenter).toEqual({ x: width, y: 0 });
+
+      // 離したあとは追従しない。
+      window.dispatchEvent(mouse("mouseup", 0, 0));
+      window.dispatchEvent(mouse("mousemove", 0, 0));
+      expect(store.view.panCenter).toEqual({ x: width, y: 0 });
     });
   });
 
@@ -1330,6 +1849,57 @@ cell tRegular Regular {};
   });
 });
 
+describe("AppShell — version dialog (3.8)", () => {
+  afterEach(() => {
+    mounted?.dispose();
+    mounted = undefined;
+    document.body.innerHTML = "";
+  });
+  const runtime = { electron: "44.2.0", chrome: "140.0.1", node: "22.10.0", platform: "win32" };
+  const dialog = (): HTMLDialogElement => document.querySelector<HTMLDialogElement>("#about-dialog")!;
+  const open = (): void => document.querySelector<HTMLButtonElement>("[data-action='about']")!.click();
+
+  it("opens from the toolbar button and lists the app version, build, format and runtime", () => {
+    mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    expect(dialog().open).toBe(true);
+    const text = dialog().querySelector(".about-content")!.textContent ?? "";
+    expect(text).toContain(APP_VERSION);
+    expect(text).toContain(APP_COMMIT);
+    expect(text).toContain("0.1.0.0");
+    expect(text).toContain("Electron 44.2.0");
+  });
+
+  it("shows tecsgen as unconfirmed until the startup check has told the store", () => {
+    const { store } = mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    expect(dialog().textContent).toContain("未確認");
+    dialog().close();
+    store.setTecsgenInfo({ version: [1, 9, 1], command: "tecsgen" });
+    open();
+    expect(dialog().textContent).toContain("1.9.1（tecsgen）");
+  });
+
+  it("copies the rows as label: value lines", async () => {
+    const clipboard = fakeClipboard();
+    mountShell(clipboard, undefined, undefined, undefined, undefined, runtime);
+    open();
+    dialog().querySelector<HTMLButtonElement>(".about-copy")!.click();
+    await flush();
+    const copied = await clipboard.readText();
+    expect(copied).toContain(`アプリケーションの版: ${APP_VERSION}`);
+    expect(copied).toContain("実行環境: Electron 44.2.0 / Chromium 140.0.1 / Node 22.10.0 / win32");
+    expect(copied.split("\n").length).toBe(5);
+  });
+
+  it("closes with the close button", () => {
+    mountShell(undefined, undefined, undefined, undefined, undefined, runtime);
+    open();
+    dialog().querySelector<HTMLButtonElement>(".about-close")!.click();
+    expect(dialog().open).toBe(false);
+  });
+});
+
 describe("AppShell — unsaved-changes report to main (7.9)", () => {
   afterEach(() => {
     mounted?.dispose();
@@ -1370,5 +1940,15 @@ describe("AppShell — unsaved-changes report to main (7.9)", () => {
     shell.openDiagnostics();
     expect(panel.hidden).toBe(false);
     expect(panel.textContent).toContain("W-TECSGEN-VERSION-OLD");
+  });
+
+  it("updates svg.style.cursor on mouse move over canvas and clears on mouseleave (#15)", () => {
+    mountShell();
+    const svg = document.querySelector<SVGSVGElement>("#canvas")!;
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10, bubbles: true }));
+    expect(svg.style.cursor).toBe("default");
+
+    svg.dispatchEvent(new Event("mouseleave"));
+    expect(svg.style.cursor).toBe("");
   });
 });

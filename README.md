@@ -103,6 +103,12 @@ npm run forge:make    # electron-forge make（Squirrel .exe インストーラ�
 
 新規セルの追加と貼り付けは、編集可能なセルを1つ選択していればそのセルが属する CDL に保存します。それ以外は主ファイルに保存します。結合先が未解決の記述も、別の編集内容を保存する際に保持します。
 
+### サンプル（`public/samples/`）の開き方
+
+`tEV3Sample.cdl` は、`import` する CDL（`EV3_common.cdl` など）を `tests/hr-tecs/` 配下から探します。この探索パス（`-I`）は `.tecsgen-opts` にだけ書かれていて、`.cdl` を直接開いても使われません。**`tEV3Sample.cdl` は直接開かず、`tEV3Sample.tecsgen-opts` を開いてください。** 直接開くと、参照ファイルが見つからず、`W-UNRESOLVED-REF-FILE`・`W-UNRESOLVED-CELLTYPE` などの警告が出ます（`tecsgen` を `-I` なしで実行したときと同じ結果です）。
+
+`a.tecsgen-opts` と `b.tecsgen-opts` は、`-I` が別のフォルダ配置を前提にしているため、このリポジトリで開くと同じ警告が出ます。
+
 ## TECS CDL の組込型
 
 署名の戻り値・引数では、次の17種類を `import_C` や `typedef` なしで解決します。型名の幅・符号は区別して保持します。
@@ -127,7 +133,13 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 診断パネルに表示される内容は、設定フォルダ配下の固定ディレクトリ（Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外は `userData/logs/`）の `tecscde-log-YYYYMMDD-HHMMSS.txt` に追記されます。起動時に直近30個のログファイルを保持し、古いログは整理されます。書き込みに失敗した場合は一度限りの警告（`W-LOG-WRITE-FAILED`）として画面に通知され、アプリは停止しません。ログファイルは `.gitignore` 対象です。
 
-ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下に保存されます。
+- **置き場所**: 設定ファイル（`settings.json`）と同じフォルダの `logs/` です。Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、macOS では `~/Library/Application Support/tecscde-dt-el/logs/`、それ以外では Electron の `userData` フォルダ配下の `logs/` です。カレントディレクトリには作りません。
+- **先頭行**: `# TECSCDE 診断ログ（起動: <日時>、版: <アプリの版>）` です。診断が1件も出ない起動では、ファイルを作りません。
+- **古いログ**: 起動時に、`tecscde-log-*.txt` のうちファイル名の新しい30個を残し、古いものを削除します（他のファイルには触れません）。
+- **書けないとき**: アプリは停止せず、警告 `W-LOG-WRITE-FAILED` を診断パネルに一度だけ出します（この警告はログには書きません）。
+- ログにはファイルのパスがそのまま入るため、不具合の報告に添えるときは、ユーザー名などを含まないか確認してください。
+
+ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下（`%LOCALAPPDATA%\tecscde-dt-el\settings.json`）、macOS では `~/Library/Application Support/tecscde-dt-el/settings.json`、それ以外では Electron の `userData` フォルダ配下に保存されます。
 
 ## What's verified vs. not
 
@@ -141,13 +153,16 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
   （ファイルI/O：ファイルブラウザ含む。7B/7C/7D/7E）、第8章（診断）、第9章
   （tecsgen統合：`TecsgenResultParser`、`CdeclExtractor` 含む）、およびUIシェル（モジュールG）が実装済み。
   詳細な進捗ログは `[[work/active/TECSCDE-DT-EL実装]]` を参照。
-- ❌ 未実装：コード署名（インストーラーは未署名のため Windows SmartScreen の警告が出ます）、および macOS/Linux 向けパッケージング。
+- ❌ 未実装：コード署名・公証（インストーラーは未署名のため、Windows では SmartScreen の警告が、macOS では「壊れている」という拒否が出ます）。
+  macOS 向けは Apple Silicon（arm64）のみです。Linux 向け（`.deb`・`.rpm`）は、Ubuntu 24.04 での `.deb` のインストールと、`.rpm` を確認しています（起動後の動作は期待どおり）。
   いずれも仕様 11.2 #2 に基づき未決のままです。
   `[[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 11 未決事項と実装単位案]]` を参照。
 
 ## Installing / Updating
 
-現時点ではWindowsのみ対応しています（上記「What's verified vs. not」を参照）。
+Windows と macOS（Apple Silicon）の成果物を [Releases](https://github.com/toppers/tecscde-dt-el/releases) で配布します。Linux（`.deb`・`.rpm`）も配布します。Ubuntu 24.04 の `.deb` のインストールと、`.rpm` を確認しています（上記「What's verified vs. not」を参照）。
+
+### Windows
 
 以下は計画中の手順です（一部まだ実装されていません）。
 
@@ -157,3 +172,17 @@ Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使
 
 リリース自動化（`.github/workflows/release.yml`）は、`v*` タグがプッシュされるたびに新しいリリースをビルドして公開します（Node 22 固定。新しい Node では `@electron/packager` がハングするため）。
 設計は `[[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]` を参照。
+
+### macOS（Apple Silicon）
+
+macOS 向けは **Apple Silicon（M1 以降の arm64）の Mac 用だけ**を作ります。Intel Mac 用はありません。
+
+1. [Releases](https://github.com/toppers/tecscde-dt-el/releases) から `tecscde-dt-el-<版>-arm64.dmg` をダウンロードして開き、アプリを `Applications` にコピーします（`.dmg` の中から直接は起動しないでください）。
+2. アプリは署名・公証をしていないため、そのまま起動すると、「壊れている」として実行できないことがあります。その場合は、ターミナルでダウンロードの印（隔離属性）を外してから、起動してください。
+
+   ```sh
+   xattr -cr /Applications/tecscde-dt-el.app
+   ```
+
+   アプリ名が違う場合は、`ls /Applications | grep -i tecs` で確かめてください。この操作で起動できたことを Apple M4 の MacBook Pro で、起動後の動作が期待どおりであることを macOS で確認しています。
+3. 未署名のため、macOS での自動更新が動くかは未確認です。動かないときは、新しい `.dmg` を手動でダウンロードして入れ直してください。

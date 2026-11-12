@@ -72,6 +72,17 @@ const fakeTecsgen = {
 
 const BODY_HTML = `
   <div id="app">
+    <select id="paper-select"></select>
+    <details id="panel-visibility">
+        <summary>表示</summary>
+        <div id="panel-visibility-options">
+          <label><input type="checkbox" data-panel="toolbar" checked /> ツールバー</label>
+          <label><input type="checkbox" data-panel="palette" checked /> セルタイプ一覧</label>
+          <label><input type="checkbox" data-panel="property-panel" checked /> プロパティ</label>
+          <label><input type="checkbox" data-panel="statusbar" checked /> ステータス表示</label>
+          <label><input type="checkbox" data-panel="file-browser" checked /> ファイルブラウザ</label>
+        </div>
+      </details>
     <div id="toolbar">
       <button data-action="undo" type="button">元に戻す</button>
       <button data-action="redo" type="button">やり直し</button>
@@ -128,6 +139,20 @@ const BODY_HTML = `
       </div>
       <div id="palette-celltypes"></div>
     </div>
+    <span id="status-message"></span>
+    <div id="export-dialog" role="dialog" aria-modal="true" hidden>
+      <select id="export-format"><option value="svg">SVG</option></select>
+      <select id="export-range"><option value="paper">用紙</option></select>
+      <label id="png-scale-field" hidden><select id="png-scale"><option value="1">1x</option></select></label>
+      <button id="export-cancel" type="button">cancel</button>
+      <button id="export-confirm" type="button">ok</button>
+    </div>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <h2 id="about-title">バージョン情報</h2>
+      <div class="about-content"></div>
+      <button class="about-copy" type="button">コピー</button>
+      <button class="about-close" type="button">閉じる</button>
+    </dialog>
   </div>
 `;
 
@@ -199,7 +224,7 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     const activeCell = doc.cellValues().find((c) => c.name === "active1")!;
     const callPort = activeCell.cports[0]!;
     store.setSelection(
-      SelectionState.ofPort({ cellId: activeCell.id, portName: callPort.name, portKind: "cport", subscript: null }),
+      SelectionState.ofPort({ cellId: activeCell.id, portName: callPort.name, kind: "cport", subscript: null }),
     );
 
     const statusRegion = root.querySelector<HTMLElement>("#status-region")!;

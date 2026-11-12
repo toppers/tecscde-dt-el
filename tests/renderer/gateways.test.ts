@@ -13,6 +13,7 @@ import type { TecscdeApi } from "../../src/shared/ipc-types.js";
 
 function stubApi(): TecscdeApi {
   return {
+    versions: { electron: "0.0.0", chrome: "0.0.0", node: "0.0.0", platform: "test" },
     cdl: {
       loadGrammarAssets: vi.fn().mockResolvedValue({ runtimeWasm: new Uint8Array(), cdlWasm: new Uint8Array() }),
     },
@@ -21,6 +22,8 @@ function stubApi(): TecscdeApi {
       save: vi.fn().mockResolvedValue(undefined),
       saveAs: vi.fn().mockResolvedValue(null),
       export: vi.fn().mockResolvedValue(undefined),
+      exportPdf: vi.fn().mockResolvedValue(undefined),
+      chooseExportPath: vi.fn().mockResolvedValue(null),
       chooseFolder: vi.fn().mockResolvedValue(null),
       listDirectory: vi.fn().mockResolvedValue([]),
       openPath: vi.fn().mockResolvedValue({ editable: { path: "x.cde", content: "" }, references: [] }),
@@ -82,6 +85,13 @@ describe("FileGateway", () => {
 
     gateway.export("/out.txt", "x");
     expect(api.file.export).toHaveBeenCalledWith("/out.txt", "x");
+
+    const page = { kind: "paper" as const, size: "A4" as const, orientation: "LANDSCAPE" as const };
+    gateway.exportPdf("/out.pdf", "<svg/>", page);
+    expect(api.file.exportPdf).toHaveBeenCalledWith("/out.pdf", "<svg/>", page);
+
+    gateway.chooseExportPath("png", "diagram.png");
+    expect(api.file.chooseExportPath).toHaveBeenCalledWith("png", "diagram.png");
 
     gateway.chooseFolder();
     expect(api.file.chooseFolder).toHaveBeenCalled();

@@ -9,7 +9,7 @@ import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../mod
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
 import { PaperSpec } from "../model/paper";
-import { CPort, EPort, type EdgeSide } from "../model/port";
+import { CPort, EPort, portLayoutKey, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
 import { Region, RegionTree } from "../model/region";
@@ -19,9 +19,13 @@ import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDec
 import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
 import type { TypeUse } from "./signature-types";
 import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
-import { duplicateCell, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
+import { autoLayoutOverflow, duplicateCell, joinIndexInconsistent, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
+import { AUTO_CELL_HEIGHT, AUTO_CELL_WIDTH, chooseAutoPaperSize, placeAutoCells, type Rect } from "./auto-placement";
 import { isUnderAny } from "../../shared/path-under";
+
+/** 配列ポートの隣り合う要素の間隔（mm）。要素の挿入（InsertPortElementCommand）と同じ値。 */
+const ARRAY_ELEMENT_GAP_MM = 3;
 
 export interface CdlSource {
   readonly text: string;
@@ -60,30 +64,13 @@ function withLocation(d: Diagnostic, file: string): Diagnostic {
   return d.location ? { ...d, location: { ...d.location, file } } : d;
 }
 
-/** 外部仕様5.3.1の自動配置アルゴリズムをそのまま踏襲する（重なりを許して巻き戻す）。 */
-function autoPlacementPosition(index: number, paperW: number, paperH: number): { x: number; y: number } {
-  let x = 10;
-  let y = 10;
-  for (let i = 0; i < index; i += 1) {
-    x += 55;
-    if (x > paperW - 30) {
-      x = 10;
-      y += 30;
-    }
-    if (y > paperH - 15) {
-      y = 10;
-    }
-  }
-  return { x, y };
-}
-
 /**
  * セルタイプのポートに既定の辺・オフセットを割り当てる。
  * 「呼び口=左辺、受け口=右辺、辺の長さに均等配置」を既定方針とする
  * （外部仕様4.3.1のCPGap/EPGap=10mmという間隔の趣旨を、ポート数に応じて均等割りする形で踏襲）。
  */
 function assignDefaultPortLayout(
-  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number }[],
+  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number; readonly variableArray?: boolean }[],
   edge: EdgeSide,
   edgeLength: number,
 ): PortTemplate[] {
@@ -95,6 +82,7 @@ function assignDefaultPortLayout(
     offset: alignRound((edgeLength * (i + 1)) / (count + 1)),
     subscript: null,
     arraySize: p.arraySize ?? null,
+    ...(p.variableArray ? { variableArray: true } : {}),
   }));
 }
 
@@ -284,7 +272,9 @@ export class CdlDocumentLoader {
     let tecscdeParsed: ToolInfoTecscdeParsed = { cellList: {}, joinList: {}, unknownFields: {} };
     const layoutsBySource = new Map<string, ToolInfoTecscdeParsed>();
     let paper: PaperSpec = PaperSpec.default();
+    let paperSpecified = false; // ファイルに用紙の指定があるか（無ければ、収まる用紙を選ぶ。外部仕様5.3.x）
     const regionPaths = new Set<string>(["::"]);
+    const namespaceScopePaths = new Set<string>();
     const editableRegionPaths = new Set<string>(["::"]);
     let sourceTemplate: CdlSourceTemplate | undefined;
     const sourceTemplates = new Map<string, CdlSourceTemplate>();
@@ -301,6 +291,7 @@ export class CdlDocumentLoader {
       }
       for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
       for (const scope of parsed.scopes) {
+        if (scope.kind === "namespace") namespaceScopePaths.add(scope.path);
         let path = scope.path;
         while (path !== "::") {
           regionPaths.add(path);
@@ -318,6 +309,7 @@ export class CdlDocumentLoader {
               cellName: cell.cellName, regionPath: cell.regionPath, startIndex, endIndex: cell.endIndex,
               leadingText: source.text.slice(startIndex, cell.startIndex),
               joins: cell.joins,
+              sourceJoins: cell.joins,
             };
           }),
           composites: parsed.composites.map((composite) => ({ name: composite.name, rawText: composite.structure.rawText })),
@@ -344,6 +336,7 @@ export class CdlDocumentLoader {
           diagnostics.push(...d);
           if (p.paper) {
             paper = PaperSpec.create(p.paper.size, p.paper.orientation ?? "LANDSCAPE");
+            paperSpecified = true;
           }
         }
         // 5.1.1: 自分に向けられていないツール名のブロックは読み飛ばす。
@@ -384,7 +377,7 @@ export class CdlDocumentLoader {
     }
     const portTypes = new Map<string, ResolvedPortType>();
     const qualifiedCelltypes = new Map<string, CelltypeRef>();
-    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number } => {
+    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number; variableArray?: boolean } => {
       const id = resolveSignatureInScope(port.signature, port.scopePath, signatures);
       const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
       portTypes.set(portTypeKey(celltypeName, port.kind, port.name), { signatureId: id, valid });
@@ -394,7 +387,18 @@ export class CdlDocumentLoader {
         location: { file: fileName, line: port.line, column: port.column },
         relatedPortName: port.name,
       });
-      return { name: port.name, signature: id ? `::${id}` : port.signature, arraySize: port.arraySize };
+      if (port.unresolvedSize !== undefined) diagnostics.push({
+        severity: "warning", code: W_CODES.ARRAY_SIZE_UNRESOLVED,
+        message: `ポート ${port.name} の配列長 [${port.unresolvedSize}] を評価できません（整数の定数式のみ対応）。配列として展開せず、単一のポートとして扱います。`,
+        location: { file: fileName, line: port.line, column: port.column },
+        relatedPortName: port.name,
+      });
+      return {
+        name: port.name,
+        signature: id ? `::${id}` : port.signature,
+        arraySize: port.arraySize,
+        ...(port.isArray && port.arraySize === undefined ? { variableArray: true } : {}),
+      };
     };
     // 名前つき`require`（`require 名前 = 要求先.受け口;`）の呼び口は、要求先の受け口のシグニチャを持つ
     // （第4B章4B.5節）。要求先は、セルタイプ名、またはセル名（そのセルのセルタイプ）で指定される。
@@ -431,10 +435,12 @@ export class CdlDocumentLoader {
         cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
         eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
         attributeNames: ct.attributes,
+        attributeOptions: ct.attributeOptions,
         hiddenRequirePortCount,
         locale: source.fileName,
         ...(source.sourcePath && !source.generated ? { sourcePath: source.sourcePath } : {}),
         generated: source.generated === true,
+        ...(source.generated || source.sourcePath === undefined ? {} : { definitionPath: source.sourcePath }),
         composite,
         hasUnsupportedSyntax: isOrdinaryCelltype(ct) ? false : ct.hasUnsupportedSyntax,
         active: ct.active,
@@ -446,21 +452,34 @@ export class CdlDocumentLoader {
     registerMrubyBridgeCelltypes(celltypes, signatures, generates);
     const celltypeLookup = new Map([...celltypes, ...qualifiedCelltypes]);
 
-    const { width: paperW, height: paperH } = paper.contentSize();
 
     // --- セル（1周目: 本体とポート。全ファイル分をまとめて処理する） ---
     const cells = new Map<CellId, Cell>();
+    // 修飾名（`N::cell`）の解決用。リージョンはセル名の修飾に使われないので、namespace だけの経路を持つ。
+    const cellNamespaces = new Map<CellId, string>();
+    const namespaceOf = (regionPath: string): string => {
+      const names: string[] = [];
+      let path = "";
+      for (const segment of regionPath.split("::").filter(Boolean)) {
+        path += `::${segment}`;
+        if (namespaceScopePaths.has(path)) names.push(segment);
+      }
+      return names.length > 0 ? `::${names.join("::")}` : "::";
+    };
+    // 同じ名前空間の同名セルだけが重複。異なる名前空間の同名セルは共存し、そのIDは修飾名になる（監査#25）。
+    const duplicateKey = (cell: CellDecl): string => `${namespaceOf(cell.regionPath)}\0${cell.cellName}`;
     const selectedCells = new Map<string, { declaration: CellDecl; source: ParsedSource }>();
     for (const source of parsedSources) {
       for (const declaration of source.cells) {
-        const previous = selectedCells.get(declaration.cellName);
+        const key = duplicateKey(declaration);
+        const previous = selectedCells.get(key);
         if (!previous) {
-          selectedCells.set(declaration.cellName, { declaration, source });
+          selectedCells.set(key, { declaration, source });
         } else if (source.generated && previous.source.generated) {
           // tecsgen may emit a prototype before the populated cell definition.
           const details = (cell: CellDecl): number => cell.joins.length + cell.attrs.length;
           if (details(declaration) > details(previous.declaration)) {
-            selectedCells.set(declaration.cellName, { declaration, source });
+            selectedCells.set(key, { declaration, source });
           }
         } else if (!source.generated) {
           diagnostics.push(duplicateCell(declaration.cellName, {
@@ -472,13 +491,45 @@ export class CdlDocumentLoader {
     const selectedSources: ParsedSource[] = [...selectedCells.values()].map(({ declaration, source }) => ({
       ...source, cells: [declaration],
     }));
-    let autoIndex = 0;
+    // 名前が衝突するセルは、名前空間つきの修飾名（`::N::c1`）をIDにする。衝突しないセルのIDは名前のまま。
+    const nameCounts = new Map<string, number>();
+    for (const { declaration } of selectedCells.values()) {
+      nameCounts.set(declaration.cellName, (nameCounts.get(declaration.cellName) ?? 0) + 1);
+    }
+    const idFor = (regionPath: string, name: string): CellId => {
+      if ((nameCounts.get(name) ?? 0) < 2) return asCellId(name);
+      const namespace = namespaceOf(regionPath);
+      return asCellId(namespace === "::" ? `::${name}` : `${namespace}::${name}`);
+    };
+    // 外部仕様5.3.x: 位置を持たないセルは、保存済みの位置を持つセルと重ならない位置へ置く。
+    // 先に全セルのレイアウトを調べ、位置を持つセルの矩形を埋まっている場所として渡す。
+    const occupied: Rect[] = [];
+    const autoCellIds: CellId[] = [];
+    for (const src of selectedSources) {
+      for (const decl of src.cells) {
+        const id = idFor(decl.regionPath, decl.cellName);
+        const saved = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[id];
+        if (saved) {
+          const [sx, sy, sw, sh] = saved.location;
+          occupied.push({ x: sx, y: sy, width: sw, height: sh });
+        } else {
+          autoCellIds.push(id);
+        }
+      }
+    }
+    // 外部仕様5.3.x: 用紙の指定がなければ、自動配置したセルがすべて収まる最小の用紙（横）を選ぶ。指定があれば尊重する。
+    if (!paperSpecified) paper = PaperSpec.create(chooseAutoPaperSize(autoCellIds.length, occupied), "LANDSCAPE");
+    const { width: paperW, height: paperH } = paper.contentSize();
+    const autoPlacement = placeAutoCells(autoCellIds.length, occupied, paperW, paperH);
+    const autoPositions = new Map(autoCellIds.map((id, index) => [id, autoPlacement.positions[index]!]));
+    if (autoPlacement.overflow > 0) diagnostics.push(autoLayoutOverflow(autoPlacement.overflow));
 
     for (const src of selectedSources) {
       for (const decl of src.cells) {
-        const id = asCellId(decl.cellName);
+        const id = idFor(decl.regionPath, decl.cellName);
+        cellNamespaces.set(id, namespaceOf(decl.regionPath));
         const celltype = resolveCelltypeInScope(celltypeLookup, decl.celltypeName, decl.regionPath);
-        const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[decl.cellName];
+        const layout = (layoutsBySource.get(src.sourcePath ?? src.fileName) ?? tecscdeParsed).cellList[id];
         const savedRegion = layout?.region;
         const regionPath = decl.regionPath !== "::" ? decl.regionPath :
           savedRegion && (src.editable ? editableRegionPaths : regionPaths).has(savedRegion) ? savedRegion : "::";
@@ -495,12 +546,11 @@ export class CdlDocumentLoader {
         if (layout) {
           [x, y, width, height] = layout.location;
         } else {
-          const pos = autoPlacementPosition(autoIndex, paperW, paperH);
-          autoIndex += 1;
+          const pos = autoPositions.get(id)!;
           x = pos.x;
           y = pos.y;
-          width = 25;
-          height = 15;
+          width = AUTO_CELL_WIDTH;
+          height = AUTO_CELL_HEIGHT;
         }
 
         const attrs: Record<string, string> = {};
@@ -534,13 +584,31 @@ export class CdlDocumentLoader {
         if (celltype.hiddenRequirePortCount > 0) {
           diagnostics.push(requirePortHidden(decl.cellName, celltype.hiddenRequirePortCount, id));
         }
+        for (const portName of decl.inconsistentJoinPorts ?? []) {
+          diagnostics.push(joinIndexInconsistent(decl.cellName, portName, id));
+        }
 
         const applyPortLayout = (p: PortTemplate): PortTemplate => {
-          const saved = layout?.ports?.[p.name];
+          // 配列の要素は `名前[添字]` の鍵を先に引き、無ければ名前の鍵（要素共通の旧形式）を使う。
+          const saved = layout?.ports?.[portLayoutKey(p)] ?? layout?.ports?.[p.name];
           return saved ? { ...p, edgeSide: saved.edge, offset: saved.offset } : p;
         };
+        // 配列の呼び口を要素へ展開する。固定長 `[N]` はN個、可変長 `[]` は結合で使われた添字の最大値+1個（最低1個）。
+        const expandArrayPort = (p: PortTemplate): PortTemplate[] => {
+          const count = p.arraySize
+            ?? (p.variableArray
+              ? Math.max(1, ...decl.joins.filter((j) => j.cport === p.name && j.cportIndex !== undefined).map((j) => j.cportIndex! + 1))
+              : null);
+          if (count === null) return [p];
+          const edgeLength = p.edgeSide === "TOP" || p.edgeSide === "BOTTOM" ? width : height;
+          return Array.from({ length: count }, (_, i) => ({
+            ...p,
+            subscript: i,
+            offset: Math.min(edgeLength, alignRound(p.offset + i * ARRAY_ELEMENT_GAP_MM)),
+          }));
+        };
 
-        const cports = celltype.cportTemplates.map((p) => {
+        const cports = celltype.cportTemplates.flatMap(expandArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return CPort.create({
             name: t.name,
@@ -588,14 +656,39 @@ export class CdlDocumentLoader {
 
     // --- 結合（2周目: 全セルが揃ってから解決） ---
     const joins = new Map<JoinId, Join>();
+    // 結合先の解決（tecsgen の名前解決に倣う）。`::N::c` は絶対、`N::c` と `c` は呼び元の名前空間から外側へ探す。
+    // 外側で見つからなくても、同名のセルが1つだけで修飾が末尾一致するなら受ける（従来の寛容な挙動を保つ）。
+    const cellsByName = new Map<string, Cell[]>();
+    for (const cell of cells.values()) cellsByName.set(cell.name, [...(cellsByName.get(cell.name) ?? []), cell]);
+    const namespaceOfCell = (cell: Cell): string => cellNamespaces.get(cell.id) ?? "::";
+    const resolveTargetCell = (raw: string, fromNamespace: string): Cell | undefined => {
+      const absolute = raw.startsWith("::");
+      const parts = raw.replace(/^::/, "").split("::");
+      const candidates = cellsByName.get(parts.pop()!) ?? [];
+      if (candidates.length === 0) return undefined;
+      const prefix = parts.length > 0 ? `::${parts.join("::")}` : "::";
+      if (absolute) return candidates.find((c) => namespaceOfCell(c) === prefix);
+      const within = (scope: string): string => (scope === "::" ? prefix : prefix === "::" ? scope : `${scope}${prefix}`);
+      for (let scope = fromNamespace; ; ) {
+        const found = candidates.find((c) => namespaceOfCell(c) === within(scope));
+        if (found) return found;
+        if (scope === "::") break;
+        const separator = scope.lastIndexOf("::");
+        scope = separator === 0 ? "::" : scope.slice(0, separator);
+      }
+      const only = candidates.length === 1 ? candidates[0]! : undefined;
+      return only && (prefix === "::" || namespaceOfCell(only).endsWith(prefix)) ? only : undefined;
+    };
     for (const src of selectedSources) {
       for (const decl of src.cells) {
-        const sourceCell = cells.get(asCellId(decl.cellName));
+        const sourceCell = cells.get(idFor(decl.regionPath, decl.cellName));
         if (!sourceCell) continue;
         for (const j of decl.joins) {
-          const jid = asJoinId(`${decl.cellName}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
+          // 添字の形が揃わず添字を持たない結合は、`W-JOIN-INDEX-INCONSISTENT`で知らせ済み。解決は試みない。
+          if (j.subscriptOmitted && j.cportIndex === undefined) continue;
+          const jid = asJoinId(`${sourceCell.id}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
           const cport = sourceCell.cports.find((p) => p.name === j.cport && p.subscript === (j.cportIndex ?? null));
-          const targetCell = cells.get(asCellId(j.targetCell));
+          const targetCell = resolveTargetCell(j.targetCell, namespaceOfCell(sourceCell));
           const eport = targetCell?.eports.find((p) => p.name === j.eport);
           if (!cport || !targetCell || !eport) {
             diagnostics.push(missingJoinTarget(decl.cellName, j.cport, sourceCell.id));
@@ -613,7 +706,10 @@ export class CdlDocumentLoader {
                 [...cells.values()], // 外部仕様7.3.2: 保存済みの経路が無い結合は、他のセルを避ける
               );
 
-          const join = Join.create(jid, sourceCell.id, cport, targetCell.id, eport, bars);
+          const join = Join.create(
+            jid, sourceCell.id, cport, targetCell.id, eport, bars,
+            j.targetCell.includes("::") ? j.targetCell : undefined,
+          );
           joins.set(jid, join);
 
           const updatedSource = cells.get(sourceCell.id);
@@ -635,7 +731,7 @@ export class CdlDocumentLoader {
         cells: template.cells.map((cell) => ({
           ...cell,
           joins: cell.joins?.filter((join) => !joins.has(asJoinId(
-            `${cell.cellName}.${join.cport}${join.cportIndex !== undefined ? `[${join.cportIndex}]` : ""}`,
+            `${idFor(cell.regionPath, cell.cellName)}.${join.cport}${join.cportIndex !== undefined ? `[${join.cportIndex}]` : ""}`,
           ))),
         })),
       };

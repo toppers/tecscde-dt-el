@@ -16,7 +16,7 @@ import { ALIGN_MM } from "../model/align";
 import type { Bar, Join } from "../model/join";
 import type { Cell } from "../model/cell";
 import type { CellId, JoinId, RegionId } from "../model/ids";
-import type { Point } from "../model/geometry";
+import { portPosition, type Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 import type { SearchHighlights } from "./search-highlights";
 import { isActiveCell } from "../model/active-cell";
@@ -256,6 +256,19 @@ export class SvgRenderer {
   ): void {
     this.selectionLayer.replaceChildren();
     const k = pxPerMm(view);
+    for (const selected of selection.ports) {
+      const cell = doc.getCell(selected.cellId);
+      if (!cell || view.hiddenRegionIds.has(cell.regionId)) continue;
+      const ports = selected.kind === "cport" ? cell.cports : cell.eports;
+      const port = ports.find((candidate) => candidate.name === selected.portName && candidate.subscript === selected.subscript);
+      if (!port) continue;
+      const point = portPosition(cell, port);
+      const circle = svgEl("circle");
+      setAttrs(circle, { cx: point.x * k, cy: point.y * k, r: 2.5 * k });
+      circle.setAttribute("class", "selection-outline port-selected");
+      circle.setAttribute("fill", "none");
+      this.selectionLayer.appendChild(circle);
+    }
     for (const id of selection.cellIds) {
       const cell = doc.getCell(id);
       if (!cell || this.isCellHidden(cell, view, doc)) continue;
@@ -361,6 +374,25 @@ export class SvgRenderer {
       });
     }
     this.joinBarPreviews.clear();
+  }
+
+  /** ポートのドラッグ中: 放した場合にポートが移る位置へ印（円）を描く。`undefined` で消去。 */
+  setPortDragPreview(view: CanvasView, positions: readonly Point[] | undefined): void {
+    Array.from(this.selectionLayer.querySelectorAll("circle.port-drag-preview")).forEach((el) => el.remove());
+    if (!positions) return;
+    const k = pxPerMm(view);
+    for (const p of positions) {
+      const dot = svgEl("circle");
+      setAttrs(dot, { cx: p.x * k, cy: p.y * k, r: 5 });
+      dot.setAttribute("class", "port-drag-preview");
+      dot.setAttribute("fill", "#2563eb");
+      dot.setAttribute("fill-opacity", "0.55");
+      dot.setAttribute("stroke", "#1d4ed8");
+      dot.setAttribute("stroke-width", "1.5");
+      // 印がポインタを遮らないようにする。
+      dot.setAttribute("pointer-events", "none");
+      this.selectionLayer.appendChild(dot);
+    }
   }
 
   /** ラバーバンド選択の矩形（モデル座標）。`undefined` で消去。 */

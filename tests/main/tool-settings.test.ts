@@ -109,7 +109,7 @@ describe("ToolSettingsService", () => {
     const { service, save } = setup({ tecsgenPath: "/saved/tool" }, { TECSGEN_COMMAND: "overriding-tool --flag" });
     const before = await service.get();
     execFileMock.mockReset().mockResolvedValue({ stdout: "", stderr: " tecsgen 1.9.1 " });
-    expect(await service.checkPath('/candidate with spaces/"literal"')).toEqual({ kind: "ok", text: "tecsgen 1.9.1" });
+    expect(await service.checkPath('/candidate with spaces/"literal"')).toMatchObject({ kind: "ok", text: "tecsgen 1.9.1" });
     expect(execFileMock).toHaveBeenCalledExactlyOnceWith('/candidate with spaces/"literal"', ["--version"], { timeout: 30_000, shell: false });
     expect(await service.get()).toEqual(before);
     expect(save).not.toHaveBeenCalled();
