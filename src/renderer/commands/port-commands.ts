@@ -279,6 +279,34 @@ export class InsertPortElementCommand extends Command {
       });
       next = doc.withCell(cell.withCPorts(cell.cports.map(adjust)).withEPorts(insertAt(cell.eports.map(adjust), created)));
     }
+
+    // 添字が繰り上がったポートに接続されている結合の添字情報（cportSubscript/eportSubscript）を同期更新する
+    for (const join of next.joinValues()) {
+      let cSub = join.cportSubscript;
+      let eSub = join.eportSubscript;
+      if (
+        this.portKind === "CPort" &&
+        join.cellId === this.cellId &&
+        join.cportName === this.portName &&
+        cSub !== null &&
+        cSub >= insertIndex
+      ) {
+        cSub = cSub + 1;
+      }
+      if (
+        this.portKind === "EPort" &&
+        join.eportCellId === this.cellId &&
+        join.eportName === this.portName &&
+        eSub !== null &&
+        eSub >= insertIndex
+      ) {
+        eSub = eSub + 1;
+      }
+      if (cSub !== join.cportSubscript || eSub !== join.eportSubscript) {
+        next = next.withJoin(join.withSubscripts(cSub, eSub));
+      }
+    }
+
     return reroutePortJoins(next, movedJoinIds);
   }
 }
@@ -331,7 +359,18 @@ export class DeletePortElementCommand extends Command {
           updatedCPorts.push(p);
         }
       }
-      return next.withCell(refreshedCell.withCPorts(updatedCPorts));
+      next = next.withCell(refreshedCell.withCPorts(updatedCPorts));
+      for (const join of next.joinValues()) {
+        if (
+          join.cellId === this.cellId &&
+          join.cportName === this.portName &&
+          join.cportSubscript !== null &&
+          join.cportSubscript > this.subscript
+        ) {
+          next = next.withJoin(join.withSubscripts(join.cportSubscript - 1, join.eportSubscript));
+        }
+      }
+      return next;
     }
 
     const target = cell.findEPort(this.portName, this.subscript);
@@ -353,6 +392,17 @@ export class DeletePortElementCommand extends Command {
         updatedEPorts.push(p);
       }
     }
-    return next.withCell(refreshedCell.withEPorts(updatedEPorts));
+    next = next.withCell(refreshedCell.withEPorts(updatedEPorts));
+    for (const join of next.joinValues()) {
+      if (
+        join.eportCellId === this.cellId &&
+        join.eportName === this.portName &&
+        join.eportSubscript !== null &&
+        join.eportSubscript > this.subscript
+      ) {
+        next = next.withJoin(join.withSubscripts(join.cportSubscript, join.eportSubscript - 1));
+      }
+    }
+    return next;
   }
 }

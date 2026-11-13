@@ -23,9 +23,12 @@ export class CreateJoinCommand extends Command {
     private readonly cportSubscript: number | null,
     private readonly targetCellId: CellId,
     private readonly eportName: string,
+    private readonly eportSubscript: number | null = null,
   ) {
     super();
-    this.summary = `join ${cportName} -> ${eportName}`;
+    const cSub = cportSubscript !== null ? `[${cportSubscript}]` : "";
+    const eSub = eportSubscript !== null ? `[${eportSubscript}]` : "";
+    this.summary = `join ${cportName}${cSub} -> ${eportName}${eSub}`;
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
@@ -36,7 +39,9 @@ export class CreateJoinCommand extends Command {
     const cport = source.cports.find(
       (p) => p.name === this.cportName && p.subscript === this.cportSubscript,
     );
-    const eport = target.eports.find((p) => p.name === this.eportName);
+    const eport = target.eports.find(
+      (p) => p.name === this.eportName && p.subscript === this.eportSubscript,
+    );
     if (!cport || !eport) return doc;
     if (cport.joinId !== null) return doc;
     if (cport.signature !== eport.signature) return doc;
@@ -56,7 +61,9 @@ export class CreateJoinCommand extends Command {
 
     // source === target の自己結合に備え、更新後のセルを取り直してから受け口を更新する。
     const updatedTarget = next.getCell(this.targetCellId);
-    const updatedEport = updatedTarget?.eports.find((p) => p.name === this.eportName);
+    const updatedEport = updatedTarget?.eports.find(
+      (p) => p.name === this.eportName && p.subscript === this.eportSubscript,
+    );
     if (updatedTarget && updatedEport) {
       next = next.withCell(updatedTarget.withEPort(updatedEport.withJoin(id)));
     }

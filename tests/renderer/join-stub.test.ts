@@ -19,9 +19,10 @@ import {
   truncatePolyline,
 } from "../../src/renderer/render/svg-path";
 import { defaultCanvasView, SelectionState, type CanvasView } from "../../src/renderer/render/view";
-import type { Cell } from "../../src/renderer/model/cell";
-import type { Join } from "../../src/renderer/model/join";
-import type { Point } from "../../src/renderer/model/geometry";
+import { Cell } from "../../src/renderer/model/cell";
+import { Join, type Bar } from "../../src/renderer/model/join";
+import { CPort, EPort } from "../../src/renderer/model/port";
+import { portPosition, type Point } from "../../src/renderer/model/geometry";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
 
 const pts = (...xy: Array<[number, number]>): Point[] => xy.map(([x, y]) => ({ x, y }));
@@ -212,5 +213,84 @@ describe("HitTester — hidden regions (6B.5)", () => {
     const nearEnd = along(points[points.length - 1]!, points[points.length - 2]!, 3.3);
     expect(tester.hitTest(nearStart).kind).toBe("joinBar");
     expect(tester.hitTest(nearEnd).kind).not.toBe("joinBar");
+  });
+});
+
+describe("joinPolyline — array entry port elements (#23, #24)", () => {
+  it("terminates at the position of e[1] instead of e[0]", () => {
+    const serverId = asCellId("cServer");
+    const clientId = asCellId("cClient");
+
+    const e0 = EPort.create({
+      name: "e",
+      signature: "sSig",
+      edgeSide: "LEFT",
+      offset: 5,
+      subscript: 0,
+      arraySize: 2,
+    });
+    const e1 = EPort.create({
+      name: "e",
+      signature: "sSig",
+      edgeSide: "LEFT",
+      offset: 15,
+      subscript: 1,
+      arraySize: 2,
+    });
+
+    const c0 = CPort.create({
+      name: "c",
+      signature: "sSig",
+      edgeSide: "RIGHT",
+      offset: 5,
+      subscript: null,
+      arraySize: null,
+    });
+
+    const joinId = asJoinId("j_arr");
+    const bars: readonly Bar[] = [{ direction: "H", fixed: 15, from: 25, to: 50 }];
+    const join = Join.create(joinId, clientId, c0, serverId, e1, bars);
+
+    const server = Cell.create({
+      id: serverId,
+      name: "cServer",
+      celltypeName: "tServer",
+      x: 50,
+      y: 0,
+      width: 25,
+      height: 25,
+      regionId: asRegionId("::"),
+      editable: true,
+      cports: [],
+      eports: [e0, e1.withJoin(joinId)],
+      attrs: {},
+      celltypeUnresolved: false,
+    });
+
+    const client = Cell.create({
+      id: clientId,
+      name: "cClient",
+      celltypeName: "tClient",
+      x: 0,
+      y: 0,
+      width: 25,
+      height: 25,
+      regionId: asRegionId("::"),
+      editable: true,
+      cports: [c0.withJoin(joinId)],
+      eports: [],
+      attrs: {},
+      celltypeUnresolved: false,
+    });
+
+    const polyline = joinPolyline(join, client, server);
+    expect(polyline).toBeDefined();
+    const endPoint = polyline![polyline!.length - 1]!;
+
+    const e0Pos = portPosition(server, e0);
+    const e1Pos = portPosition(server, e1);
+
+    expect(endPoint).toEqual(e1Pos);
+    expect(endPoint).not.toEqual(e0Pos);
   });
 });

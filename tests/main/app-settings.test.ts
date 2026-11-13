@@ -257,4 +257,36 @@ describe("app-settings", () => {
     seed({ cppPath: 123, cppArgs: true, fileBrowserRoot: "/root" });
     await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
   });
+
+  it("saveAppSettings then loadAppSettings round-trips pluginTypeSource", async () => {
+    await saveAppSettings({ pluginTypeSource: "internal" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "internal" });
+
+    await saveAppSettings({ pluginTypeSource: "external" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "external" });
+  });
+
+  it("normalizeAppSettings preserves valid pluginTypeSource and strips invalid values", async () => {
+    seed({ pluginTypeSource: "internal", fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "internal", fileBrowserRoot: "/root" });
+
+    seed({ pluginTypeSource: "invalid", fileBrowserRoot: "/root", other: 123 });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root", other: 123 });
+
+    seed({ pluginTypeSource: 42, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+
+    seed({ pluginTypeSource: true, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+  });
+
+  it("saveAppSettings merges pluginTypeSource without clobbering other settings", async () => {
+    await saveAppSettings({ fileBrowserRoot: "/root", cppPath: "/bin/gcc" });
+    await saveAppSettings({ pluginTypeSource: "internal" });
+    await expect(loadAppSettings()).resolves.toEqual({
+      fileBrowserRoot: "/root",
+      cppPath: "/bin/gcc",
+      pluginTypeSource: "internal",
+    });
+  });
 });

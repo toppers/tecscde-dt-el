@@ -39,6 +39,20 @@ const options = {
   logLevel: "info",
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const workerOptions = {
+  entryPoints: [resolve(root, "src/renderer/tecsgen/internal/worker.ts")],
+  outfile: resolve(outDir, "tecsgen-worker.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "es2022",
+  sourcemap: true,
+  external: ["fs/promises", "module"],
+  define: { __TECSCDE_APP_VERSION__: JSON.stringify(version), ...appInfoDefine(root) },
+  logLevel: "info",
+};
+
 async function copyStaticAssets() {
   await mkdir(outDir, { recursive: true });
   await writeFile(resolve(root, "dist/build-info.json"), JSON.stringify({ version, commit, formatVersion: cdeFormatVersion }));
@@ -50,11 +64,11 @@ async function copyStaticAssets() {
 
 if (watch) {
   await copyStaticAssets();
-  const ctx = await context(options);
-  await ctx.watch();
+  const [ctxRenderer, ctxWorker] = await Promise.all([context(options), context(workerOptions)]);
+  await Promise.all([ctxRenderer.watch(), ctxWorker.watch()]);
   console.log("[build-renderer] watching…");
 } else {
   await copyStaticAssets();
-  await build(options);
+  await Promise.all([build(options), build(workerOptions)]);
   console.log("[build-renderer] done →", outDir);
 }

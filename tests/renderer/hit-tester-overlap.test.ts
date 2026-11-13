@@ -64,4 +64,39 @@ describe("HitTester on overlapping cells selects the one drawn on top", () => {
       kind: "eport", cellId: asCellId("over"), portName: "e", subscript: null,
     });
   });
+
+  it("selects the closest port among closely placed array port elements within hit radius", () => {
+    // 判定半径 2.5mm 内に複数のポート要素が近接して存在する場合（例: offset 11mm と 13mm、差 2mm）
+    const cellWithAdjacentPorts = Cell.create({
+      id: asCellId("server"),
+      name: "server",
+      celltypeName: "tServer",
+      x: 10,
+      y: 10,
+      width: 25,
+      height: 25,
+      regionId: ROOT_REGION_ID,
+      editable: true,
+      cports: [],
+      eports: [
+        EPort.create({ name: "eFixed", signature: "sX", edgeSide: "RIGHT", offset: 11, subscript: 2, arraySize: 3 }),
+        EPort.create({ name: "eVar", signature: "sX", edgeSide: "RIGHT", offset: 13, subscript: 1, arraySize: null }),
+      ],
+      attrs: {},
+      celltypeUnresolved: false,
+    });
+    const doc = TecscdeDocument.empty().withCell(cellWithAdjacentPorts);
+
+    // 右辺 x = 35。eFixed[2] は y = 21, eVar[1] は y = 23。
+    // y = 23 (eVar[1] の位置) をクリックした場合、eFixed[2] も距離 2.0mm <= 2.5mm で範囲内だが、
+    // より近い eVar[1] (距離 0mm) が選択されること
+    expect(tester(doc).hitTest({ x: 35, y: 23 })).toEqual({
+      kind: "eport", cellId: asCellId("server"), portName: "eVar", subscript: 1,
+    });
+
+    // 逆に y = 21 (eFixed[2] の位置) をクリックした場合は eFixed[2] が選択されること
+    expect(tester(doc).hitTest({ x: 35, y: 21 })).toEqual({
+      kind: "eport", cellId: asCellId("server"), portName: "eFixed", subscript: 2,
+    });
+  });
 });

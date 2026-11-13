@@ -6,6 +6,7 @@ import type { AppInformation, ToolSettings, ToolSettingsUpdate, TecsgenVersionRe
 const current: ToolSettings = {
   revision: 1, tecsgenPath: "/tools/tecsgen", tecspath: "/tecs", effectiveSource: "settings",
   effectiveCommand: "/tools/tecsgen", executable: "/tools/tecsgen", prefixArgs: [], override: false,
+  pluginTypeSource: "external",
 };
 const information: AppInformation = {
   name: "TECSCDE-DT-EL", version: "0.1.0", commit: "a123b45", cdeFormatVersion: "0.1.0.0",
@@ -31,6 +32,7 @@ function setup() {
         ...(patch.tecsgenPath !== undefined ? { tecsgenPath: patch.tecsgenPath, effectiveCommand: patch.tecsgenPath } : {}),
         ...(patch.cppPath !== undefined ? { cppPath: patch.cppPath, effectiveCppFullPath: patch.cppPath, effectiveCppCommand: `${patch.cppPath} ${patch.cppArgs ?? ""}`.trim() } : {}),
         ...(patch.cppArgs !== undefined ? { cppArgs: patch.cppArgs } : {}),
+        ...(patch.pluginTypeSource !== undefined ? { pluginTypeSource: patch.pluginTypeSource } : {}),
       },
     })),
   };
@@ -55,6 +57,14 @@ function cppEffective(): string { return document.querySelector("#information-cp
 function cppMeta(): string { return document.querySelector("#information-cpp-meta")!.textContent!; }
 function typeCppPath(value: string) { cppPathInput().value = value; cppPathInput().dispatchEvent(new Event("input", { bubbles: true })); }
 function typeCppArgs(value: string) { cppArgsInput().value = value; cppArgsInput().dispatchEvent(new Event("input", { bubbles: true })); }
+
+function pluginSourceSelect(): HTMLSelectElement { return document.querySelector("#information-plugin-type-source")!; }
+function pluginSaveButton(): HTMLButtonElement { return document.querySelector("#information-plugin-save")!; }
+function pluginResult(): string { return document.querySelector("#information-plugin-result")!.textContent!; }
+function selectPluginSource(value: "external" | "internal") {
+  pluginSourceSelect().value = value;
+  pluginSourceSelect().dispatchEvent(new Event("change", { bubbles: true }));
+}
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -431,6 +441,81 @@ describe("InformationDialog", () => {
       cppPath: "arm-gcc",
       cppArgs: "-E -DTECSGEN",
     });
+    view.dispose();
+  });
+
+  it("displays pluginTypeSource default, plugin registry table, and notes", async () => {
+    const { view } = setup();
+    await view.open();
+    expect(pluginSourceSelect().value).toBe("external");
+
+    const table = document.querySelector("#information-plugin-table")!;
+    expect(table).not.toBeNull();
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.textContent).toContain("MrubyBridgePlugin");
+    expect(rows[0]!.textContent).toContain("1.9.1");
+    expect(rows[1]!.textContent).toContain("MrubyBridgeCellPlugin");
+    expect(rows[1]!.textContent).toContain("1.9.1");
+
+    const dialogText = document.querySelector("#information-dialog")!.textContent!;
+    expect(dialogText).toContain("W-PLUGIN-UNSUPPORTED");
+    expect(dialogText).toContain("「実行(Generate)」および版確認は常に外部 tecsgen を使用します");
+    expect(dialogText).toContain("次回読み込みから反映されます");
+    view.dispose();
+  });
+
+  it("switches pluginTypeSource to internal and saves via dedicated save button", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    selectPluginSource("internal");
+    pluginSaveButton().click();
+    await tick();
+
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({ pluginTypeSource: "internal" });
+    expect(pluginResult()).toContain("保存しました");
+    expect(pluginResult()).toContain("次回読み込みから反映されます");
+    expect(pluginSourceSelect().value).toBe("internal");
+    view.dispose();
+  });
+
+  it("reflects existing internal pluginTypeSource on dialog open", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      pluginTypeSource: "internal",
+    });
+    await view.open();
+    expect(pluginSourceSelect().value).toBe("internal");
+    view.dispose();
+  });
+
+  it("displays an error when plugin settings update fails", async () => {
+    const { view, settings } = setup();
+    settings.updateToolSettings.mockResolvedValue({ ok: false, error: "failed to save plugin source" } as never);
+    await view.open();
+    selectPluginSource("internal");
+    pluginSaveButton().click();
+    await tick();
+
+    expect(pluginResult()).toContain("failed to save plugin source");
+    expect(pluginResult()).not.toContain("保存しました");
+    view.dispose();
+  });
+
+  it("includes pluginTypeSource in main save button when modified", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    type("/custom/tecsgen");
+    selectPluginSource("internal");
+    button("save").click();
+    await tick();
+
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({
+      tecsgenPath: "/custom/tecsgen",
+      pluginTypeSource: "internal",
+    });
+    expect(pluginResult()).toContain("保存しました");
     view.dispose();
   });
 });

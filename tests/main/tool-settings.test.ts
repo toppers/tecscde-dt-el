@@ -178,6 +178,49 @@ describe("ToolSettingsService", () => {
     expect(await service.update({ cppArgs: true } as never)).toMatchObject({ ok: false });
     expect(save).not.toHaveBeenCalled();
   });
+
+  it("defaults pluginTypeSource to 'external' and reads stored value", async () => {
+    const { service: defaultService } = setup({});
+    expect((await defaultService.get()).pluginTypeSource).toBe("external");
+
+    const { service: internalService } = setup({ pluginTypeSource: "internal" });
+    expect((await internalService.get()).pluginTypeSource).toBe("internal");
+  });
+
+  it("updates pluginTypeSource and increments revision via ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    const initial = await service.get();
+    expect(initial.pluginTypeSource).toBe("external");
+
+    const updateResult = await service.update({ pluginTypeSource: "internal" });
+    expect(updateResult).toMatchObject({
+      ok: true,
+      settings: {
+        pluginTypeSource: "internal",
+        revision: initial.revision + 1,
+      },
+    });
+    expect(save).toHaveBeenCalledWith({ pluginTypeSource: "internal" });
+    expect((await service.get()).pluginTypeSource).toBe("internal");
+
+    const revertResult = await service.update({ pluginTypeSource: "external" });
+    expect(revertResult).toMatchObject({
+      ok: true,
+      settings: {
+        pluginTypeSource: "external",
+        revision: initial.revision + 2,
+      },
+    });
+    expect(save).toHaveBeenCalledWith({ pluginTypeSource: "external" });
+    expect((await service.get()).pluginTypeSource).toBe("external");
+  });
+
+  it("rejects invalid pluginTypeSource in ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    expect(await service.update({ pluginTypeSource: "invalid" as never })).toMatchObject({ ok: false });
+    expect(await service.update({ pluginTypeSource: 123 as never })).toMatchObject({ ok: false });
+    expect(save).not.toHaveBeenCalled();
+  });
 });
 
 describe("findGccOnPath", () => {

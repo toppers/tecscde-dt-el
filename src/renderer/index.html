@@ -482,7 +482,8 @@
       .cdl-file-list-section p { white-space: pre-wrap; overflow-wrap: anywhere; }
       .cdl-file-list-section button + button { margin-left: 6px; }
       .information-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
-      .information-field input { box-sizing: border-box; width: 100%; padding: 6px; font: inherit; }
+      .information-field input, .information-field select { box-sizing: border-box; width: 100%; padding: 6px; font: inherit; }
+      .information-field select { border: 1px solid var(--border); border-radius: 3px; background: #fff; }
       .information-field input:read-only { background: #eeeeee; }
       .information-actions, .information-footer { display: flex; gap: 8px; }
       .information-footer { justify-content: flex-end; margin-top: 16px; }
@@ -491,6 +492,9 @@
       .information-result { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
       .information-result:empty { display: none; }
       .information-result.error { color: #b42318; }
+      .information-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+      .information-table th, .information-table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+      .information-table th { background: var(--panel); font-weight: 600; }
       .prop-field {
         display: flex;
         flex-direction: column;

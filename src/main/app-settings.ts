@@ -5,7 +5,7 @@
 import { promises as fs } from "node:fs";
 import { join, posix, win32 } from "node:path";
 import { app } from "electron";
-import type { SessionSnapshot } from "../shared/ipc-types.js";
+import type { PluginTypeSource, SessionSnapshot } from "../shared/ipc-types.js";
 
 export interface AppSettings {
   readonly [key: string]: unknown;
@@ -26,11 +26,14 @@ export interface AppSettings {
    * 有効であり、未保存本文は復元せず、保存済み参照をその役割のまま復元する。
    */
   readonly lastSession?: SessionSnapshot;
+  /** V0.2.1 Stage 4: Plugin生成型の取り込み方式 */
+  readonly pluginTypeSource?: PluginTypeSource;
 }
 
 /** Legacy session fields are accepted at the update boundary and normalized before writing. */
 export type AppSettingsPatch = Omit<Partial<AppSettings>, "lastSession"> & {
   readonly lastSession?: Partial<SessionSnapshot>;
+  readonly pluginTypeSource?: PluginTypeSource;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,6 +100,9 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     if (normalized[key] !== undefined && typeof normalized[key] !== "string") delete normalized[key];
   }
   if (typeof normalized.allowEditSystemDefined !== "boolean") delete normalized.allowEditSystemDefined;
+  if (normalized.pluginTypeSource !== "external" && normalized.pluginTypeSource !== "internal") {
+    delete normalized.pluginTypeSource;
+  }
   if (normalized.lastSession !== undefined) {
     const session = normalizeSessionSnapshot(normalized.lastSession);
     if (session) normalized.lastSession = session;
