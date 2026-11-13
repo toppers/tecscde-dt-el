@@ -94,6 +94,7 @@ export class AppShell {
   private readonly gateway: FileGateway;
   private readonly clipboard: ClipboardGateway;
   private readonly tecsgen: TecsgenGateway;
+  private readonly settings?: SettingsGateway;
   private readonly windowGateway: Pick<WindowGateway, "setDirty"> | undefined;
   private readonly win: Window;
 
@@ -158,6 +159,7 @@ export class AppShell {
     this.gateway = opts.gateway;
     this.clipboard = opts.clipboard;
     this.tecsgen = opts.tecsgen;
+    this.settings = opts.settings;
     this.information = opts.settings ? new InformationDialog({
       document: (opts.root as Document).ownerDocument ?? opts.root as Document,
       settings: opts.settings, tecsgen: opts.tecsgen, clipboard: opts.clipboard,
@@ -236,7 +238,7 @@ export class AppShell {
       this.store,
       this.gateway,
       (path) =>
-        void openFromPath(this.store, this.gateway, this.tecsgen, path).catch((err: unknown) =>
+        void openFromPath(this.store, this.gateway, this.tecsgen, path, { settingsGateway: this.settings }).catch((err: unknown) =>
           this.reportActionError("openFolder", err),
         ),
       (path) =>
@@ -244,7 +246,7 @@ export class AppShell {
           this.reportActionError("addAsReference", err),
         ),
       (path) =>
-        void loadOptionsFile(this.store, this.gateway, this.tecsgen, path).catch((err: unknown) =>
+        void loadOptionsFile(this.store, this.gateway, this.tecsgen, path, { settingsGateway: this.settings }).catch((err: unknown) =>
           this.reportActionError("loadOptionsFile", err),
         ),
     );

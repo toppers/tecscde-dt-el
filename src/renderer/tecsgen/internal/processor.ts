@@ -76,7 +76,7 @@ class Run implements GenerateHandler, PluginHost {
       return { ok: true, files: this.files, diagnostics: this.diagnostics, infos: this.infos };
     } catch (error) {
       if (error instanceof PluginError || error instanceof CdlProgramError || error instanceof VirtualFileLimitError) {
-        this.diagnostics.push({ code: "W-PLUGIN-TYPE-LOAD", message: error.message });
+        this.diagnostics.push({ code: "W-PLUGIN-TYPE-LOAD", message: `内部 tecsgen: ${error.message}` });
         return { ok: false, files: new MemoryFileSystem(), diagnostics: this.diagnostics, infos: this.infos };
       }
       throw error;
@@ -94,7 +94,7 @@ class Run implements GenerateHandler, PluginHost {
     if (!plugin) {
       this.diagnostics.push({
         code: "W-PLUGIN-UNSUPPORTED", pluginName: request.pluginName,
-        message: `プラグイン ${request.pluginName} は内部処理の対象外です（generate( ${request.pluginName}, ${request.targetText}, ... ) を取り込みません）`,
+        message: `プラグイン '${request.pluginName}' は内部処理の対象外です（生成型は取り込みません。開く処理は続行します。外部 tecsgen 方式に切り替えると取り込める可能性があります）`,
       });
       return;
     }

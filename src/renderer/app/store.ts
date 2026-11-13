@@ -224,6 +224,10 @@ export class AppStore {
     return this.generatedTypeSources;
   }
 
+  setGeneratedTypeSources(sources: readonly GeneratedCdlFile[]): void {
+    this.generatedTypeSources = sources;
+  }
+
   getPortTypeIndex(): PortTypeIndex {
     return this.portTypeIndex;
   }

@@ -9,15 +9,29 @@ import { CdlSerializer } from "../cdl/serializer";
 import { W_CODES } from "../cdl/messages";
 import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
 import { describeLaunchFailure, describeTecsgenFailure } from "../tecsgen/failure-summary";
-import type { GeneratedCdlFile, OpenFileEntry, OpenResult } from "../../shared/ipc-types.js";
+import type { GeneratedCdlFile, OpenFileEntry, OpenResult, PluginTypeSource, ToolSettings } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
+import {
+  ExternalPluginTypeProvider,
+  InternalPluginTypeProvider,
+  type PluginTypeProvider,
+  type PluginTypeRequest,
+} from "../tecsgen/plugin-type-provider";
 import { TecscdeDocument } from "../model/document";
 import { cascadeDeleteCell } from "../commands/support";
 import { Cell } from "../model/cell";
 import { ViewState } from "../view-state/view-state";
-import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports } from "./import-resolution";
+import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports, type ImportResolutionResult } from "./import-resolution";
 import type { AppStore, LoadGuard } from "./store";
+
+export interface ApplyOpenResultOptions {
+  readonly extraImportPaths?: readonly string[];
+  readonly pluginTypeSource?: PluginTypeSource;
+  readonly pluginTypeProvider?: PluginTypeProvider;
+  readonly settingsGateway?: { getToolSettings(): Promise<ToolSettings> };
+  readonly log?: { append(lines: readonly string[]): Promise<unknown> };
+}
 
 /** `path/to/foo.cde` → `foo.cde`（renderer には node:path が無いので自前）。 */
 export function baseName(path: string): string {
@@ -50,15 +64,21 @@ export async function applyOpenResult(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
   result: OpenResult,
-  extraImportPaths: readonly string[] = result.extraImportPaths ?? [],
+  extraImportPathsOrOptions: readonly string[] | ApplyOpenResultOptions = result.extraImportPaths ?? [],
   guard: LoadGuard = store.beginLoad(),
+  options?: ApplyOpenResultOptions,
 ): Promise<boolean> {
+  const opts: ApplyOpenResultOptions | undefined = options ?? (Array.isArray(extraImportPathsOrOptions) ? undefined : (extraImportPathsOrOptions as ApplyOpenResultOptions));
+  const extraImportPaths: readonly string[] = Array.isArray(extraImportPathsOrOptions)
+    ? extraImportPathsOrOptions
+    : (opts?.extraImportPaths ?? result.extraImportPaths ?? []);
+
   if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return false;
   const contextPaths = extraImportPaths.map((path) =>
     result.optionsFilePath && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
       ? `${result.optionsFilePath.replace(/[\\/][^\\/]*$/, "")}/${path}` : path);
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
-  const { references: autoReferences, diagnostics: importDiagnostics, cdeclResults } = await resolveAllImports(
+  const { references: autoReferences, diagnostics: importDiagnostics, cdeclResults, cTypes } = await resolveAllImports(
     gateway,
     tecsgenGateway,
     result.editable.path,
@@ -70,33 +90,107 @@ export async function applyOpenResult(
   );
   const references = mergeReferences(result.references, autoReferences);
 
+  // PluginTypeProvider の決定（内部仕様 9D.6 #1, #7 / 外部仕様 8.5 #3）
+  let provider = opts?.pluginTypeProvider;
+  if (!provider) {
+    let source: PluginTypeSource | undefined = opts?.pluginTypeSource;
+    if (!source && opts?.settingsGateway) {
+      try {
+        const s = await opts.settingsGateway.getToolSettings();
+        source = s.pluginTypeSource;
+      } catch {}
+    }
+    if (!source && typeof window !== "undefined" && (window as any).tecscde?.settings?.getToolSettings) {
+      try {
+        const s = await (window as any).tecscde.settings.getToolSettings();
+        source = s.pluginTypeSource;
+      } catch {}
+    }
+    const effectiveSource: PluginTypeSource = source === "internal" ? "internal" : "external";
+    provider = effectiveSource === "internal"
+      ? new InternalPluginTypeProvider()
+      : new ExternalPluginTypeProvider(tecsgenGateway);
+  }
+
   let generatedTypeSources: readonly GeneratedCdlFile[] = [];
   const pluginDiagnostics: Array<{ severity: "warning"; code: string; message: string }> = [];
-  if (result.editable.path && typeof tecsgenGateway.generatedTypes === "function") {
-    const args = TecsgenCommandBuilder.buildArgs({
-      importPath: [...(toolInfo.importPath ?? []), ...extraImportPaths],
-      defineMacro: toolInfo.defineMacro,
+
+  const shouldGenerate = Boolean(
+    result.editable.path && (
+      provider.source !== "external" || (tecsgenGateway && typeof tecsgenGateway.generatedTypes === "function")
+    )
+  );
+
+  if (shouldGenerate) {
+    let grammarAssets: any;
+    if (provider.source === "internal" && typeof window !== "undefined" && (window as any).tecscde?.cdl?.loadGrammarAssets) {
+      try {
+        grammarAssets = await (window as any).tecscde.cdl.loadGrammarAssets();
+      } catch {}
+    }
+
+    const pluginRequest: PluginTypeRequest = {
+      main: { path: result.editable.path, text: result.editable.content },
+      sources: references.map((r) => ({ path: r.path, text: r.content })),
+      cTypes,
+      cdeclResults,
+      grammarAssets,
+      args: TecsgenCommandBuilder.buildArgs({
+        importPath: [...(toolInfo.importPath ?? []), ...extraImportPaths],
+        defineMacro: toolInfo.defineMacro,
+        cpp: toolInfo.cpp,
+        referenceFilePaths: references.map((reference) => reference.path),
+        editingFilePath: result.editable.path,
+      }),
+      optionsFilePath: result.optionsFilePath,
+      importPaths: [...(toolInfo.importPath ?? []), ...extraImportPaths],
+      defineMacros: toolInfo.defineMacro,
       cpp: toolInfo.cpp,
-      referenceFilePaths: references.map((reference) => reference.path),
-      editingFilePath: result.editable.path,
-    });
+    };
+
     try {
-      const generated = await tecsgenGateway.generatedTypes(args, result.editable.path, result.optionsFilePath);
-      const failure = generated.result.launchFailure ??
-        (generated.result.executableFound ? undefined : { kind: "not-found" as const, command: "tecsgen", detail: "ENOENT" });
-      if (failure) throw new Error(describeLaunchFailure(failure));
-      if (generated.result.exitCode !== 0) {
-        throw new Error(describeTecsgenFailure(generated.result));
+      const pluginResult = await provider.generateTypes(pluginRequest);
+      if (pluginResult.ok) {
+        generatedTypeSources = pluginResult.files;
+      } else {
+        generatedTypeSources = [];
       }
-      generatedTypeSources = generated.sources;
+      for (const d of pluginResult.diagnostics) {
+        pluginDiagnostics.push({
+          severity: "warning",
+          code: d.code,
+          message: d.message,
+        });
+      }
+      if (!pluginResult.ok && pluginDiagnostics.length === 0) {
+        pluginDiagnostics.push({
+          severity: "warning",
+          code: "W-PLUGIN-TYPE-LOAD",
+          message: provider.source === "internal"
+            ? "内部 tecsgen 処理で Plugin 生成型を読み込めませんでした。"
+            : "Plugin生成型を読み込めませんでした。",
+        });
+      }
     } catch (error) {
+      generatedTypeSources = [];
       pluginDiagnostics.push({
         severity: "warning",
         code: "W-PLUGIN-TYPE-LOAD",
-        message: `Plugin生成型を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`,
+        message: provider.source === "internal"
+          ? `内部 tecsgen 処理でエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`
+          : `Plugin生成型を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
+
+    const logService = opts?.log ?? (typeof window !== "undefined" ? (window as any).tecscde?.log : undefined);
+    if (logService && typeof logService.append === "function") {
+      const mode = provider.source === "internal" ? "内部 tecsgen (internal)" : "外部 tecsgen (external)";
+      await logService.append([`Plugin 生成型取り込み方式: ${mode}`]).catch(() => undefined);
+    }
   }
+
+  // 寿命管理: 新しい生成物リスト（失敗時は []）で store を更新
+  store.setGeneratedTypeSources(generatedTypeSources);
 
   const primary = result.primarySourceKey === undefined ? result.editable.path : result.primarySourceKey;
   const ordinary = result.sources ?? [...result.references, ...(primary ? [result.editable] : [])];
@@ -105,7 +199,10 @@ export async function applyOpenResult(
   const sources: CdlSource[] = [
     ...order.map((path) => byPath.get(path)!).map((r) => ({ text: r.content, fileName: baseName(r.path), sourcePath: r.path, editable: true })),
     ...generatedTypeSources.map((source) => ({
-      text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
+      text: source.content,
+      fileName: source.fileName.startsWith("plugin:") ? source.fileName : `plugin:${source.fileName}`,
+      editable: false,
+      generated: true,
     })),
   ];
   const systemDirs = result.systemDirs ?? [];
@@ -149,7 +246,7 @@ export async function openFromPath(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
   path: string,
-  options: { extraImportPaths?: readonly string[]; optionsFilePath?: string } = {},
+  options: ApplyOpenResultOptions & { optionsFilePath?: string } = {},
 ): Promise<void> {
   const guard = store.beginLoad();
   try {
@@ -166,6 +263,7 @@ export async function openFromPath(
       options.optionsFilePath ? { ...result, optionsFilePath: options.optionsFilePath } : result,
       options.extraImportPaths,
       guard,
+      options,
     );
   } catch (error) {
     if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
@@ -271,7 +369,10 @@ export async function addAsReference(
     const sources: CdlSource[] = [
       ...sourceOrder.map((p) => ({ text: sourceTexts.get(p)!, fileName: baseName(p), sourcePath: p, editable: true })),
       ...store.getGeneratedTypeSources().map((source) => ({
-        text: source.content, fileName: `plugin:${source.fileName}`, editable: false, generated: true,
+        text: source.content,
+        fileName: source.fileName.startsWith("plugin:") ? source.fileName : `plugin:${source.fileName}`,
+        editable: false,
+        generated: true,
       })),
     ];
     const { document: loaded, diagnostics, portTypeIndex } = CdlDocumentLoader.loadSources(sources, {
@@ -325,6 +426,7 @@ export async function loadOptionsFile(
   gateway: FileGateway,
   tecsgenGateway: TecsgenGateway,
   path: string,
+  options: ApplyOpenResultOptions = {},
 ): Promise<void> {
   const guard = store.beginLoad();
   try {
@@ -349,7 +451,7 @@ export async function loadOptionsFile(
       primarySourceKey: editable.path,
       sourceOrder: [...new Set(opened.map((entry) => entry.path))],
       sources: [...new Map(opened.map((entry) => [entry.path, entry])).values()],
-    }, parsed.importPaths, guard);
+    }, parsed.importPaths, guard, options);
   } catch (error) {
     if (await store.canApplyLoad(guard) && store.isLoadCurrent(guard)) throw error;
   }

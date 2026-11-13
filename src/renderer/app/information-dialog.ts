@@ -2,9 +2,12 @@
 // modal view state only. Candidate checks never change the running tool settings.
 // [[TECSCDE-DT-EL内部仕様 - 09E V0.2.1 Cプリプロセッサ設定と失敗詳細]] 9E.4:
 // Cプリプロセッサ設定（cppPath, cppArgs, effectiveCommand, originReason）の表示と更新。
-import type { AppInformation, ToolSettings, ToolSettingsUpdate, ToolSettingsUpdateResult, TecsgenVersionResult } from "../../shared/ipc-types";
+// [[TECSCDE-DT-EL内部仕様 - 09D V0.2.0tecsgen設定と内部処理]] 9D.3, 9D.5, 9D.6:
+// Plugin生成型の取り込み方式（pluginTypeSource）の表示と更新、内部処理プラグイン付表・注記。
+import type { AppInformation, ToolSettings, ToolSettingsUpdate, ToolSettingsUpdateResult, TecsgenVersionResult, PluginTypeSource } from "../../shared/ipc-types";
 import { parseTecsgenVersion } from "./tecsgen-version";
 import { CdlFileListView } from "./cdl-file-list-view";
+import { DEFAULT_PLUGIN_REGISTRY } from "../tecsgen/internal/plugin-registry";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { SettingsGateway } from "../gateways/settings-gateway";
 
@@ -52,6 +55,11 @@ export class InformationDialog {
   private readonly cppSaveButton: HTMLButtonElement;
   private readonly cppResult: HTMLParagraphElement;
 
+  // Plugin生成型の取り込み方式設定用
+  private readonly pluginSourceSelect: HTMLSelectElement;
+  private readonly pluginSaveButton: HTMLButtonElement;
+  private readonly pluginResult: HTMLParagraphElement;
+
   private settings: ToolSettings | undefined;
   private information: AppInformation | undefined;
   private toolStatus: { version: string; command: string } | undefined;
@@ -66,6 +74,10 @@ export class InformationDialog {
   private cppPickerGeneration = 0;
   private hasCppDraft = false;
   private cppSaving = false;
+
+  private pluginInputGeneration = 0;
+  private hasPluginDraft = false;
+  private pluginSaving = false;
 
   private disposed = false;
 
@@ -141,6 +153,77 @@ export class InformationDialog {
 
     this.cppResult = this.result("information-cpp-result");
 
+    // Plugin生成型の取り込み方式セクション
+    const pluginHeading = this.doc.createElement("h3");
+    pluginHeading.id = "information-plugin-heading";
+    pluginHeading.textContent = "Plugin生成型の取り込み方式";
+
+    const pluginField = this.doc.createElement("div");
+    pluginField.className = "information-field";
+    const pluginLabel = this.doc.createElement("label");
+    pluginLabel.htmlFor = "information-plugin-type-source";
+    pluginLabel.textContent = "取り込み方式";
+    this.pluginSourceSelect = this.doc.createElement("select");
+    this.pluginSourceSelect.id = "information-plugin-type-source";
+
+    const optExternal = this.doc.createElement("option");
+    optExternal.value = "external";
+    optExternal.textContent = "外部 tecsgen（既定）";
+    const optInternal = this.doc.createElement("option");
+    optInternal.value = "internal";
+    optInternal.textContent = "内部処理";
+    this.pluginSourceSelect.append(optExternal, optInternal);
+    this.pluginSourceSelect.addEventListener("change", () => this.changedPluginSource());
+    pluginField.append(pluginLabel, this.pluginSourceSelect);
+
+    const pluginActions = this.doc.createElement("div");
+    pluginActions.className = "information-actions";
+    this.pluginSaveButton = this.button("save-plugin", "保存", () => this.savePlugin());
+    this.pluginSaveButton.id = "information-plugin-save";
+    this.pluginSaveButton.disabled = true;
+    pluginActions.append(this.pluginSaveButton);
+
+    this.pluginResult = this.result("information-plugin-result");
+
+    const pluginTableLabel = this.doc.createElement("p");
+    pluginTableLabel.className = "information-note";
+    pluginTableLabel.textContent = "内部処理の対象プラグイン付表:";
+
+    const pluginTable = this.doc.createElement("table");
+    pluginTable.id = "information-plugin-table";
+    pluginTable.className = "information-table";
+    const thead = this.doc.createElement("thead");
+    const headerRow = this.doc.createElement("tr");
+    const thName = this.doc.createElement("th");
+    thName.textContent = "対象プラグイン名";
+    const thVer = this.doc.createElement("th");
+    thVer.textContent = "照合済み tecsgen 版";
+    headerRow.append(thName, thVer);
+    thead.append(headerRow);
+    const tbody = this.doc.createElement("tbody");
+    for (const plugin of DEFAULT_PLUGIN_REGISTRY.list()) {
+      const row = this.doc.createElement("tr");
+      const tdName = this.doc.createElement("td");
+      tdName.textContent = plugin.name;
+      const tdVer = this.doc.createElement("td");
+      tdVer.textContent = plugin.tecsgenVersion;
+      row.append(tdName, tdVer);
+      tbody.append(row);
+    }
+    pluginTable.append(thead, tbody);
+
+    const pluginNoteUnsupported = this.doc.createElement("p");
+    pluginNoteUnsupported.className = "information-note";
+    pluginNoteUnsupported.textContent = "※ 内部処理の対象は付表に載ったプラグインのみであり、対象外のプラグインは取り込まれず警告 W-PLUGIN-UNSUPPORTED が出ます。";
+
+    const pluginNoteExternal = this.doc.createElement("p");
+    pluginNoteExternal.className = "information-note";
+    pluginNoteExternal.textContent = "※ 「実行(Generate)」および版確認は常に外部 tecsgen を使用します。";
+
+    const pluginNoteReload = this.doc.createElement("p");
+    pluginNoteReload.className = "information-note";
+    pluginNoteReload.textContent = "※ 設定変更は次回読み込みから反映されます（開いているCDLは自動で再読込されません）。";
+
     const footer = this.doc.createElement("div");
     footer.className = "information-footer";
     footer.append(this.button("close", "閉じる", () => { this.dialog.close(); }));
@@ -148,6 +231,7 @@ export class InformationDialog {
       heading, versionHeading, this.version, copy, this.copyResult,
       settingsHeading, pathField.wrapper, actions, help, this.checkResult, this.settingsResult, tecspathField.wrapper, this.override,
       cppHeading, this.cppEffective, this.cppMeta, cppPathField.wrapper, cppActions, cppArgsField.wrapper, this.cppResult,
+      pluginHeading, pluginField, pluginActions, this.pluginResult, pluginTableLabel, pluginTable, pluginNoteUnsupported, pluginNoteExternal, pluginNoteReload,
       footer
     );
     if (options.cdlFiles) {
@@ -162,6 +246,7 @@ export class InformationDialog {
       this.checkGeneration++;
       this.pickerGeneration++;
       this.cppPickerGeneration++;
+      this.pluginInputGeneration++;
     });
     this.doc.body.append(this.dialog);
   }
@@ -182,11 +267,13 @@ export class InformationDialog {
     const generation = ++this.generation;
     const inputGeneration = this.inputGeneration;
     const cppInputGeneration = this.cppInputGeneration;
+    const pluginInputGeneration = this.pluginInputGeneration;
     this.dialog.showModal();
     this.toolStatus = this.options.getTecsgenStatus?.();
     this.checkResult.textContent = "";
     if (!this.saving) this.show(this.settingsResult, "");
     if (!this.cppSaving) this.show(this.cppResult, "");
+    if (!this.pluginSaving) this.show(this.pluginResult, "");
     const [settings, information] = await Promise.allSettled([
       this.options.settings.getToolSettings(), this.options.settings.getAppInformation(),
     ]);
@@ -198,11 +285,16 @@ export class InformationDialog {
         this.cppPath.value = settings.value.cppPath ?? "";
         this.cppArgs.value = settings.value.cppArgs !== undefined ? settings.value.cppArgs : "-E -DTECSGEN";
       }
+      if (applied && !this.hasPluginDraft && pluginInputGeneration === this.pluginInputGeneration) {
+        this.pluginSourceSelect.value = settings.value.pluginTypeSource ?? "external";
+      }
       this.saveButton.disabled = this.saving;
       this.cppSaveButton.disabled = this.cppSaving;
+      this.pluginSaveButton.disabled = this.pluginSaving;
     } else {
       this.show(this.settingsResult, `設定を読み込めませんでした: ${errorText(settings.reason)}`, true);
       this.show(this.cppResult, `設定を読み込めませんでした: ${errorText(settings.reason)}`, true);
+      this.show(this.pluginResult, `設定を読み込めませんでした: ${errorText(settings.reason)}`, true);
     }
     if (information.status === "fulfilled") this.information = information.value;
     else this.show(this.copyResult, `情報を読み込めませんでした: ${errorText(information.reason)}`, true);
@@ -269,6 +361,12 @@ export class InformationDialog {
     this.cppResult.textContent = "";
   }
 
+  private changedPluginSource(): void {
+    this.hasPluginDraft = true;
+    this.pluginInputGeneration++;
+    this.pluginResult.textContent = "";
+  }
+
   private applySettings(settings: ToolSettings): boolean {
     if (this.settings && settings.revision < this.settings.revision) return false;
     this.settings = settings;
@@ -277,6 +375,9 @@ export class InformationDialog {
       ? "環境変数TECSGEN_COMMANDが優先されているため、保存したパスは実行に使われません。"
       : "";
     this.renderCppStatus(settings);
+    if (!this.hasPluginDraft) {
+      this.pluginSourceSelect.value = settings.pluginTypeSource ?? "external";
+    }
     return true;
   }
 
@@ -369,10 +470,13 @@ export class InformationDialog {
     const generation = this.generation;
     const inputGeneration = this.inputGeneration;
     const cppInputGeneration = this.cppInputGeneration;
+    const pluginInputGeneration = this.pluginInputGeneration;
     const path = this.path.value;
     const includeCpp = this.hasCppDraft;
     const cppPath = this.cppPath.value;
     const cppArgs = this.cppArgs.value;
+    const includePlugin = this.hasPluginDraft;
+    const pluginTypeSource = (this.pluginSourceSelect.value === "internal" ? "internal" : "external") as PluginTypeSource;
 
     this.saving = true;
     this.saveButton.disabled = true;
@@ -380,16 +484,20 @@ export class InformationDialog {
     this.checkResult.textContent = "";
     this.show(this.settingsResult, "保存中…");
     if (includeCpp) this.show(this.cppResult, "保存中…");
+    if (includePlugin) this.show(this.pluginResult, "保存中…");
 
     try {
-      const patch: ToolSettingsUpdate = includeCpp
-        ? { tecsgenPath: path, cppPath, cppArgs }
-        : { tecsgenPath: path };
+      const patch: ToolSettingsUpdate = {
+        tecsgenPath: path,
+        ...(includeCpp ? { cppPath, cppArgs } : {}),
+        ...(includePlugin ? { pluginTypeSource } : {}),
+      };
       const result = await this.options.settings.updateToolSettings(patch);
       if (!result.ok) {
         if (this.active(generation)) {
           this.show(this.settingsResult, `保存できませんでした: ${result.error}`, true);
           if (includeCpp) this.show(this.cppResult, `保存できませんでした: ${result.error}`, true);
+          if (includePlugin) this.show(this.pluginResult, `保存できませんでした: ${result.error}`, true);
         }
         return;
       }
@@ -407,6 +515,11 @@ export class InformationDialog {
         this.hasCppDraft = false;
         this.show(this.cppResult, "保存しました。");
       }
+      if (includePlugin && pluginInputGeneration === this.pluginInputGeneration) {
+        this.pluginSourceSelect.value = result.settings.pluginTypeSource ?? "external";
+        this.hasPluginDraft = false;
+        this.show(this.pluginResult, "保存しました。（次回読み込みから反映されます）");
+      }
       const draft = inputGeneration === this.inputGeneration ? "" : " 入力中の変更は未保存です。";
       if (recheck) this.toolStatus = {
         version: recheck.kind === "ok" && parseTecsgenVersion(recheck.text) ? recheck.text : "未確認",
@@ -418,6 +531,7 @@ export class InformationDialog {
       if (this.active(generation)) {
         this.show(this.settingsResult, `保存できませんでした: ${errorText(error)}`, true);
         if (includeCpp) this.show(this.cppResult, `保存できませんでした: ${errorText(error)}`, true);
+        if (includePlugin) this.show(this.pluginResult, `保存できませんでした: ${errorText(error)}`, true);
       }
     } finally {
       this.saving = false;
@@ -458,6 +572,40 @@ export class InformationDialog {
     } finally {
       this.cppSaving = false;
       if (!this.disposed) this.cppSaveButton.disabled = this.settings === undefined;
+    }
+  }
+
+  private async savePlugin(): Promise<void> {
+    if (this.pluginSaving || !this.settings) return;
+    const generation = this.generation;
+    const inputGeneration = this.pluginInputGeneration;
+    const pluginTypeSource = (this.pluginSourceSelect.value === "internal" ? "internal" : "external") as PluginTypeSource;
+
+    this.pluginSaving = true;
+    this.pluginSaveButton.disabled = true;
+    this.show(this.pluginResult, "保存中…");
+
+    try {
+      const result = await this.options.settings.updateToolSettings({ pluginTypeSource });
+      if (!result.ok) {
+        if (this.active(generation)) this.show(this.pluginResult, `保存できませんでした: ${result.error}`, true);
+        return;
+      }
+      // A late response must not replace a newer revision's effective setting.
+      if (this.settings && result.settings.revision < this.settings.revision) return;
+      this.applySettings(result.settings);
+      if (!this.active(generation) || this.settings?.revision !== result.settings.revision) return;
+      if (inputGeneration === this.pluginInputGeneration) {
+        this.pluginSourceSelect.value = result.settings.pluginTypeSource ?? "external";
+        this.hasPluginDraft = false;
+      }
+      const draft = inputGeneration === this.pluginInputGeneration ? "" : " 入力中の変更は未保存です。";
+      this.show(this.pluginResult, `保存しました。（次回読み込みから反映されます）${draft}`);
+    } catch (error) {
+      if (this.active(generation)) this.show(this.pluginResult, `保存できませんでした: ${errorText(error)}`, true);
+    } finally {
+      this.pluginSaving = false;
+      if (!this.disposed) this.pluginSaveButton.disabled = this.settings === undefined;
     }
   }
 }

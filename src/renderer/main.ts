@@ -86,7 +86,7 @@ function main(): void {
   window.tecscde.onBootstrap((data) => {
     void Promise.all([grammarReady, settingsReady])
       .then(() => {
-        if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard);
+        if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard, { settingsGateway: settings });
       })
       .catch((error: unknown) => {
         console.error("CDL/cdeclパーサの初期化に失敗しました:", error);

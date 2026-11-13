@@ -42,6 +42,8 @@ export const W_CODES = {
   ACTIVE_TOP_OVERFLOW: "W-ACTIVE-TOP-OVERFLOW",
   ACTIVE_TOP_FAILED: "W-ACTIVE-TOP-FAILED",
   LOG_WRITE_FAILED: "W-LOG-WRITE-FAILED",
+  PLUGIN_UNSUPPORTED: "W-PLUGIN-UNSUPPORTED",
+  PLUGIN_TYPE_LOAD: "W-PLUGIN-TYPE-LOAD",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -202,6 +204,32 @@ export function logWriteFailed(): Diagnostic {
   };
 }
 
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 09D V0.2.0tecsgen設定と内部処理]] 9D.6 / 外部仕様 8.5 #3:
+ * 内部処理方式で未対応のプラグインが指定されている場合の警告。
+ * 生成型は取り込まず開く処理は続行し、外部 tecsgen 方式への切り替えを案内する。
+ */
+export function pluginUnsupported(pluginName: string, location?: SourceLocation): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.PLUGIN_UNSUPPORTED,
+    message: `プラグイン '${pluginName}' は内部処理の対象外です（生成型は取り込みません。開く処理は続行します。外部 tecsgen 方式に切り替えると取り込める可能性があります）`,
+    location,
+  };
+}
+
+/**
+ * Plugin生成型の読み込み・実行失敗の警告。
+ */
+export function pluginTypeLoad(message: string, location?: SourceLocation): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.PLUGIN_TYPE_LOAD,
+    message,
+    location,
+  };
+}
+
 export function layoutDiscarded(target: string): string {
   return `${target} の保存済みレイアウトは形式が不正なため破棄しました`;
 }
@@ -209,3 +237,4 @@ export function layoutDiscarded(target: string): string {
 export const MESSAGES = {
   layoutDiscarded,
 } as const;
+

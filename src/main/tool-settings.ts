@@ -9,6 +9,7 @@ import { resolveTecsgenCommand, snapshotTecsgenEnvironment, type TecsgenDiscover
 import type {
   CppOrigin,
   CppOriginReason,
+  PluginTypeSource,
   ResolvedTecsgenCommand,
   ToolSettings,
   ToolSettingsUpdate,
@@ -269,6 +270,7 @@ export class ToolSettingsService {
     resolvedCpp: ResolvedCppCommand,
     cppPath: string,
     cppArgs?: string,
+    pluginTypeSource: PluginTypeSource = "external",
   ): ToolSettings {
     return Object.freeze({
       revision: this.revision,
@@ -286,6 +288,7 @@ export class ToolSettingsService {
       effectiveCppFullPath: resolvedCpp.fullPath,
       cppOrigin: resolvedCpp.origin,
       cppOriginReason: resolvedCpp.originReason,
+      pluginTypeSource,
     });
   }
 
@@ -306,7 +309,8 @@ export class ToolSettingsService {
       this.environment.PATH ?? "",
       this.discovery.platform ?? process.platform,
     );
-    this.current = this.settings(path, command, resolvedCpp, cppPath, cppArgs);
+    const pluginTypeSource: PluginTypeSource = stored.pluginTypeSource ?? "external";
+    this.current = this.settings(path, command, resolvedCpp, cppPath, cppArgs, pluginTypeSource);
   }
 
   get(): Promise<ToolSettings> {
@@ -332,13 +336,18 @@ export class ToolSettingsService {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       return Promise.resolve({ ok: false, error: "設定の指定が不正です。" });
     }
-    const allowedKeys = ["tecsgenPath", "cppPath", "cppArgs"];
+    const allowedKeys = ["tecsgenPath", "cppPath", "cppArgs", "pluginTypeSource"];
     const patchKeys = Object.keys(patch);
     if (patchKeys.length === 0 || patchKeys.some((key) => !allowedKeys.includes(key))) {
       return Promise.resolve({ ok: false, error: "指定された設定キーまたは値が不正です。" });
     }
     for (const key of patchKeys) {
-      if (typeof (patch as Record<string, unknown>)[key] !== "string") {
+      if (key === "pluginTypeSource") {
+        const val = patch.pluginTypeSource;
+        if (val !== "external" && val !== "internal") {
+          return Promise.resolve({ ok: false, error: "pluginTypeSourceには'external'または'internal'を指定してください。" });
+        }
+      } else if (typeof (patch as Record<string, unknown>)[key] !== "string") {
         return Promise.resolve({ ok: false, error: `${key}には文字列を指定してください。` });
       }
     }
@@ -363,10 +372,15 @@ export class ToolSettingsService {
           ? patch.cppArgs
           : (typeof stored.cppArgs === "string" ? stored.cppArgs : undefined);
 
+        const newPluginTypeSource: PluginTypeSource = patch.pluginTypeSource !== undefined
+          ? patch.pluginTypeSource
+          : (stored.pluginTypeSource ?? "external");
+
         const patchToSave: AppSettingsPatch = {
           ...(patch.tecsgenPath !== undefined ? { tecsgenPath: path } : {}),
           ...(patch.cppPath !== undefined ? { cppPath: patch.cppPath } : {}),
           ...(patch.cppArgs !== undefined ? { cppArgs: patch.cppArgs } : {}),
+          ...(patch.pluginTypeSource !== undefined ? { pluginTypeSource: patch.pluginTypeSource } : {}),
         };
 
         await this.save(patchToSave);
@@ -379,7 +393,7 @@ export class ToolSettingsService {
           this.discovery.platform ?? process.platform,
         );
 
-        this.current = this.settings(path, command, resolvedCpp, newCppPath, newCppArgs);
+        this.current = this.settings(path, command, resolvedCpp, newCppPath, newCppArgs, newPluginTypeSource);
         return { ok: true, settings: this.current };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };

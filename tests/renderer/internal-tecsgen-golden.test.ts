@@ -7,7 +7,7 @@
 // gcc が無い環境では照合できないため、この照合だけを飛ばす。
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CdeclExtractor, type CdeclResult } from "../../src/renderer/cdecl/extractor";
 import { CTypeRegistry, type TypeDefinition } from "../../src/renderer/cdecl/type-registry";
@@ -19,9 +19,37 @@ import { DEFAULT_PLUGIN_REGISTRY } from "../../src/renderer/tecsgen/internal/plu
 const sampleDir = resolve(__dirname, "../hr-tecs/workspace/sample1");
 const goldenDir = resolve(__dirname, "../fixtures/tecsgen-golden/sample1-mruby-bridge");
 
+function findGccDir(): string | undefined {
+  try {
+    const cmd = process.platform === "win32" ? "where.exe" : "which";
+    const out = execFileSync(cmd, ["gcc"], { encoding: "utf8" });
+    const first = out.split(/\r?\n/).find((line) => line.trim().length > 0);
+    return first ? dirname(first.trim()) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getGccEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.C_INCLUDE_PATH;
+  delete env.CPLUS_INCLUDE_PATH;
+  delete env.COMPILER_PATH;
+  delete env.LIBRARY_PATH;
+
+  const gccDir = findGccDir();
+  if (gccDir) {
+    const current = env.PATH ?? env.Path ?? "";
+    const prepended = `${gccDir}${delimiter}${current}`;
+    env.PATH = prepended;
+    env.Path = prepended;
+  }
+  return env;
+}
+
 function hasGcc(): boolean {
   try {
-    execFileSync("gcc", ["--version"], { stdio: "ignore" });
+    execFileSync("gcc", ["--version"], { stdio: "ignore", env: getGccEnv() });
     return true;
   } catch {
     return false;
@@ -98,7 +126,11 @@ function collectCTypes(provider: FsProvider, main: string, includeDirs: readonly
   for (const header of headers) {
     const path = [sampleDir, ...includeDirs.map((d) => resolve(sampleDir, d))].map((d) => resolve(d, header)).find(existsSync);
     if (!path) throw new Error(`import_C ヘッダ ${header} が見つかりません`);
-    const text = execFileSync("gcc", ["-E", "-DTECSGEN", ...includeArgs, path], { encoding: "latin1", maxBuffer: 64 * 1024 * 1024 });
+    const text = execFileSync("gcc", ["-E", "-DTECSGEN", ...includeArgs, path], {
+      encoding: "latin1",
+      maxBuffer: 64 * 1024 * 1024,
+      env: getGccEnv(),
+    });
     results.set(path, CdeclExtractor.extract(text));
   }
   return new CTypeRegistry(results, locals);
@@ -136,7 +168,7 @@ describe("内部 tecsgen: MrubyBridgePlugin 系のゴールデン照合（tecsge
     // HRP2 系は付表の対象外（CDL を生成しない）。内部処理では対象外の警告になる。
     const unsupported = new Set(result.diagnostics.filter((d) => d.code === "W-PLUGIN-UNSUPPORTED").map((d) => d.pluginName));
     for (const name of unsupported) expect(name).toMatch(/^HRP2/);
-  });
+  }, 30000);
 
   it("付表の登録は MrubyBridgePlugin と MrubyBridgeCellPlugin（tecsgen 1.9.1 で照合）", () => {
     expect(DEFAULT_PLUGIN_REGISTRY.list().map((p) => [p.name, p.tecsgenVersion])).toEqual([

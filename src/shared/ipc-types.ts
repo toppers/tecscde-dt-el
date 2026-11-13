@@ -194,6 +194,8 @@ export interface ResolvedTecsgenCommand {
   readonly args: readonly string[];
   readonly source: TecsgenCommandSource;
 }
+export type PluginTypeSource = "external" | "internal";
+
 export interface ToolSettings {
   readonly revision: number;
   readonly tecsgenPath: string;
@@ -210,11 +212,14 @@ export interface ToolSettings {
   readonly effectiveCppFullPath?: string;
   readonly cppOrigin?: CppOrigin;
   readonly cppOriginReason?: CppOriginReason;
+  /** V0.2.1 Stage 4: Plugin生成型の取り込み方式（既定: "external"） */
+  readonly pluginTypeSource: PluginTypeSource;
 }
 export interface ToolSettingsUpdate {
   readonly tecsgenPath?: string;
   readonly cppPath?: string;
   readonly cppArgs?: string;
+  readonly pluginTypeSource?: PluginTypeSource;
 }
 export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
   | { readonly ok: false; readonly error: string };
