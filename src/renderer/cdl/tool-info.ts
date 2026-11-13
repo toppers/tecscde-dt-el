@@ -6,7 +6,7 @@
 // （コロン等）を覚えさせないための前処理として、抽出した範囲は空白に置換してから
 // 本体のトークナイズに渡す（行番号・桁番号を保つため改行は残す）。
 
-import { W_CODES } from "./messages";
+import { W_CODES, layoutDiscarded } from "./messages";
 import type { PaperOrientation, PaperSize } from "../model/paper";
 import { CDE_FORMAT_VERSION, type ToolInfoTecsgen } from "../model/tool-info-types";
 import type { Diagnostic } from "../diagnostics/types";
@@ -51,10 +51,18 @@ export interface JoinLayout {
   readonly bars: readonly BarLayout[];
 }
 
+export interface ArrayElementRecord {
+  readonly cell: string;
+  readonly direction: "call" | "entry";
+  readonly port: string;
+  readonly element_count: number;
+}
+
 export interface ToolInfoTecscdeParsed {
   readonly paper?: { size: PaperSize; orientation?: PaperOrientation };
   readonly cellList: Readonly<Record<string, CellLayout>>;
   readonly joinList: Readonly<Record<string, JoinLayout>>;
+  readonly arrayElements?: readonly ArrayElementRecord[];
   readonly unknownFields: Readonly<Record<string, unknown>>;
 }
 
@@ -314,10 +322,11 @@ export class ToolInfoValidator {
       return { parsed: { cellList: {}, joinList: {}, unknownFields: {} }, diagnostics };
     }
 
-    const { paper, cell_list, join_list, ...unknownFields } = obj as {
+    const { paper, cell_list, join_list, array_elements, ...unknownFields } = obj as {
       paper?: unknown;
       cell_list?: unknown;
       join_list?: unknown;
+      array_elements?: unknown;
     };
 
     let paperOut: ToolInfoTecscdeParsed["paper"];
@@ -370,22 +379,145 @@ export class ToolInfoValidator {
       }
     }
 
-    return { parsed: { paper: paperOut, cellList, joinList, unknownFields }, diagnostics };
+    let arrayElementsOut: ArrayElementRecord[] | undefined;
+    if (array_elements !== undefined) {
+      if (!Array.isArray(array_elements)) {
+        diagnostics.push({
+          severity: "warning",
+          code: W_CODES.LAYOUT_DISCARDED,
+          message: layoutDiscarded("array_elements (配列ではありません)"),
+        });
+      } else {
+        const rawElements: ArrayElementRecord[] = [];
+        const keyCounts = new Map<string, number>();
+
+        for (let idx = 0; idx < array_elements.length; idx += 1) {
+          const item = array_elements[idx];
+          if (
+            typeof item === "object" &&
+            item !== null &&
+            typeof (item as Record<string, unknown>).cell === "string" &&
+            ((item as Record<string, unknown>).cell as string).trim().length > 0 &&
+            ((item as Record<string, unknown>).direction === "call" ||
+              (item as Record<string, unknown>).direction === "entry") &&
+            typeof (item as Record<string, unknown>).port === "string" &&
+            ((item as Record<string, unknown>).port as string).trim().length > 0 &&
+            typeof (item as Record<string, unknown>).element_count === "number" &&
+            Number.isSafeInteger((item as Record<string, unknown>).element_count) &&
+            ((item as Record<string, unknown>).element_count as number) >= 1 &&
+            ((item as Record<string, unknown>).element_count as number) <= 1000
+          ) {
+            const rec: ArrayElementRecord = {
+              cell: (item as Record<string, unknown>).cell as string,
+              direction: (item as Record<string, unknown>).direction as "call" | "entry",
+              port: (item as Record<string, unknown>).port as string,
+              element_count: (item as Record<string, unknown>).element_count as number,
+            };
+            const key = `${rec.cell}\0${rec.direction}\0${rec.port}`;
+            keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+            rawElements.push(rec);
+          } else {
+            diagnostics.push({
+              severity: "warning",
+              code: W_CODES.LAYOUT_DISCARDED,
+              message: layoutDiscarded(`array_elements[${idx}]`),
+            });
+          }
+        }
+
+        const duplicatedKeys = new Set<string>();
+        for (const [key, count] of keyCounts.entries()) {
+          if (count > 1) {
+            duplicatedKeys.add(key);
+            const [cell, direction, port] = key.split("\0");
+            diagnostics.push({
+              severity: "warning",
+              code: W_CODES.LAYOUT_DISCARDED,
+              message: `セル \`${cell}\` のポート \`${port}\` (${direction}) に対する array_elements 定義が重複しているため、該当キーの個数情報を除外しました`,
+            });
+          }
+        }
+
+        const validElements = rawElements.filter(
+          (e) => !duplicatedKeys.has(`${e.cell}\0${e.direction}\0${e.port}`),
+        );
+        if (validElements.length > 0) {
+          arrayElementsOut = validElements;
+        }
+      }
+    }
+
+    return {
+      parsed: {
+        paper: paperOut,
+        cellList,
+        joinList,
+        ...(arrayElementsOut ? { arrayElements: arrayElementsOut } : {}),
+        unknownFields,
+      },
+      diagnostics,
+    };
   }
 
   static serializeTecscde(
-    paper: { size: PaperSize; orientation: PaperOrientation },
-    cellList: Readonly<Record<string, CellLayout>>,
-    joinList: Readonly<Record<string, JoinLayout>>,
-    unknownFields: Readonly<Record<string, unknown>>,
+    paperOrInfo:
+      | { size: PaperSize; orientation: PaperOrientation }
+      | {
+          paper?: { size: PaperSize; orientation?: PaperOrientation };
+          cellList?: Readonly<Record<string, CellLayout>>;
+          joinList?: Readonly<Record<string, JoinLayout>>;
+          unknownFields?: Readonly<Record<string, unknown>>;
+          arrayElements?: readonly ArrayElementRecord[];
+        },
+    cellListArg?: Readonly<Record<string, CellLayout>>,
+    joinListArg?: Readonly<Record<string, JoinLayout>>,
+    unknownFieldsArg?: Readonly<Record<string, unknown>>,
+    arrayElementsArg?: readonly ArrayElementRecord[],
   ): string {
+    let paper: { size: PaperSize; orientation?: PaperOrientation } | undefined;
+    let cellList: Readonly<Record<string, CellLayout>>;
+    let joinList: Readonly<Record<string, JoinLayout>>;
+    let unknownFields: Readonly<Record<string, unknown>>;
+    let arrayElements: readonly ArrayElementRecord[] | undefined;
+
+    if (cellListArg !== undefined) {
+      paper = paperOrInfo as { size: PaperSize; orientation: PaperOrientation };
+      cellList = cellListArg;
+      joinList = joinListArg ?? {};
+      unknownFields = unknownFieldsArg ?? {};
+      arrayElements = arrayElementsArg;
+    } else {
+      const info = paperOrInfo as {
+        paper?: { size: PaperSize; orientation?: PaperOrientation };
+        cellList?: Readonly<Record<string, CellLayout>>;
+        joinList?: Readonly<Record<string, JoinLayout>>;
+        unknownFields?: Readonly<Record<string, unknown>>;
+        arrayElements?: readonly ArrayElementRecord[];
+      };
+      paper = info.paper;
+      cellList = info.cellList ?? {};
+      joinList = info.joinList ?? {};
+      unknownFields = info.unknownFields ?? {};
+      arrayElements = info.arrayElements;
+    }
+
     // tecsgen は __tool_info__ 内の空オブジェクト `{}` を構文エラー（G1016）にする
     // （tecsgen 1.9.1 で確認）。空のときはキーごと省くが、読み込み側は欠落を空として扱う。
     const obj = {
       ...unknownFields,
-      paper,
+      ...(paper ? { paper } : {}),
       ...(Object.keys(cellList).length > 0 ? { cell_list: cellList } : {}),
       ...(Object.keys(joinList).length > 0 ? { join_list: joinList } : {}),
+      ...(arrayElements && arrayElements.length > 0
+        ? {
+            array_elements: arrayElements.map((e) => ({
+              cell: e.cell,
+              direction: e.direction,
+              port: e.port,
+              element_count: e.element_count,
+            })),
+          }
+        : {}),
     };
     return JSON.stringify(obj, null, 2);
   }

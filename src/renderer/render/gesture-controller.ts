@@ -334,7 +334,7 @@ export class GestureController {
       if (hit.kind === "eport") {
         // シグニチャ不一致・結合済み呼び口は CreateJoinCommand が静かにキャンセルする（6.4.2）。
         this.host.dispatch(
-          new CreateJoinCommand(s.from.cellId, s.from.portName, s.from.subscript, hit.cellId, hit.portName),
+          new CreateJoinCommand(s.from.cellId, s.from.portName, s.from.subscript, hit.cellId, hit.portName, hit.subscript),
         );
       }
       this.transition({ kind: "idle" });
@@ -361,18 +361,16 @@ export class GestureController {
       this.host.requestRender();
       return;
     }
+
+    this.transition({ kind: "idle" });
   }
 
-  /**
-   * キー入力を処理する。処理した場合は true（呼び出し側が `preventDefault` する）。
-   * 削除・矢印キー移動はキャンバス上の選択に対して働く（[[TECSCDE内部仕様]] 6.3節）。
-   * 外部仕様6.1.1・6.1.2: Insert キー（Shift+Insert）による配列ポート要素の挿入。
-   * 外部仕様6.3.1・6.3.2: Delete キーによる配列ポート要素の削除。
-   */
+  // --- キーボード操作（外部仕様6.3.2カスケード削除・6.2.2移動） ---
+
   keyDown(key: string, mods: Mods = NO_MODS): boolean {
     if (key === "Insert") {
       const sel = this.host.getSelection();
-      if (sel.ports.length > 0) {
+      if (sel.ports.length === 1) {
         const selected = sel.ports[0]!;
         const doc = this.host.getDocument();
         const cell = doc.getCell(selected.cellId);
@@ -587,7 +585,7 @@ export class GestureController {
       (p) => p.name === from.portName && p.subscript === from.subscript,
     );
     const target = doc.getCell(hit.cellId);
-    const eport = target?.eports.find((p) => p.name === hit.portName);
+    const eport = target?.eports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);
     return cport !== undefined && eport !== undefined && cport.signature === eport.signature;
   }
 
@@ -628,6 +626,7 @@ export class GestureController {
     }
 
     const hit = this.hitTester().hitTest(point);
+
     if (hit.kind === "cport") {
       const cell = this.host.getDocument().getCell(hit.cellId);
       const cport = cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);

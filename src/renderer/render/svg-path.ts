@@ -17,8 +17,8 @@ export function joinPolyline(
   target: Cell,
   bars: readonly Bar[] = join.bars,
 ): readonly Point[] | undefined {
-  const cport = source.findCPort(join.cportName);
-  const eport = target.findEPort(join.eportName);
+  const cport = source.cports.find((p) => p.joinId === join.id) ?? source.findCPort(join.cportName, join.cportSubscript);
+  const eport = target.eports.find((p) => p.joinIds.includes(join.id)) ?? target.findEPort(join.eportName, join.eportSubscript);
   if (!cport || !eport) return undefined;
 
   const points: Point[] = [portPosition(source, cport)];

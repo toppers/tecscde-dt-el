@@ -18,7 +18,7 @@ import type { CdeclResult } from "../cdecl/extractor";
 import { CdlDocumentBuilder, type CellDecl, type CelltypeDecl, type CompositeDecl, type GenerateDecl, type PortDecl, type SignatureDecl } from "./cst";
 import { portTypeKey, type PortTypeIndex, type ResolvedPortType, type ResolvedSignatureType } from "./port-type-index";
 import type { TypeUse } from "./signature-types";
-import { ToolInfoValidator, type ToolInfoTecscdeParsed } from "./tool-info";
+import { ToolInfoValidator, type ArrayElementRecord, type ToolInfoTecscdeParsed } from "./tool-info";
 import { autoLayoutOverflow, duplicateCell, joinIndexInconsistent, missingJoinTarget, requirePortHidden, unresolvedCelltype, W_CODES } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import { AUTO_CELL_HEIGHT, AUTO_CELL_WIDTH, chooseAutoPaperSize, placeAutoCells, type Rect } from "./auto-placement";
@@ -224,6 +224,29 @@ function attachedCommentStart(source: string, cellStart: number): number {
     break;
   }
   return start === cellLineStart ? cellStart : start;
+}
+
+function cellFqn(regionPath: string, cellName: string): string {
+  const segments = regionPath.split("::").filter(Boolean);
+  return segments.length > 0 ? `::${[...segments, cellName].join("::")}` : `::${cellName}`;
+}
+
+function matchesCellRecord(recordCell: string, regionPath: string, cellName: string): boolean {
+  const fqn = cellFqn(regionPath, cellName);
+  const bareFqn = fqn.replace(/^::/, "");
+  const normRecordCell = recordCell.trim();
+  const bareRecordCell = normRecordCell.replace(/^::/, "");
+  return normRecordCell === fqn || bareRecordCell === bareFqn || (regionPath === "::" && bareRecordCell === cellName);
+}
+
+interface PreCellMeta {
+  readonly id: CellId;
+  readonly name: string;
+  readonly regionPath: string;
+  readonly namespace: string;
+  readonly celltypeName: string;
+  readonly source: ParsedSource;
+  readonly declaration: CellDecl;
 }
 
 export class CdlDocumentLoader {
@@ -501,6 +524,122 @@ export class CdlDocumentLoader {
       const namespace = namespaceOf(regionPath);
       return asCellId(namespace === "::" ? `::${name}` : `${namespace}::${name}`);
     };
+
+    // セルのメタデータを収集し、Pass 1 前の結合先解決および受け口添字集約を行う。
+    const cellMetas: PreCellMeta[] = [];
+    const cellMetasByName = new Map<string, PreCellMeta[]>();
+    for (const { declaration, source } of selectedCells.values()) {
+      const id = idFor(declaration.regionPath, declaration.cellName);
+      const namespace = namespaceOf(declaration.regionPath);
+      const meta: PreCellMeta = {
+        id,
+        name: declaration.cellName,
+        regionPath: declaration.regionPath,
+        namespace,
+        celltypeName: declaration.celltypeName,
+        source,
+        declaration,
+      };
+      cellMetas.push(meta);
+      cellMetasByName.set(meta.name, [...(cellMetasByName.get(meta.name) ?? []), meta]);
+    }
+
+    const resolveTargetMeta = (raw: string, fromNamespace: string): PreCellMeta | undefined => {
+      const absolute = raw.startsWith("::");
+      const parts = raw.replace(/^::/, "").split("::");
+      const candidates = cellMetasByName.get(parts.pop()!) ?? [];
+      if (candidates.length === 0) return undefined;
+      const prefix = parts.length > 0 ? `::${parts.join("::")}` : "::";
+      if (absolute) return candidates.find((c) => c.namespace === prefix);
+      const within = (scope: string): string => (scope === "::" ? prefix : prefix === "::" ? scope : `${scope}${prefix}`);
+      for (let scope = fromNamespace; ; ) {
+        const found = candidates.find((c) => c.namespace === within(scope));
+        if (found) return found;
+        if (scope === "::") break;
+        const separator = scope.lastIndexOf("::");
+        scope = separator === 0 ? "::" : scope.slice(0, separator);
+      }
+      const only = candidates.length === 1 ? candidates[0]! : undefined;
+      return only && (prefix === "::" || only.namespace.endsWith(prefix)) ? only : undefined;
+    };
+
+    // 各セルの受け口ポートに対して参照された最大添字を集約する（キー: `${targetCellId}\0${eportName}`）
+    const maxEportIndices = new Map<string, number>();
+    for (const src of selectedSources) {
+      for (const decl of src.cells) {
+        const fromNamespace = namespaceOf(decl.regionPath);
+        for (const j of decl.joins) {
+          if (j.eportIndex !== undefined) {
+            const target = resolveTargetMeta(j.targetCell, fromNamespace);
+            if (target) {
+              const key = `${target.id}\0${j.eport}`;
+              const current = maxEportIndices.get(key) ?? -1;
+              if (j.eportIndex > current) {
+                maxEportIndices.set(key, j.eportIndex);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 全ソースから array_elements の定義を集約・検証する（監査 #24）
+    const allArrayElementRecords: ArrayElementRecord[] = [];
+    const seenRecordKeys = new Set<string>();
+    for (const layout of [...layoutsBySource.values(), tecscdeParsed]) {
+      if (layout.arrayElements) {
+        for (const rec of layout.arrayElements) {
+          const k = `${rec.cell}\0${rec.direction}\0${rec.port}\0${rec.element_count}`;
+          if (!seenRecordKeys.has(k)) {
+            seenRecordKeys.add(k);
+            allArrayElementRecords.push(rec);
+          }
+        }
+      }
+    }
+
+    const savedElementCounts = new Map<string, number>();
+
+    for (const rec of allArrayElementRecords) {
+      const targetMeta = cellMetas.find((meta) => matchesCellRecord(rec.cell, meta.regionPath, meta.name));
+      if (!targetMeta) {
+        diagnostics.push({
+          severity: "warning",
+          code: W_CODES.LAYOUT_DISCARDED,
+          message: `セル \`${rec.cell}\` が見つからないため、array_elements の要素数指定を破棄しました`,
+        });
+        continue;
+      }
+      const celltype = resolveCelltypeInScope(celltypeLookup, targetMeta.celltypeName, targetMeta.regionPath);
+      if (!celltype) {
+        diagnostics.push({
+          severity: "warning",
+          code: W_CODES.LAYOUT_DISCARDED,
+          message: `セル \`${rec.cell}\` のセルタイプを解決できないため、array_elements の要素数指定を破棄しました`,
+        });
+        continue;
+      }
+      const templates = rec.direction === "call" ? celltype.cportTemplates : celltype.eportTemplates;
+      const portTemplate = templates.find((t) => t.name === rec.port);
+      if (!portTemplate) {
+        diagnostics.push({
+          severity: "warning",
+          code: W_CODES.LAYOUT_DISCARDED,
+          message: `セル \`${rec.cell}\` のポート \`${rec.port}\` (${rec.direction}) が見つからないため、array_elements の要素数指定を破棄しました`,
+        });
+        continue;
+      }
+      if (!portTemplate.variableArray) {
+        diagnostics.push({
+          severity: "warning",
+          code: W_CODES.LAYOUT_DISCARDED,
+          message: `セル \`${rec.cell}\` のポート \`${rec.port}\` (${rec.direction}) は可変長配列ではないため、array_elements の要素数指定を破棄しました`,
+        });
+        continue;
+      }
+      savedElementCounts.set(`${targetMeta.id}\0${rec.direction}\0${rec.port}`, rec.element_count);
+    }
+
     // 外部仕様5.3.x: 位置を持たないセルは、保存済みの位置を持つセルと重ならない位置へ置く。
     // 先に全セルのレイアウトを調べ、位置を持つセルの矩形を埋まっている場所として渡す。
     const occupied: Rect[] = [];
@@ -590,14 +729,23 @@ export class CdlDocumentLoader {
 
         const applyPortLayout = (p: PortTemplate): PortTemplate => {
           // 配列の要素は `名前[添字]` の鍵を先に引き、無ければ名前の鍵（要素共通の旧形式）を使う。
-          const saved = layout?.ports?.[portLayoutKey(p)] ?? layout?.ports?.[p.name];
+          const saved = layout?.ports?.[portLayoutKey(p)] ?? (p.subscript !== null ? layout?.ports?.[p.name] : undefined);
           return saved ? { ...p, edgeSide: saved.edge, offset: saved.offset } : p;
         };
-        // 配列の呼び口を要素へ展開する。固定長 `[N]` はN個、可変長 `[]` は結合で使われた添字の最大値+1個（最低1個）。
-        const expandArrayPort = (p: PortTemplate): PortTemplate[] => {
+
+        // 配列の呼び口を要素へ展開する。固定長 `[N]` はN個、可変長 `[]` は結合で使われた添字の最大値+1個（最低1個）、
+        // 保存済み要素数（array_elements）がある場合はそれらとの最大値を採用する。
+        const expandCallArrayPort = (p: PortTemplate): PortTemplate[] => {
+          const maxJoined = Math.max(
+            -1,
+            ...decl.joins
+              .filter((j) => j.cport === p.name && j.cportIndex !== undefined)
+              .map((j) => j.cportIndex!),
+          );
+          const savedCount = savedElementCounts.get(`${id}\0call\0${p.name}`) ?? 0;
           const count = p.arraySize
             ?? (p.variableArray
-              ? Math.max(1, ...decl.joins.filter((j) => j.cport === p.name && j.cportIndex !== undefined).map((j) => j.cportIndex! + 1))
+              ? Math.max(1, maxJoined + 1, savedCount)
               : null);
           if (count === null) return [p];
           const edgeLength = p.edgeSide === "TOP" || p.edgeSide === "BOTTOM" ? width : height;
@@ -608,7 +756,25 @@ export class CdlDocumentLoader {
           }));
         };
 
-        const cports = celltype.cportTemplates.flatMap(expandArrayPort).map((p) => {
+        // 配列の受け口を要素へ展開する。固定長 `[N]` はN個、可変長 `[]` は参照された結合添字の最大値+1個（最低1個）、
+        // 保存済み要素数（array_elements）がある場合はそれらとの最大値を採用する。
+        const expandEntryArrayPort = (p: PortTemplate): PortTemplate[] => {
+          const maxJoined = maxEportIndices.get(`${id}\0${p.name}`) ?? -1;
+          const savedCount = savedElementCounts.get(`${id}\0entry\0${p.name}`) ?? 0;
+          const count = p.arraySize
+            ?? (p.variableArray
+              ? Math.max(1, maxJoined + 1, savedCount)
+              : null);
+          if (count === null) return [p];
+          const edgeLength = p.edgeSide === "TOP" || p.edgeSide === "BOTTOM" ? width : height;
+          return Array.from({ length: count }, (_, i) => ({
+            ...p,
+            subscript: i,
+            offset: Math.min(edgeLength, alignRound(p.offset + i * ARRAY_ELEMENT_GAP_MM)),
+          }));
+        };
+
+        const cports = celltype.cportTemplates.flatMap(expandCallArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return CPort.create({
             name: t.name,
@@ -619,7 +785,7 @@ export class CdlDocumentLoader {
             arraySize: t.arraySize,
           });
         });
-        const eports = celltype.eportTemplates.map((p) => {
+        const eports = celltype.eportTemplates.flatMap(expandEntryArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return EPort.create({
             name: t.name,
@@ -689,7 +855,15 @@ export class CdlDocumentLoader {
           const jid = asJoinId(`${sourceCell.id}.${j.cport}${j.cportIndex !== undefined ? `[${j.cportIndex}]` : ""}`);
           const cport = sourceCell.cports.find((p) => p.name === j.cport && p.subscript === (j.cportIndex ?? null));
           const targetCell = resolveTargetCell(j.targetCell, namespaceOfCell(sourceCell));
-          const eport = targetCell?.eports.find((p) => p.name === j.eport);
+
+          let eport: EPort | undefined;
+          if (j.eportSubscriptInvalid !== undefined) {
+            eport = undefined;
+          } else {
+            const wantEportSubscript = j.eportIndex ?? null;
+            eport = targetCell?.eports.find((p) => p.name === j.eport && p.subscript === wantEportSubscript);
+          }
+
           if (!cport || !targetCell || !eport) {
             diagnostics.push(missingJoinTarget(decl.cellName, j.cport, sourceCell.id));
             continue;
@@ -718,7 +892,7 @@ export class CdlDocumentLoader {
           }
           const updatedTarget = cells.get(targetCell.id);
           if (updatedTarget) {
-            const currentEport = updatedTarget.findEPort(eport.name) ?? eport;
+            const currentEport = updatedTarget.findEPort(eport.name, eport.subscript) ?? eport;
             cells.set(targetCell.id, updatedTarget.withEPort(currentEport.withJoin(jid)));
           }
         }

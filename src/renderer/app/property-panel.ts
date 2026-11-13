@@ -168,7 +168,9 @@ export class PropertyPanelView {
       if (!join) return `join-missing|${joinId}`;
       const source = doc.getCell(join.cellId);
       const target = doc.getCell(join.eportCellId);
-      return `join|${joinId}|${source?.name ?? ""}|${join.cportName}|${target?.name ?? ""}|${join.eportName}`;
+      const cSub = join.cportSubscript !== null ? `[${join.cportSubscript}]` : "";
+      const eSub = join.eportSubscript !== null ? `[${join.eportSubscript}]` : "";
+      return `join|${joinId}|${source?.name ?? ""}|${join.cportName}${cSub}|${target?.name ?? ""}|${join.eportName}${eSub}`;
     }
     const cellId = [...selection.cellIds][0]!;
     const cell = doc.getCell(cellId);
@@ -204,9 +206,13 @@ export class PropertyPanelView {
     this.root.appendChild(note("(結合を選択中 — 属性編集はセル選択時のみ)"));
     const source = doc.getCell(join.cellId);
     const target = doc.getCell(join.eportCellId);
+    const cport = source?.cports.find((p) => p.joinId === join.id) ?? source?.findCPort(join.cportName, join.cportSubscript);
+    const eport = target?.eports.find((p) => p.joinIds.includes(join.id)) ?? target?.findEPort(join.eportName, join.eportSubscript);
+    const cportSub = cport?.subscript !== null && cport?.subscript !== undefined ? `[${cport.subscript}]` : (join.cportSubscript !== null ? `[${join.cportSubscript}]` : "");
+    const eportSub = eport?.subscript !== null && eport?.subscript !== undefined ? `[${eport.subscript}]` : (join.eportSubscript !== null ? `[${join.eportSubscript}]` : "");
     const info = document.createElement("div");
     info.className = "prop-readonly";
-    info.textContent = `${source?.name ?? "?"}.${join.cportName} → ${target?.name ?? "?"}.${join.eportName}`;
+    info.textContent = `${source?.name ?? "?"}.${join.cportName}${cportSub} → ${target?.name ?? "?"}.${join.eportName}${eportSub}`;
     this.root.appendChild(info);
   }
 

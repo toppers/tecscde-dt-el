@@ -6,8 +6,8 @@ import type { Cell } from "../model/cell";
 import { portLayoutKey, type EdgeSide } from "../model/port";
 import { CDE_FORMAT_VERSION, TECSCDE_TS_VERSION } from "../model/tool-info-types";
 import type { CdlSourceTemplate, TecscdeDocument } from "../model/document";
-import { ToolInfoValidator, type CellLayout, type JoinLayout } from "./tool-info";
-import { CdlDocumentBuilder } from "./cst";
+import { ToolInfoValidator, type ArrayElementRecord, type CellLayout, type JoinLayout } from "./tool-info";
+import { CdlDocumentBuilder, type JoinAssignDecl } from "./cst";
 
 function formatToolInfoBlock(toolName: string, json: string): string {
   return `__tool_info__("${toolName}") ${json}`;
@@ -18,7 +18,7 @@ function cellKey(regionPath: string, name: string): string {
   return `${regionPath}\0${name}`;
 }
 
-type SourceJoin = NonNullable<CdlSourceTemplate["cells"][number]["joins"]>[number];
+type SourceJoin = NonNullable<CdlSourceTemplate["cells"][number]["joins"]>[number] & Partial<JoinAssignDecl>;
 
 /**
  * 外部仕様4.6.x: 読み込んだとき添字を省いて書かれていた呼び口のうち、結合が読み込んだ内容のまま
@@ -36,8 +36,13 @@ function omittedFormPorts(doc: TecscdeDocument, cell: Cell, sourceJoins: readonl
       const joinId = elements.find((port) => port.subscript === original.cportIndex)?.joinId;
       const join = joinId ? doc.getJoin(joinId) : undefined;
       const target = join ? doc.getCell(join.eportCellId) : undefined;
-      return join !== undefined && target !== undefined && join.eportName === original.eport &&
-        target.name === original.targetCell.split("::").pop();
+      if (!join || !target) return false;
+      const eport = target.eports.find((p) => p.joinIds.includes(join.id));
+      const eportSub = eport ? eport.subscript : join.eportSubscript;
+      const sameEportSub = original.eportIndex === (eportSub ?? undefined);
+      return join.eportName === original.eport &&
+        target.name === original.targetCell.split("::").pop() &&
+        sameEportSub;
     });
     if (same) result.add(name);
   }
@@ -62,7 +67,10 @@ function cellJoinLines(doc: TecscdeDocument, cell: Cell, omittedForm: ReadonlySe
       : targetCell.id.startsWith("::")
         ? `${targetCell.id.slice(0, targetCell.id.lastIndexOf("::"))}::${targetCell.name}`
         : targetCell.name;
-    lines.push(`  ${lhs} = ${target}.${join.eportName};`);
+    const eport = targetCell.eports.find((p) => p.joinIds.includes(join.id));
+    const eportSub = eport ? eport.subscript : join.eportSubscript;
+    const rhsPort = eportSub !== null ? `${join.eportName}[${eportSub}]` : join.eportName;
+    lines.push(`  ${lhs} = ${target}.${rhsPort};`);
   }
   return lines;
 }
@@ -74,19 +82,77 @@ function cellAttrLines(cell: Cell): string[] {
 function serializeCellBlock(
   doc: TecscdeDocument,
   cell: Cell,
-  originalJoins: CdlSourceTemplate["cells"][number]["joins"] = [],
-  sourceJoins: CdlSourceTemplate["cells"][number]["sourceJoins"] = [],
+  originalJoins: readonly SourceJoin[] = [],
+  sourceJoins: readonly SourceJoin[] = [],
 ): string {
   const unresolvedJoins = (originalJoins ?? []).flatMap((join) => {
     const cport = cell.cports.find((port) => port.name === join.cport && port.subscript === (join.cportIndex ?? null));
     if (cport?.joinId) return [];
     const name = join.cportIndex !== undefined ? `${join.cport}[${join.cportIndex}]`
       : join.subscriptOmitted ? `${join.cport}[]` : join.cport;
-    return [`  ${name} = ${join.targetCell}.${join.eport};`];
+    const rhsPort = join.eportSubscriptInvalid !== undefined
+      ? `${join.eport}[${join.eportSubscriptInvalid}]`
+      : join.eportIndex !== undefined
+        ? `${join.eport}[${join.eportIndex}]`
+        : join.eport;
+    return [`  ${name} = ${join.targetCell}.${rhsPort};`];
   });
   const body = [...cellJoinLines(doc, cell, omittedFormPorts(doc, cell, sourceJoins ?? [])), ...unresolvedJoins, ...cellAttrLines(cell)];
   // 末尾の `;` はCDL文法上必須（tecsgen の bnf.y.rb が cell 定義の終端として要求する）。
   return [`cell ${cell.celltypeName} ${cell.name} {`, ...body, `};`].join("\n");
+}
+
+function collectArrayElements(doc: TecscdeDocument, cells: readonly Cell[]): ArrayElementRecord[] {
+  const records: ArrayElementRecord[] = [];
+  for (const cell of cells) {
+    const region = doc.regions.findById(cell.regionId);
+    const path = region?.namespacePath ?? "::";
+    const segments = path.split("::").filter(Boolean);
+    const cellFqn = segments.length > 0 ? `::${[...segments, cell.name].join("::")}` : `::${cell.name}`;
+    const celltype = doc.getCelltype(cell.celltypeName);
+
+    // 呼び口 (call)
+    const callPortNames = [...new Set(cell.cports.map((p) => p.name))];
+    for (const name of callPortNames) {
+      const ports = cell.cports.filter((p) => p.name === name);
+      const isVariable = (ports[0]?.subscript !== null && ports[0]?.arraySize === null)
+        || (celltype?.cportTemplates.find((t) => t.name === name)?.variableArray === true);
+      if (isVariable) {
+        records.push({
+          cell: cellFqn,
+          direction: "call",
+          port: name,
+          element_count: ports.length,
+        });
+      }
+    }
+
+    // 受け口 (entry)
+    const entryPortNames = [...new Set(cell.eports.map((p) => p.name))];
+    for (const name of entryPortNames) {
+      const ports = cell.eports.filter((p) => p.name === name);
+      const isVariable = (ports[0]?.subscript !== null && ports[0]?.arraySize === null)
+        || (celltype?.eportTemplates.find((t) => t.name === name)?.variableArray === true);
+      if (isVariable) {
+        records.push({
+          cell: cellFqn,
+          direction: "entry",
+          port: name,
+          element_count: ports.length,
+        });
+      }
+    }
+  }
+
+  records.sort((a, b) => {
+    const cellCmp = a.cell.localeCompare(b.cell);
+    if (cellCmp !== 0) return cellCmp;
+    const dirCmp = a.direction.localeCompare(b.direction);
+    if (dirCmp !== 0) return dirCmp;
+    return a.port.localeCompare(b.port);
+  });
+
+  return records;
 }
 
 interface TextEdit { readonly start: number; readonly end: number; readonly text: string }
@@ -195,9 +261,10 @@ export class CdlSerializer {
     }
     const priorBlock = ToolInfoValidator.extractBlocks(template.text).blocks.find((block) => block.toolName === "tecscde");
     const prior = priorBlock ? ToolInfoValidator.parseTecscde(priorBlock.json).parsed : undefined;
+    const arrayElements = collectArrayElements(doc, cells);
     const tecscdeBlock = formatToolInfoBlock("tecscde", ToolInfoValidator.serializeTecscde(
       { size: prior?.paper?.size ?? doc.paper.size, orientation: prior?.paper?.orientation ?? doc.paper.orientation },
-      cellList, joinList, prior?.unknownFields ?? {},
+      cellList, joinList, prior?.unknownFields ?? {}, arrayElements,
     ));
     return serializeFromTemplate(doc, template, cells, undefined, tecscdeBlock);
   }
@@ -255,9 +322,16 @@ export class CdlSerializer {
       };
     }
 
+    const arrayElements = collectArrayElements(doc, editableCells);
     const tecscdeBlock = formatToolInfoBlock(
       "tecscde",
-      ToolInfoValidator.serializeTecscde(doc.paper, cellList, joinList, doc.unknownToolInfoTecscde),
+      ToolInfoValidator.serializeTecscde(
+        doc.paper,
+        cellList,
+        joinList,
+        doc.unknownToolInfoTecscde,
+        arrayElements,
+      ),
     );
 
     if (doc.sourceTemplate) return serializeFromTemplate(doc, doc.sourceTemplate, editableCells, tecsgenBlock, tecscdeBlock);
