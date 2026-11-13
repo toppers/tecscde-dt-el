@@ -432,6 +432,7 @@ export class CdlDocumentLoader {
         eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
         attributeNames: ct.attributes,
         hiddenRequirePortCount,
+        active: ct.active,
         locale: source.fileName,
         ...(source.sourcePath && !source.generated ? { sourcePath: source.sourcePath } : {}),
         generated: source.generated === true,

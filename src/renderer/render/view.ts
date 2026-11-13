@@ -18,6 +18,7 @@ export const MM_TO_PX = 96 / 25.4;
 
 /** 描画層がキャンバスの投影のために読み取る最小の面。第6章 `ViewState` が実装する。 */
 export interface CanvasView {
+  readonly focusedJoinIds?: ReadonlySet<JoinId>;
   /** 1.0 = 100%（外部仕様3.2.1: 5%〜200%）。 */
   readonly zoom: number;
   /** グリッド線の表示（既定 false、第6章6.2節）。 */
@@ -26,6 +27,8 @@ export interface CanvasView {
   readonly showSignatureNames: boolean;
   /** セル名強調（外部仕様7.4.2）: オンでセル名を大きく表示し、セルタイプ名を隠す。 */
   readonly emphasizeCellName: boolean;
+  readonly activeOnly?: boolean;
+  readonly regionOutlineMode?: boolean;
   /** 非表示リージョンに属するセルのID集合（第6章6.5節）。空なら全表示。 */
   readonly hiddenRegionIds: ReadonlySet<RegionId>;
   /** リージョンごとの色（第6B章6B.3）。`null` は色分けなし。根には色が無い。 */
@@ -35,7 +38,7 @@ export interface CanvasView {
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
 // これはそのフィルタ無し・ズーム100%の既定値であり、`ViewState.initial()` の射影と一致する。
 export function defaultCanvasView(): CanvasView {
-  return { zoom: 1, gridVisible: false, showSignatureNames: true, emphasizeCellName: false, hiddenRegionIds: new Set(), regionColors: null };
+  return { zoom: 1, gridVisible: false, showSignatureNames: true, emphasizeCellName: false, activeOnly: false, regionOutlineMode: false, hiddenRegionIds: new Set(), regionColors: null };
 }
 
 /** モデル座標(mm)1つあたりの画面ピクセル数。 */
@@ -59,10 +62,18 @@ export interface Rect {
  * 移動・削除・コピーのコマンド（第4章）は、この一時集合をそのまま対象に取れる
  * （[[TECSCDE内部仕様]] 6.5節）。
  */
+export interface SelectedPort {
+  readonly cellId: CellId;
+  readonly kind: "cport" | "eport";
+  readonly name: string;
+  readonly subscript: number | null;
+}
+
 export class SelectionState {
   private constructor(
     readonly cellIds: ReadonlySet<CellId>,
     readonly joinIds: ReadonlySet<JoinId>,
+    readonly ports: readonly SelectedPort[] = [],
   ) {}
 
   static empty(): SelectionState {
@@ -77,8 +88,15 @@ export class SelectionState {
     return new SelectionState(new Set(), new Set([id]));
   }
 
+  static ofPorts(ports: readonly SelectedPort[]): SelectionState { return new SelectionState(new Set(), new Set(), ports); }
+
+  withPortToggled(port: SelectedPort): SelectionState {
+    const same = (value: SelectedPort) => value.cellId === port.cellId && value.kind === port.kind && value.name === port.name && value.subscript === port.subscript;
+    return SelectionState.ofPorts(this.ports.some(same) ? this.ports.filter((value) => !same(value)) : [...this.ports, port]);
+  }
+
   get isEmpty(): boolean {
-    return this.cellIds.size === 0 && this.joinIds.size === 0;
+    return this.cellIds.size === 0 && this.joinIds.size === 0 && this.ports.length === 0;
   }
 
   hasCell(id: CellId): boolean {

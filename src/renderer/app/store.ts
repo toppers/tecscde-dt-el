@@ -12,6 +12,7 @@ import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
 import { CopyCommand, CutCommand, PasteCommand } from "../commands";
+import { MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
 import {
   DiagnosticsCollector,
   DiagnosticReport,
@@ -56,6 +57,11 @@ export class AppStore {
   private selectionState: SelectionState = SelectionState.empty();
   private mode: InputMode = "select";
   private activeCelltype: string | undefined;
+  private connectionFocusEnabled = false;
+  private actionDiagnostics: readonly Diagnostic[] = [];
+  setActionDiagnostics(diagnostics: readonly Diagnostic[]): void { this.actionDiagnostics = diagnostics; this.notify(); }
+  get isConnectionFocusEnabled(): boolean { return this.connectionFocusEnabled; }
+  setConnectionFocusEnabled(enabled: boolean): void { this.connectionFocusEnabled = enabled; this.notify(); }
   private path: string | null = null;
   /** 7J: source checkpoints track successful writes independently of history depth. */
   private readonly savedSequences = new Map<string | null, number>();
@@ -320,6 +326,11 @@ export class AppStore {
    */
   getReport(): DiagnosticReport {
     const collector = new DiagnosticsCollector();
+    collector.reportAll(this.actionDiagnostics);
+    const activeTop = [...this.historyState.past].reverse().find((command) => command instanceof MoveActiveCellsToTopCommand);
+    if (activeTop instanceof MoveActiveCellsToTopCommand && activeTop.plan.spilledCellIds.length > 0) {
+      collector.reportAll([{ severity: "warning", code: "W-ACTIVE-TOP-OVERFLOW", message: "アクティブセルの一部を2行目以降へ配置しました。" }]);
+    }
     collector.reportAll(this.loadDiagnostics);
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);

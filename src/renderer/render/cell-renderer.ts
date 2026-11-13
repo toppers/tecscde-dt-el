@@ -9,10 +9,12 @@ import type { Cell } from "../model/cell";
 import type { EdgeSide, Port } from "../model/port";
 import { portPosition } from "../model/geometry";
 import { styleSearchHighlight } from "./search-highlights";
+import { CELL_COLORS, resolveCellAppearance } from "./cell-appearance";
 
 export interface CellRenderContext {
   readonly view: CanvasView;
   readonly searchMatch?: boolean;
+  readonly active?: boolean;
 }
 
 /** リージョンの色の帯の幅(mm)。第6B章6B.5（暫定値）。 */
@@ -63,10 +65,16 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     const rect = svgEl("rect");
     setAttrs(rect, { x, y, width: w, height: h });
     const classes = ["cell-rect"];
+    if (ctx.active) classes.push("active");
     if (!cell.editable) classes.push("readonly");
     if (cell.systemDefined) classes.push("system-defined");
     if (cell.celltypeUnresolved) classes.push("unresolved");
     rect.setAttribute("class", classes.join(" "));
+    const appearance = resolveCellAppearance(ctx.active === true, !cell.editable, cell.celltypeUnresolved);
+    setAttrs(rect, { fill: appearance.fill, stroke: appearance.stroke, "stroke-dasharray": appearance.dashArray });
+    rect.style.fill = appearance.fill;
+    rect.style.stroke = appearance.stroke;
+    rect.style.strokeDasharray = appearance.dashArray;
     element.appendChild(rect);
 
     // 第6B章6B.5: 色分け表示のリージョンの色は、状態を表す塗り・枠とは別に左端の帯で示す。
@@ -90,6 +98,8 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
       setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 });
     }
     nameLabel.textContent = cell.name;
+    nameLabel.setAttribute("fill", CELL_COLORS.label);
+    nameLabel.style.fill = CELL_COLORS.label;
     element.appendChild(nameLabel);
 
     if (!emphasized) {
@@ -98,6 +108,8 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
       typeLabel.setAttribute("text-anchor", "middle");
       typeLabel.setAttribute("class", "celltype-label");
       typeLabel.textContent = cell.celltypeName;
+      typeLabel.setAttribute("fill", CELL_COLORS.typeLabel);
+      typeLabel.style.fill = CELL_COLORS.typeLabel;
       element.appendChild(typeLabel);
     }
 

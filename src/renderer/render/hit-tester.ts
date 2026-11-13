@@ -20,6 +20,7 @@ import type { Point } from "../model/geometry";
 import type { Cell } from "../model/cell";
 import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { TecscdeDocument } from "../model/document";
+import { isCellVisible } from "./cell-visibility";
 
 export type HitResult =
   | { readonly kind: "cport"; readonly cellId: CellId; readonly portName: string; readonly subscript: number | null }
@@ -56,7 +57,7 @@ function distanceToSegment(p: Point, a: Point, b: Point): number {
 export class HitTester {
   private readonly barRadiusMm: number;
   /** 第6B章6B.5: 非表示リージョン。見えていないセルは掴めない。 */
-  private readonly hiddenRegionIds: ReadonlySet<RegionId>;
+  private readonly view: CanvasView;
 
   constructor(
     private readonly doc: TecscdeDocument,
@@ -64,11 +65,11 @@ export class HitTester {
     barSearchRadiusPx: number = DEFAULT_BAR_SEARCH_RADIUS_PX,
   ) {
     this.barRadiusMm = pxToMm(view, barSearchRadiusPx);
-    this.hiddenRegionIds = view.hiddenRegionIds;
+    this.view = view;
   }
 
   private visibleCells(): Cell[] {
-    return this.doc.cellValues().filter((cell) => !this.hiddenRegionIds.has(cell.regionId));
+    return this.doc.cellValues().filter((cell) => isCellVisible(this.doc, cell, this.view));
   }
 
   /** モデル座標の1点に対するヒットテスト。優先順位はポート＞セル＞結合バー。 */
@@ -133,8 +134,8 @@ export class HitTester {
       // 一端が非表示ならスタブの部分だけが対象。線分番号は元の結合の番号へ戻す（6B.5）。
       const parts = joinStub(
         full,
-        this.hiddenRegionIds.has(source.regionId),
-        this.hiddenRegionIds.has(target.regionId),
+        !isCellVisible(this.doc, source, this.view),
+        !isCellVisible(this.doc, target, this.view),
       );
       if (!parts) continue;
       const points = parts.points;

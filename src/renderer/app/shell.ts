@@ -45,6 +45,9 @@ import { ModelessDialog } from "./modeless-dialog";
 import { documentStatusText, documentTitle, inputModeLabel } from "./status-text";
 import { DefinitionFileView } from "./definition-file-view";
 import { CelltypeDetailsView } from "./celltype-details-view";
+import { resolveHighlightedJoinIds } from "../render/connection-focus";
+import { canMoveActiveToTop, prepareMoveActiveToTop, MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
+import { CellStateLegendView } from "./cell-state-legend";
 
 const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -110,6 +113,7 @@ export class AppShell {
   private readonly celltypesDialog: ModelessDialog;
   private readonly definitionView: DefinitionFileView;
   private readonly celltypeDetails: CelltypeDetailsView;
+  private readonly stateLegend: CellStateLegendView | undefined;
 
   private readonly disposers: Array<() => void> = [];
 
@@ -160,6 +164,8 @@ export class AppShell {
     this.gesture = new GestureController(this.renderer, host);
 
     const docForViews = this.svg.ownerDocument;
+    const legend = root.querySelector<HTMLElement>("#cell-state-legend");
+    this.stateLegend = legend ? new CellStateLegendView(legend) : undefined;
     this.definitionView = new DefinitionFileView({ document: docForViews, readFile: (path) => this.gateway.readDefinitionFile(path) });
     this.celltypeDetails = new CelltypeDetailsView({ document: docForViews, store: this.store,
       onShowDefinition: (source) => void this.definitionView.open(source, "セルタイプ定義ファイルウィンドウ") });
@@ -255,12 +261,14 @@ export class AppShell {
   // --- 描画ループ ---
 
   render(): void {
+    this.stateLegend?.render();
     this.celltypeDetails.render();
     this.information?.refreshStatus();
     const doc = this.store.getDocument();
     const view = this.store.view;
-    const canvasView = view.toCanvasView(doc.regions);
-    const hits = searchDocument(doc, view.searchQuery, canvasView.hiddenRegionIds);
+    const canvasView = { ...view.toCanvasView(doc.regions),
+      focusedJoinIds: this.store.isConnectionFocusEnabled ? resolveHighlightedJoinIds(doc, this.store.selection.ports) : new Set<JoinId>() };
+    const hits = searchDocument(doc, view.searchQuery, canvasView.hiddenRegionIds, canvasView.activeOnly === true);
     const cellIds = new Set<CellId>();
     const joinIds = new Set<JoinId>();
     for (const hit of hits) {
@@ -326,6 +334,24 @@ export class AppShell {
   runAction(action: string): void {
     if ((this.information?.isOpen && action !== "information") || this.celltypeDetails.isOpen) return;
     switch (action) {
+      case "moveActiveToTop": {
+        const plan = prepareMoveActiveToTop(this.store.getDocument());
+        this.store.setActionDiagnostics(plan.kind === "failed" ? [{ severity: "warning", code: "W-ACTIVE-TOP-FAILED", message: plan.reason ?? "配置できません。" }] : []);
+        if (plan.kind === "ready") this.store.dispatch(new MoveActiveCellsToTopCommand(plan));
+        const status = this.statusMode.ownerDocument.querySelector("#status-action");
+        if (status) status.textContent = plan.kind === "ready" ? `${plan.moves.length}セルを移動しました。` : "";
+        if (plan.kind === "failed" || plan.spilledCellIds.length > 0) this.openDiagnostics();
+        break;
+      }
+      case "toggleActiveOnly":
+        this.store.setView(this.store.view.withFilters(this.store.view.filters.withActiveOnly(!this.store.view.filters.activeOnly)));
+        break;
+      case "toggleRegionOutlines":
+        this.store.setView(this.store.view.withRegionOutlineMode(!this.store.view.regionOutlineMode));
+        break;
+      case "toggleConnectionFocus":
+        this.store.setConnectionFocusEnabled(!this.store.isConnectionFocusEnabled);
+        break;
       case "openFileBrowser":
         this.fileDialog.open();
         break;
@@ -469,6 +495,10 @@ export class AppShell {
   }
 
   private refreshToolbarState(): void {
+    this.setDisabled("[data-action=moveActiveToTop]", !canMoveActiveToTop(this.store.getDocument()));
+    this.toolbar.querySelector("[data-action=toggleConnectionFocus]")?.setAttribute("aria-pressed", String(this.store.isConnectionFocusEnabled));
+    this.toolbar.querySelector("[data-action=toggleActiveOnly]")?.setAttribute("aria-pressed", String(this.store.view.filters.activeOnly));
+    this.toolbar.querySelector("[data-action=toggleRegionOutlines]")?.setAttribute("aria-pressed", String(this.store.view.regionOutlineMode));
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
     // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
@@ -498,6 +528,9 @@ export class AppShell {
     // 外部仕様4.9.2: 選択したセルの所属リージョンをステータス表示に示す。
     this.statusRegion.textContent = regionStatusText(this.store.getDocument(), this.store.selection);
     this.statusMode.textContent = inputModeLabel(this.store.getMode());
+    const connectionStatus = this.statusMode.ownerDocument.querySelector("#status-connection");
+    if (connectionStatus) connectionStatus.textContent = this.store.isConnectionFocusEnabled && this.store.selection.ports.length > 0 &&
+      resolveHighlightedJoinIds(this.store.getDocument(), this.store.selection.ports).size === 0 ? "結合なし" : "";
     const path = this.store.filePath;
     const dirty = this.store.isDirty();
     this.statusFile.textContent = documentStatusText(path, dirty);

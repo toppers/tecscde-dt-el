@@ -20,6 +20,7 @@ export interface CelltypeRefCreateParams {
   readonly attributeNames: readonly string[];
   /** requireのため図に現れないポート数。ステータス表示・警告用（4.3.2）。 */
   readonly hiddenRequirePortCount: number;
+  readonly active?: boolean;
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
   /** Stable defining file path; locale remains the display basename. */
@@ -42,6 +43,7 @@ export class CelltypeRef {
     readonly generated: boolean,
     readonly composite: CompositeStructure | undefined,
     readonly hasUnsupportedSyntax: boolean,
+    readonly active: boolean,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -56,6 +58,7 @@ export class CelltypeRef {
       params.generated ?? false,
       params.composite,
       params.hasUnsupportedSyntax ?? false,
+      params.active ?? false,
     );
   }
 }

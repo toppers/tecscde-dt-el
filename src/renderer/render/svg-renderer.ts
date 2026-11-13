@@ -19,6 +19,7 @@ import type { CellId, JoinId, RegionId } from "../model/ids";
 import type { Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 import type { SearchHighlights } from "./search-highlights";
+import { isActiveCell, isCellVisible } from "./cell-visibility";
 
 export interface JoinPreviewLine {
   readonly from: Point;
@@ -115,17 +116,18 @@ export class SvgRenderer {
       }
     }
     for (const cell of doc.cellValues()) {
-      const hidden = view.hiddenRegionIds.has(cell.regionId);
+      const hidden = !isCellVisible(doc, cell, view);
       const searchMatch = !hidden && highlights?.cellIds.has(cell.id) === true;
       const matchChanged = (highlights?.cellIds.has(cell.id) === true) !==
         (this.lastHighlights?.cellIds.has(cell.id) === true);
-      const ctx = { view, searchMatch };
+      const ctx = { view, searchMatch, active: isActiveCell(doc, cell) };
       let group = this.cellElements.get(cell.id);
       if (!group) {
         group = this.cellRenderer.createElement(cell, ctx);
         this.cellLayer.appendChild(group);
         this.cellElements.set(cell.id, group);
-      } else if (viewChanged || matchChanged || this.lastDoc?.getCell(cell.id) !== cell) {
+      } else if (viewChanged || matchChanged || this.lastDoc?.getCell(cell.id) !== cell ||
+        this.lastDoc?.getCelltype(cell.celltypeName) !== doc.getCelltype(cell.celltypeName)) {
         this.cellRenderer.updateElement(cell, group, ctx);
       }
       group.style.display = hidden ? "none" : "";
@@ -146,8 +148,8 @@ export class SvgRenderer {
       const target = doc.getCell(join.eportCellId);
       if (!source || !target) continue;
       // 第6B章6B.5: 両端が非表示なら消し、一端だけなら可視側にスタブを描く。
-      const sourceHidden = view.hiddenRegionIds.has(source.regionId);
-      const targetHidden = view.hiddenRegionIds.has(target.regionId);
+      const sourceHidden = !isCellVisible(doc, source, view);
+      const targetHidden = !isCellVisible(doc, target, view);
       const hidden = sourceHidden && targetHidden;
       const searchMatch = !hidden && highlights?.joinIds.has(join.id) === true;
       const matchChanged = (highlights?.joinIds.has(join.id) === true) !==
@@ -196,7 +198,7 @@ export class SvgRenderer {
     const k = pxPerMm(view);
     for (const id of selection.cellIds) {
       const cell = doc.getCell(id);
-      if (!cell) continue;
+      if (!cell || !isCellVisible(doc, cell, view)) continue;
       const rect = svgEl("rect");
       setAttrs(rect, {
         x: cell.x * k - 2,
@@ -219,8 +221,8 @@ export class SvgRenderer {
       // 一端が非表示の結合は、描かれているスタブの部分だけを選択枠にする（6B.5）。
       const parts = joinStub(
         full,
-        view.hiddenRegionIds.has(source.regionId),
-        view.hiddenRegionIds.has(target.regionId),
+        !isCellVisible(doc, source, view),
+        !isCellVisible(doc, target, view),
       );
       if (!parts) continue;
       const points = parts.points;
@@ -269,12 +271,12 @@ export class SvgRenderer {
     view: CanvasView,
   ): void {
     const group = this.joinElements.get(join.id);
-    if (!group) return;
+    if (!group || !this.lastDoc) return;
     this.joinBarPreviews.set(join.id, bars);
     this.joinRenderer.previewBars(group, join, {
       view, source, target,
-      sourceHidden: view.hiddenRegionIds.has(source.regionId),
-      targetHidden: view.hiddenRegionIds.has(target.regionId),
+      sourceHidden: !isCellVisible(this.lastDoc, source, view),
+      targetHidden: !isCellVisible(this.lastDoc, target, view),
     }, bars);
   }
 
@@ -287,11 +289,11 @@ export class SvgRenderer {
       const source = join && doc?.getCell(join.cellId);
       const target = join && doc?.getCell(join.eportCellId);
       const group = this.joinElements.get(id);
-      if (!join || !source || !target || !group || !view) continue;
+      if (!doc || !join || !source || !target || !group || !view) continue;
       this.joinRenderer.updateElement(join, group, {
         view, source, target,
-        sourceHidden: view.hiddenRegionIds.has(source.regionId),
-        targetHidden: view.hiddenRegionIds.has(target.regionId),
+        sourceHidden: !isCellVisible(doc, source, view),
+        targetHidden: !isCellVisible(doc, target, view),
         searchMatch: this.lastHighlights?.joinIds.has(id),
       });
     }
@@ -354,6 +356,9 @@ function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
     a.gridVisible === b.gridVisible &&
     a.showSignatureNames === b.showSignatureNames &&
     a.emphasizeCellName === b.emphasizeCellName &&
+    (a.activeOnly === true) === (b.activeOnly === true) &&
+    (a.regionOutlineMode === true) === (b.regionOutlineMode === true) &&
+    setsEqual(a.focusedJoinIds ?? new Set<JoinId>(), b.focusedJoinIds ?? new Set<JoinId>()) &&
     setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
     colorsEqual(a.regionColors, b.regionColors)
   );

@@ -37,6 +37,7 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
   }
 
   override updateElement(join: Join, element: SVGGElement, ctx: JoinRenderContext): void {
+    element.classList.toggle("join-focus", ctx.view.focusedJoinIds?.has(join.id) === true);
     element.replaceChildren();
     const points = joinPolyline(join, ctx.source, ctx.target, ctx.bars ?? join.bars);
     if (!points || points.length < 2) return;

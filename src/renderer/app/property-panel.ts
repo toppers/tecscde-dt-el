@@ -11,6 +11,7 @@ import type { Region } from "../model/region";
 import type { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 import { definitionFooter, definitionLocation, type DefinitionSource } from "./definition-source";
+import { deriveCellVisualState, cellVisualStateDescription, type CellVisualState } from "../render/cell-state-display";
 
 function field(labelText: string): { wrapper: HTMLDivElement; input: HTMLInputElement } {
   const wrapper = document.createElement("div");
@@ -41,7 +42,7 @@ export class PropertyPanelView {
   constructor(
     private readonly root: HTMLElement,
     private readonly store: AppStore,
-    private readonly options: { readonly onShowDefinition?: (source: DefinitionSource) => void } = {},
+    private readonly options: { readonly onShowDefinition?: (source: DefinitionSource) => void; readonly getVisualState?: (cell: Cell) => CellVisualState } = {},
   ) {}
 
   render(): void {
@@ -109,6 +110,7 @@ export class PropertyPanelView {
       cell.locale,
       definition.label,
       definition.source?.kind === "virtual" ? definition.source.content : "",
+      cellVisualStateDescription(cell, this.visualState(doc, cell)),
       doc.getCelltype(cell.celltypeName)?.hasUnsupportedSyntax ?? false,
       region,
       regionOptions,
@@ -184,8 +186,14 @@ export class PropertyPanelView {
       });
       this.root.appendChild(attrField.wrapper);
     }
+    const status = note(cellVisualStateDescription(cell, this.visualState(doc, cell)), "cell-state-description");
+    this.root.appendChild(status);
     this.root.appendChild(definitionFooter(this.root.ownerDocument,
       definitionLocation(cell.locale, this.store.getGeneratedTypeSources()), this.options.onShowDefinition));
+  }
+
+  private visualState(doc: TecscdeDocument, cell: Cell): CellVisualState {
+    return this.options.getVisualState?.(cell) ?? deriveCellVisualState(doc, cell, this.store.getReport().items, this.store.getPortTypeIndex());
   }
 
   private regionOptions(doc: TecscdeDocument): Region[] {

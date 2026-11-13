@@ -295,6 +295,9 @@
         flex-direction: column;
         gap: 4px;
       }
+      #cell-state-legend { position: absolute; top: 8px; left: 8px; z-index: 2;
+        background: rgba(255,255,255,.95); border: 1px solid var(--border); padding: 4px 6px;
+        font-size: 12px; pointer-events: none; max-width: calc(100% - 24px); }
       .palette-empty {
         color: #888888;
         font-size: 11px;
@@ -589,6 +592,7 @@
         stroke: #444444;
         stroke-width: 1.25;
       }
+      .join-focus .join-line, .join-focus .join-stub-tick { stroke: #d00000; stroke-width: 3; }
       .join-stub-tick {
         stroke: #444444;
         stroke-width: 1.25;
@@ -634,6 +638,7 @@
         <button data-action="redo" type="button">やり直し</button>
         <button data-action="alignTop" type="button" title="選択したセルの上端を、最初に選んだセルにそろえる（外部仕様7.3.2）">上端をそろえる</button>
         <button data-action="alignLeft" type="button" title="選択したセルの左端を、最初に選んだセルにそろえる（外部仕様7.3.2）">左端をそろえる</button>
+        <button data-action="moveActiveToTop" type="button" title="編集可能なアクティブセルを最上段へ配置する">アクティブを最上段へ</button>
         <span class="sep"></span>
         <button data-action="zoomReset" type="button">Reset Rate</button>
         <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" title="表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）" />
@@ -653,6 +658,9 @@
         <button data-action="information" type="button">情報</button>
         <span class="sep"></span>
         <div id="display-controls" role="group" aria-label="表示設定">
+          <button data-action="toggleConnectionFocus" type="button" aria-pressed="false">結合強調</button>
+          <button data-action="toggleActiveOnly" type="button" aria-pressed="false">アクティブのみ</button>
+          <button data-action="toggleRegionOutlines" type="button" aria-pressed="false">リージョン矩形</button>
           <div id="region-filter">
             <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
             <div id="region-filter-popover" hidden></div>
@@ -671,6 +679,7 @@
       </div>
       <div id="main">
         <div id="canvas-area">
+          <div id="cell-state-legend"></div>
           <div id="canvas-scroll">
             <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
           </div>
@@ -684,6 +693,8 @@
       <div id="diagnostics-panel" hidden></div>
       <div id="statusbar">
         <span id="status-mode"></span>
+        <span id="status-connection" role="status"></span>
+        <span id="status-action" role="status"></span>
         <span id="status-pos"></span>
         <span id="status-zoom"></span>
         <span id="status-region"></span>

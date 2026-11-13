@@ -16,6 +16,8 @@
 import { ROOT_REGION_ID, type CellId, type JoinId, type RegionId } from "../model/ids";
 import type { Region } from "../model/region";
 import type { TecscdeDocument } from "../model/document";
+import type { Cell } from "../model/cell";
+import { isActiveCell } from "../render/cell-visibility";
 
 export type SearchHit =
   | { readonly kind: "cell"; readonly cellId: CellId; readonly label: string; readonly revealed: boolean }
@@ -36,6 +38,7 @@ export function searchDocument(
   doc: TecscdeDocument,
   query: string | null,
   hiddenRegionIds: ReadonlySet<RegionId> = new Set(),
+  activeOnly = false,
 ): SearchHit[] {
   const needle = query?.trim().toLowerCase();
   if (!needle) return [];
@@ -56,7 +59,7 @@ export function searchDocument(
         kind: "cell",
         cellId: cell.id,
         label: cell.name,
-        revealed: hiddenRegionIds.has(cell.regionId),
+        revealed: hiddenRegionIds.has(cell.regionId) || (activeOnly && !isActiveCell(doc, cell)),
       });
     }
   }
@@ -66,16 +69,22 @@ export function searchDocument(
     const target = doc.getCell(join.eportCellId);
     const label = `${source?.name ?? "?"}.${join.cportName} → ${target?.name ?? "?"}.${join.eportName}`;
     if (matches(`${join.cportName} ${join.eportName} ${label}`, needle)) {
-      const bothHidden =
-        source !== undefined &&
-        target !== undefined &&
-        hiddenRegionIds.has(source.regionId) &&
-        hiddenRegionIds.has(target.regionId);
-      hits.push({ kind: "join", joinId: join.id, label, revealed: bothHidden });
+      const needsReveal = [source, target].some((cell) => cell !== undefined &&
+        (hiddenRegionIds.has(cell.regionId) || (activeOnly && !isActiveCell(doc, cell))));
+      hits.push({ kind: "join", joinId: join.id, label, revealed: needsReveal });
     }
   }
 
   return hits;
+}
+
+export function cellsForSearchHit(doc: TecscdeDocument, hit: SearchHit): readonly Cell[] {
+  if (hit.kind === "cell") {
+    const cell = doc.getCell(hit.cellId);
+    return cell ? [cell] : [];
+  }
+  const join = doc.getJoin(hit.joinId);
+  return join ? [doc.getCell(join.cellId), doc.getCell(join.eportCellId)].filter((cell): cell is Cell => cell !== undefined) : [];
 }
 
 /** 根から `target` までの経路（`target` を含み、根を除く）。木に無ければ空。 */

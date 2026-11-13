@@ -33,6 +33,7 @@ export interface CelltypeDecl {
   readonly qualifiedName: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly active: boolean;
 }
 
 export interface JoinAssignDecl {
@@ -94,6 +95,7 @@ export interface CompositeDecl {
   readonly name: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
+  readonly active: boolean;
   readonly structure: CompositeStructure;
   readonly hasUnsupportedSyntax: boolean;
 }
@@ -176,6 +178,9 @@ export class CdlDocumentBuilder {
       const statement = node.type === "specified_statement" ? node.childForFieldName("statement") :
         node.type === "region_cell" ? node.childForFieldName("cell") : node;
       if (!statement) return;
+      const active = node.type === "specified_statement" &&
+        (node.childForFieldName("specifiers")?.namedChildren.some((specifier) =>
+          specifier?.type === "statement_specifier" && specifier.text.trim() === "active") ?? false);
       if (statement.type === "namespace" || statement.type === "region") {
         const name = statement.childForFieldName("name");
         if (!name) return;
@@ -199,12 +204,12 @@ export class CdlDocumentBuilder {
           break;
         }
         case "celltype": {
-          const celltype = CdlDocumentBuilder.collectCelltype(statement, parentPath);
+          const celltype = CdlDocumentBuilder.collectCelltype(statement, parentPath, active);
           if (celltype) celltypes.push(celltype);
           break;
         }
         case "composite_celltype": {
-          const composite = CdlDocumentBuilder.collectComposite(statement, parentPath);
+          const composite = CdlDocumentBuilder.collectComposite(statement, parentPath, active);
           if (composite) composites.push(composite);
           break;
         }
@@ -320,7 +325,7 @@ export class CdlDocumentBuilder {
     return names;
   }
 
-  private static collectComposite(compositeNode: Node, parentPath: string): CompositeDecl | undefined {
+  private static collectComposite(compositeNode: Node, parentPath: string, active = false): CompositeDecl | undefined {
     const name = compositeNode.childForFieldName("name");
     if (!name) return undefined;
     const ports: PortDecl[] = [];
@@ -400,12 +405,13 @@ export class CdlDocumentBuilder {
       name: qualifiedName,
       ports,
       attributes,
+      active,
       structure: { internalCells, portExports, rawText: compositeNode.text },
       hasUnsupportedSyntax,
     };
   }
 
-  private static collectCelltype(celltypeNode: Node, parentPath: string): CelltypeDecl | undefined {
+  private static collectCelltype(celltypeNode: Node, parentPath: string, active = false): CelltypeDecl | undefined {
     const name = celltypeNode.childForFieldName("name");
     if (!name) return undefined;
     const ports: PortDecl[] = [];
@@ -434,7 +440,7 @@ export class CdlDocumentBuilder {
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: name.text, qualifiedName, ports, attributes };
+    return { name: name.text, qualifiedName, ports, attributes, active };
   }
 
   private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {

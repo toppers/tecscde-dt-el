@@ -59,10 +59,12 @@ export class ViewState {
     readonly filters: DisplayFilters,
     /** モデル全体を対象とする検索クエリ。空は null（6.4節）。 */
     readonly searchQuery: string | null,
+    /** 6C.5: display-only region outlines, never persisted. */
+    readonly regionOutlineMode: boolean,
   ) {}
 
   static initial(): ViewState {
-    return new ViewState(1.0, { x: 0, y: 0 }, false, DisplayFilters.allVisible(), null);
+    return new ViewState(1.0, { x: 0, y: 0 }, false, DisplayFilters.allVisible(), null, false);
   }
 
   /**
@@ -81,36 +83,41 @@ export class ViewState {
       x: anchor.x - (anchor.x - this.panCenter.x) * ratio,
       y: anchor.y - (anchor.y - this.panCenter.y) * ratio,
     };
-    return new ViewState(nextZoom, panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(nextZoom, panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 倍率を保ったまま表示中心をリセットする（Ctrl+0 相当、7.1.2）。 */
   resetZoom(): ViewState {
-    return new ViewState(1.0, this.panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(1.0, this.panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 表示中心をモデル座標 `delta` だけ動かす（スペース+ドラッグ／スクロール、7.1.2）。 */
   panBy(delta: Point): ViewState {
     const panCenter: Point = { x: this.panCenter.x + delta.x, y: this.panCenter.y + delta.y };
-    return new ViewState(this.zoom, panCenter, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   /** 表示中心をモデル座標 `center` に合わせる（ナビゲータのクリック等）。 */
   panTo(center: Point): ViewState {
-    return new ViewState(this.zoom, center, this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, center, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   toggleGrid(): ViewState {
-    return new ViewState(this.zoom, this.panCenter, !this.gridVisible, this.filters, this.searchQuery);
+    return new ViewState(this.zoom, this.panCenter, !this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
   withFilters(filters: DisplayFilters): ViewState {
-    return new ViewState(this.zoom, this.panCenter, this.gridVisible, filters, this.searchQuery);
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, filters, this.searchQuery, this.regionOutlineMode);
   }
 
   withSearchQuery(query: string | null): ViewState {
     const normalized = query && query.trim() !== "" ? query : null;
-    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, normalized);
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, normalized, this.regionOutlineMode);
+  }
+
+  withRegionOutlineMode(enabled: boolean): ViewState {
+    return enabled === this.regionOutlineMode ? this :
+      new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, enabled);
   }
 
   /** モデル座標(mm)1つあたりの画面ピクセル数。 */
@@ -130,6 +137,8 @@ export class ViewState {
       gridVisible: this.gridVisible,
       showSignatureNames: this.filters.showSignatureNames,
       emphasizeCellName: this.filters.emphasizeCellName,
+      activeOnly: this.filters.activeOnly,
+      regionOutlineMode: this.regionOutlineMode,
       hiddenRegionIds,
       regionColors: this.filters.colorByRegion ? cachedColorMap(regions) : null,
     };

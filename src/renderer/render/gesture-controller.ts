@@ -153,6 +153,10 @@ export class GestureController {
     if (hit.kind === "cport") {
       const cell = doc.getCell(hit.cellId);
       const port = cell?.cports.find((p) => p.name === hit.portName && p.subscript === hit.subscript);
+      if (port) {
+        const selected = { cellId: hit.cellId, kind: "cport" as const, name: port.name, subscript: port.subscript };
+        this.host.setSelection(mods.ctrl || mods.meta || mods.shift ? this.host.getSelection().withPortToggled(selected) : SelectionState.ofPorts([selected]));
+      }
       if (port && port.joinId === null) {
         this.transition({
           kind: "joining",
@@ -160,7 +164,7 @@ export class GestureController {
         });
       } else {
         // 既に結合済みの呼び口はハイライトのみ（結合モードには入らない、外部仕様6.4.1）。
-        this.host.setSelection(SelectionState.empty());
+        // Connected call ports remain selected without starting a second join.
       }
       return;
     }
@@ -195,7 +199,15 @@ export class GestureController {
       return;
     }
 
-    // hit.kind === "eport" | "none": 空白クリック → 矩形選択の開始。
+    if (hit.kind === "eport") {
+      const port = doc.getCell(hit.cellId)?.eports.find((value) => value.name === hit.portName && value.subscript === hit.subscript);
+      if (port) {
+        const selected = { cellId: hit.cellId, kind: "eport" as const, name: port.name, subscript: port.subscript };
+        this.host.setSelection(mods.ctrl || mods.meta || mods.shift ? this.host.getSelection().withPortToggled(selected) : SelectionState.ofPorts([selected]));
+      }
+      return;
+    }
+    // Empty canvas starts a selection box.
     if (!mods.shift && !mods.ctrl && !mods.meta) {
       this.host.setSelection(SelectionState.empty());
     }
