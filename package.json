@@ -1,6 +1,6 @@
 {
   "name": "tecscde-dt-el",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "TECSCDE desktop app, Electron-specific implementation, per TECSCDE-DT-EL内部仕様 (design alternative alongside tecscde-js and tecscde-ts).",
   "type": "module",
   "license": "ISC",
