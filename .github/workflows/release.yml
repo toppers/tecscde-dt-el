@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   release:
+    # ubuntu は latest(26.04、rpm 6)だと maker-rpm 8 の RPM 作成が失敗する（v0.2.1 で確認）ため 24.04 に固定。
     # OSごとに自分向けのMakerだけが走る（forge.config.js の platforms）。Windows: Squirrel、
     # macOS: DMG＋ZIP、Linux: DEB＋RPM。mac・Linuxのジョブは2026-10-28時点で未実行・未検証。
     strategy:
@@ -24,7 +25,7 @@ jobs:
       # 重複して作られる恐れがあるので、1つずつ順に走らせる。
       max-parallel: 1
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
