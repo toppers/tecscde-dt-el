@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -65,7 +65,7 @@ describe("tecsgen command copy", () => {
     const copied = formatTecsgenCommand({ executable: script, args: [output], source: "settings" }, args, shell, root);
     expect(copied.length).toBeLessThan(shell === "cmd" ? 8192 : 32701);
     exec(copied, shell, tmpdir());
-    expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ argv: args, cwd: root });
+    expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ argv: args, cwd: realpathSync.native(root) });
   }, 20_000);
 
   it.skipIf(!windows).each(shells)("round-trips batch argv copied to %s without executing metacharacters", (shell) => {
