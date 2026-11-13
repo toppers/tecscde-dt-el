@@ -30,20 +30,22 @@ export class Join {
     readonly bars: readonly Bar[],
     /** CDLに書かれた結合先セルの修飾名（`N::cell`）。保存時にそのまま書き戻すために保持する。無ければ素のセル名。 */
     readonly targetRef?: string,
+    readonly cportSubscript: number | null = null,
+    readonly eportSubscript: number | null = null,
   ) {}
 
   static create(id: JoinId, cellId: CellId, cport: CPort, eportCellId: CellId, eport: EPort, bars: readonly Bar[], targetRef?: string): Join {
     if (cport.joinId !== null) {
       throw new InvariantViolation(`CPort ${cport.name} already has a join`); // 4.3.1
     }
-    return new Join(id, cellId, cport.name, eportCellId, eport.name, bars, targetRef);
+    return new Join(id, cellId, cport.name, eportCellId, eport.name, bars, targetRef, cport.subscript, eport.subscript);
   }
 
   /** 内部仕様5.5 MoveJoinBarCommand。移動不可な区間なら自身をそのまま返す。 */
   moveBar(barIndex: number, newFixed: number): Join {
     const next = moveBarBars(this.bars, barIndex, newFixed);
     if (!next) return this;
-    return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, next, this.targetRef);
+    return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, next, this.targetRef, this.cportSubscript, this.eportSubscript);
   }
 
   /**
@@ -52,6 +54,26 @@ export class Join {
    * 結合の両端（cport/eport の対応関係）は変えない。
    */
   withBars(bars: readonly Bar[]): Join {
-    return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, bars, this.targetRef);
+    return new Join(this.id, this.cellId, this.cportName, this.eportCellId, this.eportName, bars, this.targetRef, this.cportSubscript, this.eportSubscript);
+  }
+
+  /**
+   * 可変長配列の要素挿入・削除で添字が繰り上げ/繰り下げされた際に更新する。
+   */
+  withSubscripts(cportSubscript: number | null, eportSubscript: number | null): Join {
+    if (this.cportSubscript === cportSubscript && this.eportSubscript === eportSubscript) {
+      return this;
+    }
+    return new Join(
+      this.id,
+      this.cellId,
+      this.cportName,
+      this.eportCellId,
+      this.eportName,
+      this.bars,
+      this.targetRef,
+      cportSubscript,
+      eportSubscript,
+    );
   }
 }

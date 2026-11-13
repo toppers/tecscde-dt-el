@@ -50,6 +50,8 @@ export interface JoinAssignDecl {
   readonly subscriptOmitted?: boolean;
   readonly targetCell: string;
   readonly eport: string;
+  readonly eportIndex?: number;
+  readonly eportSubscriptInvalid?: string;
 }
 
 /**
@@ -562,6 +564,39 @@ export class CdlDocumentBuilder {
             targetCell: argument.text, eport: field.text,
           });
           continue;
+        }
+      }
+      if (value.type === "subscript_expression") {
+        // `cPort = targetCell.ePort[idx];` — 添字付き受け口への結合
+        const targetExpr = value.childForFieldName("argument") ?? value.namedChild(0);
+        if (targetExpr && targetExpr.type === "field_expression") {
+          const argument = targetExpr.childForFieldName("argument");
+          const field = targetExpr.childForFieldName("field");
+          if (argument && field) {
+            const subscriptOmitted = !indexNode && /^[^=]*\[\s*\]/.test(join.text);
+            const eportIndexNode = value.childForFieldName("index") ?? value.namedChild(1);
+            const parsedEportIndex = eportIndexNode ? evaluateConstInt(eportIndexNode.text) : undefined;
+            if (eportIndexNode && parsedEportIndex !== undefined && parsedEportIndex >= 0) {
+              joins.push({
+                cport: lhs.text,
+                cportIndex,
+                ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+                targetCell: argument.text,
+                eport: field.text,
+                eportIndex: parsedEportIndex,
+              });
+            } else {
+              joins.push({
+                cport: lhs.text,
+                cportIndex,
+                ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+                targetCell: argument.text,
+                eport: field.text,
+                eportSubscriptInvalid: eportIndexNode ? eportIndexNode.text.trim() : "",
+              });
+            }
+            continue;
+          }
         }
       }
       // それ以外は属性代入。値は元テキストのまま保持する。

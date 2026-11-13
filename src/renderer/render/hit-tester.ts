@@ -109,16 +109,20 @@ export class HitTester {
 
   private hitPort(point: Point): HitResult | undefined {
     for (const cell of this.topmostFirst()) {
+      let best: { result: HitResult; d: number } | undefined;
       for (const p of cell.cports) {
-        if (distance(point, portPosition(cell, p)) <= PORT_HIT_RADIUS_MM) {
-          return { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript };
+        const d = distance(point, portPosition(cell, p));
+        if (d <= PORT_HIT_RADIUS_MM && (!best || d < best.d)) {
+          best = { result: { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript }, d };
         }
       }
       for (const p of cell.eports) {
-        if (distance(point, portPosition(cell, p)) <= PORT_HIT_RADIUS_MM) {
-          return { kind: "eport", cellId: cell.id, portName: p.name, subscript: p.subscript };
+        const d = distance(point, portPosition(cell, p));
+        if (d <= PORT_HIT_RADIUS_MM && (!best || d < best.d)) {
+          best = { result: { kind: "eport", cellId: cell.id, portName: p.name, subscript: p.subscript }, d };
         }
       }
+      if (best) return best.result;
     }
     return undefined;
   }

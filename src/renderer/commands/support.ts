@@ -81,8 +81,8 @@ export function rerouteJoin(doc: TecscdeDocument, id: JoinId): TecscdeDocument {
   const source = doc.getCell(join.cellId);
   const target = doc.getCell(join.eportCellId);
   if (!source || !target) return doc;
-  const cport = source.findCPort(join.cportName);
-  const eport = target.findEPort(join.eportName);
+  const cport = source.cports.find((p) => p.joinId === id) ?? source.findCPort(join.cportName, join.cportSubscript);
+  const eport = target.eports.find((p) => p.joinIds.includes(id)) ?? target.findEPort(join.eportName, join.eportSubscript);
   if (!cport || !eport) return doc;
   const bars = autoRouteBars(
     portPosition(source, cport),

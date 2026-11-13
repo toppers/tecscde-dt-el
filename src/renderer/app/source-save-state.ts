@@ -15,12 +15,19 @@ export function sourceSaveState(document: TecscdeDocument, key: string | null): 
     })).sort((a, b) => a.name.localeCompare(b.name));
   const owners = new Set(document.cellValues().filter((cell) => cell.editable &&
     (cell.locale === key || (primary && !document.editingFileName && !cell.locale))).map((cell) => cell.id));
-  const joins = document.joinValues().filter((join) => owners.has(join.cellId)).map((join) => ({
-    cell: document.getCell(join.cellId)?.name, cport: join.cportName,
-    subscript: document.getCell(join.cellId)?.cports.find((port) => port.joinId === join.id)?.subscript,
-    target: document.getCell(join.eportCellId)?.name, eport: join.eportName,
-    bars: join.bars,
-  })).sort((a, b) => canonical(a).localeCompare(canonical(b)));
+  const joins = document.joinValues().filter((join) => owners.has(join.cellId)).map((join) => {
+    const source = document.getCell(join.cellId);
+    const target = document.getCell(join.eportCellId);
+    return {
+      cell: source?.name,
+      cport: join.cportName,
+      subscript: source?.cports.find((port) => port.joinId === join.id)?.subscript ?? join.cportSubscript ?? null,
+      target: target?.name,
+      eport: join.eportName,
+      eportSubscript: target?.eports.find((port) => port.joinIds.includes(join.id))?.subscript ?? join.eportSubscript ?? null,
+      bars: join.bars,
+    };
+  }).sort((a, b) => canonical(a).localeCompare(canonical(b)));
   const { savedAt: _savedAt, tecscdeVersion: _version, cdeFormatVersion: _format,
     directImport: _derivedSources, ...toolInfo } = document.toolInfoTecsgen;
   return canonical({ cells, joins,

@@ -201,3 +201,11 @@ export function logWriteFailed(): Diagnostic {
     message: "診断ログを作れない、または追記できない。診断パネルの内容は、このファイルに残らない",
   };
 }
+
+export function layoutDiscarded(target: string): string {
+  return `${target} の保存済みレイアウトは形式が不正なため破棄しました`;
+}
+
+export const MESSAGES = {
+  layoutDiscarded,
+} as const;

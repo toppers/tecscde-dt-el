@@ -5,6 +5,7 @@ import { asCellId, asJoinId, ROOT_REGION_ID } from "../../src/renderer/model/ids
 import { TecscdeDocument } from "../../src/renderer/model/document";
 import { Join } from "../../src/renderer/model/join";
 import { History } from "../../src/renderer/commands/history";
+import { CreateJoinCommand } from "../../src/renderer/commands/join-commands";
 import { DeleteCommand } from "../../src/renderer/commands/cell-commands";
 import {
   InsertPortElementCommand,
@@ -290,5 +291,122 @@ describe("array port commands (#9)", () => {
     history = history.redo();
     expect(history.current.getCell(cellId)!.cports.filter((p) => p.name === "cArrayPort")).toHaveLength(1);
     expect(history.current.joinCount).toBe(0);
+  });
+
+  it("CreateJoinCommand targets specific array entry port element with subscript", () => {
+    const doc = createTestDoc();
+    const cellId = asCellId("cCell1");
+
+    // cSinglePort -> eFixedPort[1] に結合を作成
+    const cmd = new CreateJoinCommand(cellId, "cSinglePort", null, cellId, "eFixedPort", 1);
+    const next = cmd.apply(doc);
+
+    expect(next.joinCount).toBe(2);
+    const createdJoin = [...next.joinValues()].find((j) => j.cportName === "cSinglePort")!;
+    expect(createdJoin).toBeDefined();
+    expect(createdJoin.eportName).toBe("eFixedPort");
+    expect(createdJoin.eportSubscript).toBe(1);
+    expect(createdJoin.cportSubscript).toBeNull();
+
+    const cell = next.getCell(cellId)!;
+    const e0 = cell.eports.find((p) => p.name === "eFixedPort" && p.subscript === 0)!;
+    const e1 = cell.eports.find((p) => p.name === "eFixedPort" && p.subscript === 1)!;
+    expect(e0.joinIds).toHaveLength(0);
+    expect(e1.joinIds).toContain(createdJoin.id);
+  });
+
+  it("tracks Join.eportSubscript when variable array entry ports are inserted or deleted", () => {
+    const cellAId = asCellId("cCellA");
+    const cellBId = asCellId("cCellB");
+
+    const e0 = EPort.create({
+      name: "eVar",
+      signature: "sSig",
+      edgeSide: "LEFT",
+      offset: 5,
+      subscript: 0,
+      arraySize: null,
+    });
+    const e1 = EPort.create({
+      name: "eVar",
+      signature: "sSig",
+      edgeSide: "LEFT",
+      offset: 10,
+      subscript: 1,
+      arraySize: null,
+    });
+
+    const c0 = CPort.create({
+      name: "cCall",
+      signature: "sSig",
+      edgeSide: "RIGHT",
+      offset: 5,
+      subscript: null,
+      arraySize: null,
+    });
+
+    const joinId = asJoinId("j_test");
+    const join = Join.create(
+      joinId,
+      cellAId,
+      c0,
+      cellBId,
+      e1,
+      [{ direction: "H", fixed: 5, from: 25, to: 50 }],
+    );
+
+    const cellA = Cell.create({
+      id: cellAId,
+      name: "cCellA",
+      celltypeName: "tCellA",
+      x: 0,
+      y: 0,
+      width: 25,
+      height: 25,
+      regionId: ROOT_REGION_ID,
+      editable: true,
+      cports: [c0.withJoin(joinId)],
+      eports: [],
+      attrs: {},
+      celltypeUnresolved: false,
+    });
+
+    const cellB = Cell.create({
+      id: cellBId,
+      name: "cCellB",
+      celltypeName: "tCellB",
+      x: 50,
+      y: 0,
+      width: 25,
+      height: 25,
+      regionId: ROOT_REGION_ID,
+      editable: true,
+      cports: [],
+      eports: [e0, e1.withJoin(joinId)],
+      attrs: {},
+      celltypeUnresolved: false,
+    });
+
+    let doc = TecscdeDocument.empty().withCell(cellA).withCell(cellB).withJoin(join);
+    expect(doc.getJoin(joinId)!.eportSubscript).toBe(1);
+
+    // eVar[0] の後ろに要素挿入 (insertIndex = 1) -> 元の eVar[1] は eVar[2] にシフト
+    const insertCmd = new InsertPortElementCommand(cellBId, "EPort", "eVar", 0, false);
+    doc = insertCmd.apply(doc);
+
+    // Join の eportSubscript が 2 に更新されていること
+    expect(doc.getJoin(joinId)!.eportSubscript).toBe(2);
+
+    // 挿入された eVar[1] を削除
+    const deleteCmd = new DeleteCommand([], [], [{
+      cellId: cellBId,
+      kind: "eport",
+      portName: "eVar",
+      subscript: 1,
+    }]);
+    doc = deleteCmd.apply(doc);
+
+    // eVar[2] が eVar[1] に戻り、Join の eportSubscript も 1 に追従すること
+    expect(doc.getJoin(joinId)!.eportSubscript).toBe(1);
   });
 });

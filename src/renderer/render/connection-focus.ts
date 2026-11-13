@@ -19,21 +19,19 @@ export function resolveHighlightedJoinIds(
   const highlighted = new Set<JoinId>();
 
   for (const port of selectedPorts) {
+    const cell = doc.getCell(port.cellId);
+    if (!cell) continue;
+
     if (port.kind === "cport") {
-      const cell = doc.getCell(port.cellId);
-      if (cell) {
-        const cport = cell.cports.find(
-          (p) => p.name === port.portName && (port.subscript === null || p.subscript === port.subscript),
-        );
-        if (cport && cport.joinId !== null) {
-          highlighted.add(cport.joinId);
-        }
+      const cport = cell.findCPort(port.portName, port.subscript);
+      if (cport && cport.joinId !== null) {
+        highlighted.add(cport.joinId);
       }
     } else {
-      // eport
-      for (const join of doc.joinValues()) {
-        if (join.eportCellId === port.cellId && join.eportName === port.portName) {
-          highlighted.add(join.id);
+      const eport = cell.findEPort(port.portName, port.subscript);
+      if (eport) {
+        for (const jid of eport.joinIds) {
+          highlighted.add(jid);
         }
       }
     }

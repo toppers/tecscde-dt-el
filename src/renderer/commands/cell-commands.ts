@@ -182,6 +182,16 @@ export class DeleteCommand extends Command {
           }
         }
         next = next.withCell(refreshed.withCPorts(updatedCPorts));
+        for (const join of next.joinValues()) {
+          if (
+            join.cellId === p.cellId &&
+            join.cportName === p.portName &&
+            join.cportSubscript !== null &&
+            join.cportSubscript > p.subscript
+          ) {
+            next = next.withJoin(join.withSubscripts(join.cportSubscript - 1, join.eportSubscript));
+          }
+        }
       } else {
         const port = cell.findEPort(p.portName, p.subscript);
         if (!port || port.arraySize !== null) continue;
@@ -198,6 +208,16 @@ export class DeleteCommand extends Command {
           }
         }
         next = next.withCell(refreshed.withEPorts(updatedEPorts));
+        for (const join of next.joinValues()) {
+          if (
+            join.eportCellId === p.cellId &&
+            join.eportName === p.portName &&
+            join.eportSubscript !== null &&
+            join.eportSubscript > p.subscript
+          ) {
+            next = next.withJoin(join.withSubscripts(join.cportSubscript, join.eportSubscript - 1));
+          }
+        }
       }
     }
     for (const id of this.cellIds) {
