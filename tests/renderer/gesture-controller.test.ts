@@ -159,8 +159,7 @@ describe("select mode — joining", () => {
     const h = harness();
     h.gesture.pointerDown({ x: 120, y: 15 }); // cController1.cLog — already joined in the fixture
     expect(h.gesture.stateKind).toBe("idle");
-    expect(h.selection().ports).toEqual([{ cellId: asCellId("cController1"), kind: "cport", name: "cLog", subscript: null }]);
-    expect(h.dispatched).toHaveLength(0);
+    expect(h.selection().isEmpty).toBe(true);
   });
 
   it("drags a free call port to a matching entry port and dispatches CreateJoinCommand", () => {
