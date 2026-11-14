@@ -7,10 +7,16 @@ export interface TypeUse {
   readonly column: number;
 }
 
+/** 署名の関数の引数。型に加え、引数名と指定子（`in`・`out`・`size_is(n)`・`string` など、原文）を持つ。 */
+export interface ParameterUse extends TypeUse {
+  readonly name?: string;
+  readonly specifiers: readonly string[];
+}
+
 export interface SignatureFunctionDecl {
   readonly name: string;
   readonly returns: TypeUse;
-  readonly parameters: readonly TypeUse[];
+  readonly parameters: readonly ParameterUse[];
 }
 
 export interface LocalTypedefDecl {
@@ -104,12 +110,31 @@ function functionDeclarator(node: Node | null): Node | undefined {
   return undefined;
 }
 
-function parameters(node: Node): readonly TypeUse[] {
+function parameterSpecifiers(parameter: Node): readonly string[] {
+  const out: string[] = [];
+  const visit = (node: Node | null): void => {
+    if (!node) return;
+    if (node.type === "parameter_specifier") {
+      out.push(node.text.replace(/\s+/g, ""));
+      return;
+    }
+    for (const child of node.namedChildren) visit(child);
+  };
+  visit(parameter.childForFieldName("specifiers"));
+  return out;
+}
+
+function parameters(node: Node): readonly ParameterUse[] {
   const list = node.childForFieldName("parameters");
   if (!list) return [];
   return list.namedChildren.filter((child): child is Node => child?.type === "parameter_declaration").map((parameter) => {
     const base = baseType(parameter.childForFieldName("type"));
-    return use(parameter, base ? applyDeclarator(parameter.childForFieldName("declarator"), base).type : undefined);
+    const declared = base ? applyDeclarator(parameter.childForFieldName("declarator"), base) : undefined;
+    return {
+      ...use(parameter, declared?.type),
+      ...(declared?.name ? { name: declared.name } : {}),
+      specifiers: parameterSpecifiers(parameter),
+    };
   });
 }
 

@@ -10,12 +10,23 @@ export {
   DeleteCommand,
   RenameCellCommand,
   EditAttrCommand,
+  EditCellsAttrCommand,
   ChangeRegionCommand,
+  ChangeCellsRegionCommand,
   AlignTopCommand,
   AlignLeftCommand,
 } from "./cell-commands";
 export { CreateJoinCommand, DeleteJoinCommand, MoveJoinBarCommand } from "./join-commands";
-export { ChangePortEdgeCommand, MovePortCommand, type PortKind } from "./port-commands";
+export { ChangePaperCommand } from "./paper-commands";
+export { AutoPlaceCellsCommand, planAutoPlacement, type AutoPlacementPlan } from "./layout-commands";
+export {
+  ChangePortEdgeCommand,
+  DeletePortElementCommand,
+  InsertPortElementCommand,
+  MovePortCommand,
+  MovePortsCommand,
+  type PortKind,
+} from "./port-commands";
 export {
   CopyCommand,
   CutCommand,
@@ -23,3 +34,9 @@ export {
   pasteFromAppClipboard,
   pasteFromCdlFragment,
 } from "./clipboard-commands";
+export {
+  canMoveActiveToTop,
+  prepareMoveActiveToTop,
+  MoveActiveCellsToTopCommand,
+  type ActiveTopPlan,
+} from "./move-active-to-top";

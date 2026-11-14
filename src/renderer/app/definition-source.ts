@@ -10,6 +10,37 @@ export interface DefinitionLocation {
   readonly unavailable?: string;
 }
 
+function findGeneratedSource(
+  generatedSources: readonly GeneratedCdlFile[],
+  key: string,
+): GeneratedCdlFile | undefined {
+  const strip = (s: string) => s.startsWith("plugin:") ? s.slice(7) : s;
+  const keyStrip = strip(key);
+  const keyNorm = keyStrip.replace(/^\/+/, "");
+  const keyBase = keyStrip.split(/[\\/]/).at(-1);
+
+  // 1. 完全一致
+  const exact = generatedSources.find((g) => g.fileName === key);
+  if (exact) return exact;
+
+  // 2. plugin: を除いたパスが完全一致
+  const stripMatch = generatedSources.find((g) => strip(g.fileName) === keyStrip);
+  if (stripMatch) return stripMatch;
+
+  // 3. 先頭スラッシュを除いたパスが一致 (/MrubyBridgePlugin/... と MrubyBridgePlugin/...)
+  const normMatch = generatedSources.find((g) => strip(g.fileName).replace(/^\/+/, "") === keyNorm);
+  if (normMatch) return normMatch;
+
+  // 4. ベースネーム（ファイル名部分）が一致
+  const baseMatch = generatedSources.find((g) => {
+    const cBase = strip(g.fileName).split(/[\\/]/).at(-1);
+    return cBase !== undefined && keyBase !== undefined && cBase === keyBase;
+  });
+  if (baseMatch) return baseMatch;
+
+  return undefined;
+}
+
 /** A basename cannot identify a source: never guess from the current primary. */
 export function definitionLocation(
   key: string | undefined,
@@ -18,9 +49,12 @@ export function definitionLocation(
 ): DefinitionLocation {
   if (!key) return { label: "パスなし" };
   if (generated || key.startsWith("plugin:")) {
-    const virtualName = key.startsWith("plugin:") ? key.slice(7) : key.split(/[\\/]/).at(-1)!;
-    const label = `plugin:${virtualName}`;
-    const source = generatedSources.find((candidate) => candidate.fileName === virtualName);
+    const strip = (s: string) => s.startsWith("plugin:") ? s.slice(7) : s;
+    const virtualName = strip(key);
+    const label = key.startsWith("plugin:")
+      ? key
+      : `plugin:${virtualName.startsWith("/") ? virtualName : (virtualName.split(/[\\/]/).at(-1) ?? virtualName)}`;
+    const source = findGeneratedSource(generatedSources, key);
     return source ? { label, source: { kind: "virtual", path: label, content: source.content } }
       : { label, unavailable: "仮想ソースがないため表示できません。" };
   }

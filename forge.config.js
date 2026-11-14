@@ -1,6 +1,8 @@
 // TECSCDE-DT-EL内部仕様 第11章11.2節#2（配布・自動更新・コード署名の実現手段）の
 // うち「配布ツールの選定」を解消する: Electron Forgeでパッケージング(package/make)を行う。
-// コード署名・macOS/Linux向けMakerは範囲外（別タスク）。
+// コード署名は範囲外（当面は未署名で配布する、2026-09-23決定）。
+// macOS（DMG＋ZIP）・Linux（DEB＋RPM）のMakerは内部仕様11Bの決定に従って登録してあるが、
+// Windows以外ではビルドも起動も未検証（2026-10-28時点。release.yml の各OSジョブで初めて走る）。
 //
 // 自動更新(publish)は [[work/active/tecs/TECSCDE-DT-EL 配布アーキテクチャ決定]]（2026-09-23）の
 // 決定に従い、origin自身（toppers/tecscde-dt-el、public）へ直接publishする。
@@ -25,7 +27,25 @@ export default {
     asar: true,
   },
   rebuildConfig: {},
-  makers: [{ name: "@electron-forge/maker-squirrel", config: {} }],
+  makers: [
+    // Windows: Squirrel（Setup.exe / RELEASES / .nupkg）。自動更新の元。
+    { name: "@electron-forge/maker-squirrel", platforms: ["win32"], config: {} },
+    // macOS: DMGは初回インストール用、ZIPは自動更新用（Forgeが自動更新にZIPの併用を案内している）。
+    // 署名・公証は未設定（未署名配布）。アーキテクチャは実行したrunnerのもの（arm64のmacos-latest）。
+    { name: "@electron-forge/maker-dmg", platforms: ["darwin"], config: {} },
+    { name: "@electron-forge/maker-zip", platforms: ["darwin"], config: {} },
+    // Linux: DEBとRPM。Linux向けの自動更新は未対応（update-electron-app は macOS・Windows のみ）。
+    {
+      name: "@electron-forge/maker-deb",
+      platforms: ["linux"],
+      config: { options: { categories: ["Development"] } },
+    },
+    {
+      name: "@electron-forge/maker-rpm",
+      platforms: ["linux"],
+      config: { options: { categories: ["Development"] } },
+    },
+  ],
   publishers: [
     {
       name: "@electron-forge/publisher-github",

@@ -1,0 +1,20 @@
+/* 実機確認 #13・#14: 複数セルのプロパティ、選択肢付き属性（セル4個、結合なし） */
+import("check-types.cdl");
+
+/* 同じ tA。enabled と level をわざと食い違わせてある */
+cell tA a1 {
+	enabled = true;
+	level = 1;
+};
+cell tA a2 {
+	enabled = false;
+	level = 2;
+};
+cell tA a3 {
+	enabled = true;
+	level = 1;
+};
+/* 別セルタイプ */
+cell tB b1 {
+	enabled = true;
+};

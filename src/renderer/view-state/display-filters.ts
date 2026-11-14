@@ -25,8 +25,8 @@ export class DisplayFilters {
     readonly showSignatureNames: boolean,
     /** セル名強調（外部仕様7.4.2）。オンでセル名を大きく表示し、セルタイプ名を隠す。既定はオフ。 */
     readonly emphasizeCellName: boolean,
-    /** 6C.2: show only instances of active celltypes. */
-    readonly activeOnly: boolean,
+    /** アクティブセルのみ表示（外部仕様7.3.x、内部仕様6C.1・監査#45）。既定はオフ。 */
+    readonly activeOnly: boolean = false,
   ) {}
 
   /** すべて表示（フィルタなし）。既定状態。 */
@@ -57,8 +57,8 @@ export class DisplayFilters {
   }
 
   withAllRegionsShown(): DisplayFilters {
-    if (this.hiddenRegions.size === 0) return this;
-    return new DisplayFilters(new Set(), this.colorByRegion, this.showSignatureNames, this.emphasizeCellName, this.activeOnly);
+    if (this.isAllVisible) return this;
+    return new DisplayFilters(new Set(), this.colorByRegion, this.showSignatureNames, this.emphasizeCellName, false);
   }
 
   withColorByRegion(on: boolean): DisplayFilters {
@@ -74,7 +74,7 @@ export class DisplayFilters {
   }
 
   withActiveOnly(on: boolean): DisplayFilters {
-    return this.activeOnly === on ? this : new DisplayFilters(this.hiddenRegions, this.colorByRegion, this.showSignatureNames, this.emphasizeCellName, on);
+    return new DisplayFilters(this.hiddenRegions, this.colorByRegion, this.showSignatureNames, this.emphasizeCellName, on);
   }
 
   equals(other: DisplayFilters): boolean {

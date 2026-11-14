@@ -13,9 +13,17 @@ const clipboardMock = {
 
 vi.mock("electron", () => ({
   ipcMain: {
-    handle: (channel: string, fn: (...args: unknown[]) => unknown) => handlers.set(channel, fn),
+    handle: (channel: string, fn: (...args: unknown[]) => unknown) => {
+      // 実Electronと同様、同じチャネルの二重登録は例外にする。
+      if (handlers.has(channel)) throw new Error(`Attempted to register a second handler for \`${channel}\``);
+      handlers.set(channel, fn);
+    },
+    removeHandler: (channel: string) => handlers.delete(channel),
   },
   clipboard: clipboardMock,
+  dialog: {
+    showOpenDialog: vi.fn().mockResolvedValue({ canceled: false, filePaths: ["/usr/bin/gcc"] }),
+  },
 }));
 
 // 第7C章7.7.1節: file:saveSessionはFileServiceを経由せずsaveAppSettingsを直接呼ぶため、
@@ -57,6 +65,8 @@ describe("registerIpcHandlers", () => {
       chooseSavePath: vi.fn().mockResolvedValue("saved-path"),
       saveAsDialog: vi.fn().mockResolvedValue("saved-path"),
       exportFile: vi.fn().mockResolvedValue(undefined),
+      exportPdf: vi.fn().mockResolvedValue(undefined),
+      chooseExportPath: vi.fn().mockResolvedValue("/tmp/out.svg"),
       chooseFolder: vi.fn().mockResolvedValue("/tmp/root"),
       listDirectory: vi.fn().mockResolvedValue([]),
       openPath: vi.fn().mockResolvedValue("open-path-result"),
@@ -87,8 +97,10 @@ describe("registerIpcHandlers", () => {
         "file:applyCdlFileLists",
         "file:confirmCdlFileLists",
         "file:chooseSavePath",
+        "file:chooseExportPath",
         "file:confirmDiscardChanges",
         "file:export",
+        "file:exportPdf",
         "file:listDirectory",
         "file:openPath",
         "file:openPaths",
@@ -106,6 +118,7 @@ describe("registerIpcHandlers", () => {
         "settings:updateToolSettings",
         "settings:getAppInformation",
         "settings:chooseTecsgenPath",
+        "settings:chooseCppPath",
         "tecsgen:generate",
         "tecsgen:generatedTypes",
         "tecsgen:preprocess",
@@ -123,6 +136,17 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("file:export")!({}, "/tmp/out.txt", "data");
     expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.txt", "data");
+
+    handlers.get("file:chooseExportPath")!({}, "png", "diagram.png");
+    expect(fileService.chooseExportPath).toHaveBeenCalledWith("png", "diagram.png");
+
+    const png = Uint8Array.from([137, 80, 78, 71]);
+    handlers.get("file:export")!({}, "/tmp/out.png", png);
+    expect(fileService.exportFile).toHaveBeenCalledWith("/tmp/out.png", png);
+
+    const page = { kind: "paper", size: "A4", orientation: "LANDSCAPE" };
+    handlers.get("file:exportPdf")!({}, "/tmp/out.pdf", "<svg/>", page);
+    expect(fileService.exportPdf).toHaveBeenCalledWith("/tmp/out.pdf", "<svg/>", page);
 
     handlers.get("file:chooseFolder")!({});
     expect(fileService.chooseFolder).toHaveBeenCalled();
@@ -177,11 +201,34 @@ describe("registerIpcHandlers", () => {
 
     handlers.get("log:append")!({}, ["[W-X] a"]);
     expect(logService.append).toHaveBeenCalledWith(["[W-X] a"]);
+    logService.append.mockResolvedValueOnce({ newFailure: "EACCES" });
+    await expect(handlers.get("log:append")!({}, ["[W-Y] b"])).resolves.toEqual({ newFailure: "EACCES" });
 
     handlers.get("clipboard:writeText")!({}, "hello");
     expect(clipboardMock.writeText).toHaveBeenCalledWith("hello");
 
     handlers.get("clipboard:readText")!({});
     expect(clipboardMock.readText).toHaveBeenCalled();
+
+    // settings:chooseCppPath の呼び出し
+    const chosen = await handlers.get("settings:chooseCppPath")!({}, "/suggested/path");
+    expect(chosen).toBe("/usr/bin/gcc");
+  });
+  // macOSでウィンドウを閉じてDockから開き直すと createWindow() → registerIpcHandlers() が
+  // 2回目に呼ばれる。二重登録で例外にならず、新しいサービスに置き換わること。
+  it("can be called again (macOS re-activate) and routes to the newest services", async () => {
+    const mk = (tag: string) => ({
+      fileService: { saveWithReceipt: vi.fn().mockResolvedValue(tag) },
+      tecsgenRunner: {},
+      logService: {},
+    });
+    const first = mk("first");
+    const second = mk("second");
+    registerIpcHandlers(first.fileService as never, first.tecsgenRunner as never, first.logService as never);
+    expect(() =>
+      registerIpcHandlers(second.fileService as never, second.tecsgenRunner as never, second.logService as never),
+    ).not.toThrow();
+    await expect(handlers.get("file:save")!({}, "p", "c")).resolves.toBe("second");
+    expect(first.fileService.saveWithReceipt).not.toHaveBeenCalled();
   });
 });

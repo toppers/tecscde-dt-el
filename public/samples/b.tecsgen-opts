@@ -1,0 +1,12 @@
+-I . 
+-I ./gen 
+-S ../../tests/hr-tecs/tecs_kernel 
+-S ../../tests/hr-tecs/include
+-I ../../tests/hr-tecs/arch 
+-I ../../tests/hr-tecs 
+--import-path ../../include
+--import-path ../../tecs_lib/common
+--import-path ../../tecs_lib/mindstorms_ev3
+--import-path ../../tecsgen/tecsgen/tecs/mruby
+tEV3Sample.cdl
+

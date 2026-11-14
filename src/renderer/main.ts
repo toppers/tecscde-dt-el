@@ -10,6 +10,7 @@ import { ClipboardGateway } from "./gateways/clipboard-gateway";
 import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
+import { createLogAppender } from "./app/log-warning";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
 import { SettingsGateway } from "./gateways/settings-gateway";
@@ -18,11 +19,16 @@ import { checkTecsgenVersion } from "./app/tecsgen-version";
 import { applyOpenResult } from "./app/file-actions";
 import { CdlGrammar } from "./cdl/grammar";
 import { CdeclGrammar } from "./cdecl/grammar";
+import { SVG_STYLES } from "./render/svg-styles";
 
 function main(): void {
   if (typeof window === "undefined" || !window.tecscde) {
     throw new Error("preload の window.tecscde が見つかりません（contextBridge 未初期化）");
   }
+
+  const diagramStyle = document.createElement("style");
+  diagramStyle.textContent = SVG_STYLES;
+  document.head.append(diagramStyle);
 
   // 内部仕様2.2 / 9B章9B.3: WASMロードの非同期性は起動時の1点に閉じ込める。
   // onBootstrapはdid-finish-load直後に届くため先に登録し、解析だけ初期化完了を待つ。
@@ -63,23 +69,24 @@ function main(): void {
   const gateway = new FileGateway();
   const clipboard = new ClipboardGateway();
   const tecsgen = new TecsgenGateway();
-  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, settings, windowGateway: new WindowGateway(), win: window });
+  const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, settings, windowGateway: new WindowGateway(), runtimeVersions: window.tecscde.versions, win: window });
   shell.start();
 
   // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
-  const logger = new DiagnosticsLogger(store, (lines) => new LogGateway().append(lines));
+  const appendLog = createLogAppender(new LogGateway(), store);
+  const logger = new DiagnosticsLogger(store, appendLog);
   store.subscribe(() => logger.sync());
 
   // 第9C章: 起動時にtecsgenの版を一度だけ確認する（UIをブロックしない。見つからなければ何も出さない）。
   void settings.getToolSettings().then((tool) =>
-    checkTecsgenVersion(store, tecsgen, new LogGateway(), () => shell.openDiagnostics(), tool.effectiveCommand, tool.revision))
+    checkTecsgenVersion(store, tecsgen, { append: appendLog }, () => shell.openDiagnostics(), tool.effectiveCommand, tool.revision))
     .catch((error: unknown) => console.error("tecsgen設定の読み込みに失敗しました:", error));
 
   // main からの起動ドキュメント（pendingOpenPath 経路 or samples）。
   window.tecscde.onBootstrap((data) => {
     void Promise.all([grammarReady, settingsReady])
       .then(() => {
-        if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard);
+        if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard, { settingsGateway: settings });
       })
       .catch((error: unknown) => {
         console.error("CDL/cdeclパーサの初期化に失敗しました:", error);

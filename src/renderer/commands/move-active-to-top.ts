@@ -1,143 +1,152 @@
-import { Command } from "./command";
-import type { TecscdeDocument } from "../model/document";
-import type { Cell } from "../model/cell";
-import type { CellId, JoinId } from "../model/ids";
-import type { Bar } from "../model/join";
-import { autoRouteBars, portPosition, type Point, type RectMm } from "../model/geometry";
-import { isActiveCell } from "../render/cell-visibility";
+// [[TECSCDE-DT-EL内部仕様]] 第6C章6C.4節 — activeセルの最上段への移動（監査#58）。
+//
+// 対象は active かつ編集可能なセル。第0行（y=10mm）の左から重ならない最初の候補へ配置し、
+// 収まらない場合は次の行（y+=30mm）へ送る。用紙内に収まらない場合は操作全体を配置不能とする。
 
-export interface ActiveTopMove {
-  readonly cellId: CellId;
-  readonly from: Point;
-  readonly to: Point;
-}
-export interface ActiveTopJoinRoute {
-  readonly joinId: JoinId;
-  readonly before: readonly Bar[];
-  readonly after: readonly Bar[];
-}
+import { Command } from "./command";
+import { rerouteJoinsTouching } from "./support";
+import type { TecscdeDocument } from "../model/document";
+import type { CellId } from "../model/ids";
+import type { Point } from "../model/geometry";
+import { isActiveCell } from "../model/active-cell";
+
 export interface ActiveTopPlan {
-  readonly kind: "ready" | "unchanged" | "empty" | "failed";
-  readonly reason?: string;
+  readonly success: boolean;
   readonly orderedCellIds: readonly CellId[];
-  readonly moves: readonly ActiveTopMove[];
-  readonly joinRoutes: readonly ActiveTopJoinRoute[];
+  readonly moves: ReadonlyMap<CellId, Point>;
   readonly topRowCellIds: readonly CellId[];
   readonly spilledCellIds: readonly CellId[];
-  /** Values, never object references or history depth. */
-  readonly precondition: string;
-}
-
-const barsSnapshot = (bars: readonly Bar[]): readonly Bar[] => Object.freeze(bars.map((bar) => Object.freeze({
-  direction: bar.direction, fixed: bar.fixed, from: bar.from, to: bar.to,
-})));
-
-function freezePlan(plan: ActiveTopPlan): ActiveTopPlan {
-  return Object.freeze({ ...plan,
-    orderedCellIds: Object.freeze([...plan.orderedCellIds]),
-    topRowCellIds: Object.freeze([...plan.topRowCellIds]),
-    spilledCellIds: Object.freeze([...plan.spilledCellIds]),
-    moves: Object.freeze(plan.moves.map((move) => Object.freeze({ ...move,
-      from: Object.freeze({ ...move.from }), to: Object.freeze({ ...move.to }),
-    }))),
-    joinRoutes: Object.freeze(plan.joinRoutes.map((route) => Object.freeze({ ...route,
-      before: barsSnapshot(route.before), after: barsSnapshot(route.after),
-    }))),
-  });
-}
-
-function layoutState(doc: TecscdeDocument): string {
-  return JSON.stringify({ paper: { size: doc.paper.size, orientation: doc.paper.orientation },
-    cells: doc.cellValues().map((cell) => ({ id: cell.id, x: cell.x, y: cell.y, width: cell.width, height: cell.height,
-      editable: cell.editable, locale: cell.locale, regionId: cell.regionId, active: isActiveCell(doc, cell),
-      ports: [...cell.cports, ...cell.eports].map((port) => ({ name: port.name, signature: port.signature,
-        edge: port.edgeSide, offset: port.offset, subscript: port.subscript, arraySize: port.arraySize })),
-    })),
-    joins: doc.joinValues().map((join) => ({ id: join.id, cellId: join.cellId, cportName: join.cportName,
-      eportCellId: join.eportCellId, eportName: join.eportName,
-      bars: join.bars.map((bar) => ({ direction: bar.direction, fixed: bar.fixed, from: bar.from, to: bar.to })),
-    })),
-  });
+  readonly failureReason?: "NO_FIT" | "NO_TARGETS";
 }
 
 export function canMoveActiveToTop(doc: TecscdeDocument): boolean {
-  return doc.cellValues().some((cell) => cell.editable && isActiveCell(doc, cell));
+  for (const cell of doc.cellValues()) {
+    if (cell.editable && isActiveCell(doc, cell)) return true;
+  }
+  return false;
 }
 
-const overlaps = (left: RectMm, right: RectMm): boolean => left.x < right.x + right.width &&
-  left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
-const sameBars = (left: readonly Bar[], right: readonly Bar[]): boolean => left.length === right.length &&
-  left.every((bar, index) => { const other = right[index]!; return bar.direction === other.direction &&
-    bar.fixed === other.fixed && bar.from === other.from && bar.to === other.to; });
+const START_X = 10;
+const START_Y = 10;
+const STEP_X = 55;
+const STEP_Y = 30;
 
-/** 06C.4: finite 4G grid, no overlap/offset fallback and no store/selection/filter access. */
+function overlaps(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  ox: number,
+  oy: number,
+  ow: number,
+  oh: number,
+): boolean {
+  return !(x + w <= ox || ox + ow <= x || y + h <= oy || oy + oh <= y);
+}
+
 export function prepareMoveActiveToTop(doc: TecscdeDocument): ActiveTopPlan {
-  const targets = doc.cellValues().filter((cell) => cell.editable && isActiveCell(doc, cell));
-  const base = { orderedCellIds: targets.map((cell) => cell.id), precondition: layoutState(doc),
-    moves: [] as readonly ActiveTopMove[], joinRoutes: [] as readonly ActiveTopJoinRoute[],
-    topRowCellIds: [] as readonly CellId[], spilledCellIds: [] as readonly CellId[] };
-  const failed = (reason: string): ActiveTopPlan => freezePlan({ ...base, kind: "failed", reason });
-  if (targets.length === 0) return freezePlan({ ...base, kind: "empty", reason: "編集できるアクティブなセルがありません" });
-  if (doc.cellValues().some((cell) => ![cell.x, cell.y, cell.width, cell.height].every(Number.isFinite) || cell.width <= 0 || cell.height <= 0)) {
-    return failed("セルの位置または寸法が不正なため、移動を行いませんでした。");
+  const targets = [...doc.cellValues()].filter((c) => c.editable && isActiveCell(doc, c));
+  if (targets.length === 0) {
+    return {
+      success: false,
+      orderedCellIds: [],
+      moves: new Map(),
+      topRowCellIds: [],
+      spilledCellIds: [],
+      failureReason: "NO_TARGETS",
+    };
   }
-  const { width, height } = doc.paper.contentSize();
-  const targetIds = new Set(targets.map((cell) => cell.id));
-  const occupied: RectMm[] = doc.cellValues().filter((cell) => !targetIds.has(cell.id));
-  const moves: ActiveTopMove[] = [];
-  const topRowCellIds: CellId[] = [], spilledCellIds: CellId[] = [];
-  let final = doc;
-  for (const cell of targets) {
-    let position: Point | undefined;
-    for (let y = 10; y + cell.height <= height && !position; y += 30) {
-      for (let x = 10; x <= width - 30 && x + cell.width <= width; x += 55) {
-        const rect = { x, y, width: cell.width, height: cell.height };
-        if (!occupied.some((obstacle) => overlaps(rect, obstacle))) { position = { x, y }; break; }
+
+  const targetIds = new Set(targets.map((c) => c.id));
+  const obstacles = [...doc.cellValues()].filter((c) => !targetIds.has(c.id));
+
+  const { width: paperW, height: paperH } = doc.paper.contentSize();
+  const maxX = paperW - 30;
+  const maxY = paperH - 20;
+
+  const moves = new Map<CellId, Point>();
+  const topRowCellIds: CellId[] = [];
+  const spilledCellIds: CellId[] = [];
+
+  // 各対象セルが配置された後の位置を記録して後続セルの障害物とする
+  const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+
+  let curY = START_Y;
+  let curX = START_X;
+
+  for (const target of targets) {
+    let fitted = false;
+    while (curY <= maxY) {
+      while (curX <= maxX) {
+        // 重なり検査（固定障害物 + 既に配置済みの対象セル）
+        const hasCollision =
+          obstacles.some((obs) => overlaps(curX, curY, target.width, target.height, obs.x, obs.y, obs.width, obs.height)) ||
+          placed.some((p) => overlaps(curX, curY, target.width, target.height, p.x, p.y, p.w, p.h));
+
+        if (!hasCollision) {
+          moves.set(target.id, { x: curX, y: curY });
+          placed.push({ x: curX, y: curY, w: target.width, h: target.height });
+          if (curY === START_Y) topRowCellIds.push(target.id);
+          else spilledCellIds.push(target.id);
+
+          curX += STEP_X;
+          fitted = true;
+          break;
+        }
+        curX += STEP_X;
       }
+      if (fitted) break;
+      // 次の行へ
+      curX = START_X;
+      curY += STEP_Y;
     }
-    if (!position) return failed("現在の用紙内に重ならず配置できないため、アクティブなセルの移動を行いませんでした。");
-    occupied.push({ ...position, width: cell.width, height: cell.height });
-    (position.y === 10 ? topRowCellIds : spilledCellIds).push(cell.id);
-    if (position.x !== cell.x || position.y !== cell.y) {
-      moves.push({ cellId: cell.id, from: { x: cell.x, y: cell.y }, to: position });
-      final = final.withCell(cell.moveTo(position.x, position.y));
+
+    if (!fitted) {
+      // 1つでも配置不能なら全体を配置不能とする
+      return {
+        success: false,
+        orderedCellIds: targets.map((c) => c.id),
+        moves: new Map(),
+        topRowCellIds: [],
+        spilledCellIds: [],
+        failureReason: "NO_FIT",
+      };
     }
   }
-  const movedIds = new Set(moves.map((move) => move.cellId));
-  const joinRoutes: ActiveTopJoinRoute[] = [];
-  for (const join of doc.joinValues()) {
-    if (!movedIds.has(join.cellId) && !movedIds.has(join.eportCellId)) continue;
-    const source = final.getCell(join.cellId), target = final.getCell(join.eportCellId);
-    const cport = source?.findCPort(join.cportName), eport = target?.findEPort(join.eportName);
-    if (!source || !target || !cport || !eport) return failed("結合の端点が見つからないため、アクティブなセルの移動を行いませんでした。");
-    const after = autoRouteBars(portPosition(source, cport), cport.edgeSide, portPosition(target, eport), eport.edgeSide, final.cellValues());
-    if (!sameBars(join.bars, after)) joinRoutes.push({ joinId: join.id, before: join.bars, after });
-  }
-  return freezePlan({ ...base, kind: moves.length || joinRoutes.length ? "ready" : "unchanged",
-    moves, joinRoutes, topRowCellIds, spilledCellIds });
+
+  return {
+    success: true,
+    orderedCellIds: targets.map((c) => c.id),
+    moves,
+    topRowCellIds,
+    spilledCellIds,
+  };
 }
 
 export class MoveActiveCellsToTopCommand extends Command {
   readonly kind = "MoveActiveCellsToTop";
-  readonly plan: ActiveTopPlan;
   override readonly summary: string;
-  constructor(plan: ActiveTopPlan) {
+
+  constructor(private readonly plan: ActiveTopPlan) {
     super();
-    this.plan = freezePlan(plan);
-    this.summary = `move ${plan.moves.length} active cell(s) to top`;
+    this.summary = `move active cells to top (${plan.moves.size} cells)`;
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
-    if (this.plan.kind !== "ready" || layoutState(doc) !== this.plan.precondition) return doc;
+    if (!this.plan.success || this.plan.moves.size === 0) return doc;
+
     let next = doc;
-    for (const move of this.plan.moves) {
-      const cell: Cell = next.getCell(move.cellId)!;
-      next = next.withCell(cell.moveTo(move.to.x, move.to.y));
+    const movedIds: CellId[] = [];
+    for (const [id, pos] of this.plan.moves) {
+      const cell = next.getCell(id);
+      if (!cell || !cell.editable) continue;
+      if (cell.x !== pos.x || cell.y !== pos.y) {
+        next = next.withCell(cell.moveTo(pos.x, pos.y));
+        movedIds.push(id);
+      }
     }
-    for (const route of this.plan.joinRoutes) {
-      const join = next.getJoin(route.joinId)!;
-      next = next.withJoin(join.withBars(route.after));
-    }
-    return next;
+
+    if (movedIds.length === 0) return doc;
+    return rerouteJoinsTouching(next, movedIds);
   }
 }

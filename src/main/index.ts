@@ -14,12 +14,12 @@ import { updateElectronApp } from "update-electron-app";
 import { FileService } from "./file-service.js";
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { ToolSettingsService } from "./tool-settings.js";
-import { LogService } from "./log-service.js";
+import { LogService, pruneOldLogs } from "./log-service.js";
 import { registerIpcHandlers } from "./ipc.js";
 import { CloseGuard } from "./close-guard.js";
 import { restoreSession } from "./session-restore.js";
 import { createCloseStateQuery } from "./close-state-bridge.js";
-import { loadAppSettings } from "./app-settings.js";
+import { loadAppSettings, logsDirectory } from "./app-settings.js";
 import type { OpenResult } from "../shared/ipc-types.js";
 import { fileKind } from "../shared/file-kind.js";
 
@@ -42,8 +42,11 @@ if (require("electron-squirrel-startup")) {
 // （実機確認、2026-09-26）。forge.config.jsのpublisher-github設定と同じrepoを渡す。
 updateElectronApp({ repo: "toppers/tecscde-dt-el" });
 
-// 診断ログ: 起動時のカレントディレクトリを第一候補に、書き込めなければuserData配下へ。
-const logService = new LogService([process.cwd(), join(app.getPath("userData"), "logs")], app.getVersion());
+// 診断ログ: 設定フォルダ配下の logs/（Windows: %LOCALAPPDATA%/tecscde-dt-el/logs）へ固定。
+// 起動時に古いログを刈り込み（最大30個）、直近のログを保持する（監査#64, #65）。
+const logsDir = logsDirectory();
+void pruneOldLogs(logsDir);
+const logService = new LogService(logsDir, app.getVersion());
 
 let pendingOpenPath: string | null = null;
 

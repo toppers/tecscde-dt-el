@@ -7,9 +7,11 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
 import type {
   DirEntry,
+  ExportFormat,
   ImportRequest,
   ImportResolutionOptions,
   OpenResult,
+  PdfPage,
   ResolvedImport,
   TecsgenOptionsFile,
 } from "../shared/ipc-types.js";
@@ -17,6 +19,8 @@ import { saveAppSettings } from "./app-settings.js";
 import { fileKind } from "../shared/file-kind.js";
 import { destinationKey, fileWrites, type WriteReceipt } from "./write-queue.js";
 import { isUnderAny } from "../shared/path-under.js";
+import { PdfExporter } from "./pdf-exporter.js";
+import { CdlFileLists } from "./cdl-file-list.js";
 
 // 第7C章7.7.4節（#10）: tecsgenオプション形式ファイルもファイルブラウザに列挙する。
 // 三形式とも大文字小文字を区別せず、I/O用の元パス表記を維持する。
@@ -31,53 +35,6 @@ function decodeBuffer(buf: Buffer): string {
       return new TextDecoder("shift_jis", { fatal: true }).decode(buf);
     } catch {
       return new TextDecoder("euc-jp", { fatal: true }).decode(buf);
-    }
-  }
-}
-
-type CdlListLookup = { readonly kind: "probe" | "unlisted" } | { readonly kind: "listed"; readonly path: string };
-
-/** 07E.7.5.11: directory-local lists, scoped to a single resolution batch. */
-class CdlFileLists {
-  private readonly lists = new Map<string, Promise<ReadonlyMap<string, string> | undefined>>();
-
-  constructor(private readonly systemDirs: readonly string[]) {}
-
-  async lookup(candidate: string): Promise<CdlListLookup> {
-    if (!isUnderAny(candidate, this.systemDirs)) return { kind: "probe" };
-    const directory = dirname(candidate);
-    const key = destinationKey(directory);
-    let pending = this.lists.get(key);
-    if (!pending) {
-      pending = this.read(directory);
-      this.lists.set(key, pending);
-    }
-    const list = await pending;
-    if (!list) return { kind: "probe" };
-    const name = basename(candidate);
-    const found = list.get(process.platform === "win32" ? name.toLowerCase() : name);
-    return found === undefined ? { kind: "unlisted" } : { kind: "listed", path: join(directory, found) };
-  }
-
-  private async read(directory: string): Promise<ReadonlyMap<string, string> | undefined> {
-    try {
-      const path = join(directory, "_CDL_FILES.txt");
-      await fileWrites.waitForPath(path);
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(await fs.readFile(path));
-      const names = new Map<string, string>();
-      for (const line of text.split(/\r?\n/)) {
-        const parts = line.trim().replace(/\\/g, "/").split("/").filter((part) => part !== "" && part !== ".");
-        // Entries are immediate file names. A parent's "sub/x.cdl" cannot
-        // authorize a file governed by the child's own list.
-        if (parts.length !== 1 || parts[0] === "..") continue;
-        const name = parts[0]!;
-        const key = process.platform === "win32" ? name.toLowerCase() : name;
-        if (!names.has(key)) names.set(key, name);
-      }
-      return names;
-    } catch {
-      // Missing, unreadable or invalid UTF-8 lists retain ordinary probing.
-      return undefined;
     }
   }
 }
@@ -250,8 +207,22 @@ export class FileService {
     });
   }
 
-  async exportFile(path: string, data: string): Promise<void> {
+  async exportFile(path: string, data: string | Uint8Array): Promise<void> {
     await this.acceptWrite(() => this.writeAtomic(path, data));
+  }
+
+  async exportPdf(path: string, svg: string, page: PdfPage): Promise<void> {
+    const pdf = await PdfExporter.render(svg, page);
+    await this.writeAtomic(path, pdf);
+  }
+
+  /** 7.10節: 形式別の保存先を選ぶ。キャンセル後は書き込みを行わない。 */
+  async chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null> {
+    const result = await dialog.showSaveDialog(this.window, {
+      defaultPath: suggestedName,
+      filters: [{ name: `${format.toUpperCase()} files`, extensions: [format] }],
+    });
+    return result.canceled ? null : (result.filePath ?? null);
   }
 
   /**
@@ -276,6 +247,11 @@ export class FileService {
    * ディレクトリ・`baseDir`・`extraSearchDirs`（renderer側が解決の進行に応じて蓄積する、
    * 7.5.3節）の順に候補ディレクトリとし、各ディレクトリで`importPaths`を順に試す。
    * `kind:"manual"`は絶対パスが直接指定されているため探索を経由しない（第7C章7.7.2節）。
+   *
+   * `-S`のディレクトリ（`systemDirs`）の配下で、参照先が入っているディレクトリに`_CDL_FILES.txt`が
+   * あるときは、`import`（CDL）に限り、ディレクトリを直接調べずに、その一覧から探す（外部仕様5.3節。
+   * `sub/x.cdl`なら`sub`の一覧に`x.cdl`があるか）。`import_C`（ヘッダ）は従来どおりディレクトリを調べる
+   * （一覧はCDLのファイル名を並べたものであるため）。
    */
   async resolveImports(
     editablePath: string,
@@ -461,7 +437,7 @@ export class FileService {
    * OSレベルでアトミックであり、書き込み途中でプロセスが異常終了しても元のファイルは
    * 無傷のまま残る。
    */
-  private writeAtomic(path: string, content: string): Promise<WriteReceipt> {
+  private writeAtomic(path: string, content: string | Uint8Array): Promise<WriteReceipt> {
     return fileWrites.write(path, async (absolutePath) => {
       const tmpPath = `${absolutePath}.tmp-${process.pid}`;
       try {

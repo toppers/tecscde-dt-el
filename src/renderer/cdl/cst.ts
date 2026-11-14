@@ -12,6 +12,7 @@ import { CdlGrammar } from "./grammar";
 import { syntaxError, unexpectedEof } from "./messages";
 import type { Diagnostic } from "../diagnostics/types";
 import type { CompositeInternalBinding, CompositeStructure } from "../model/composite";
+import { evaluateConstInt } from "./const-expr";
 import { localTypedefs, signatureFunctions, type LocalTypedefDecl, type SignatureFunctionDecl } from "./signature-types";
 
 export interface PortDecl {
@@ -19,6 +20,10 @@ export interface PortDecl {
   readonly signature: string;
   readonly name: string;
   readonly arraySize?: number;
+  /** 配列ポート（`[]` または `[N]`）。`[]`（可変長）は `arraySize` を持たないので、これで非配列と区別する。 */
+  readonly isArray?: boolean;
+  /** 評価できなかった長さの式（原文）。配列としては展開せず、警告の対象にする。 */
+  readonly unresolvedSize?: string;
   /** 名前なしの`require`（図に出ない呼び口）。名前つきの`require`は通常の呼び口として`false`にする。 */
   readonly isRequire: boolean;
   /** 名前つき`require`（`require 名前 = 要求先.受け口;`）の要求先。ローダーがシグニチャを解決する。 */
@@ -34,13 +39,48 @@ export interface CelltypeDecl {
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
   readonly active: boolean;
+  readonly attributeOptions?: ReadonlyMap<string, readonly string[]>;
 }
 
 export interface JoinAssignDecl {
   readonly cport: string;
+  /** 添字。省いた結合（`cPort[] = c.e;`）は、`assignOmittedSubscripts`が書かれた順に0, 1, 2…を割り当てる（外部仕様4.6.x）。 */
   readonly cportIndex?: number;
+  /** `cPort[] = c.e;` のように添字を省いて書かれていた。保存時に、元の書き方へ戻すために保つ。 */
+  readonly subscriptOmitted?: boolean;
   readonly targetCell: string;
   readonly eport: string;
+  readonly eportIndex?: number;
+  readonly eportSubscriptInvalid?: string;
+}
+
+/**
+ * 外部仕様4.6.x: 同じ呼び口の結合は、最初に現れた形（添字を書く／省く）に揃える。
+ * 省く形なら、省いた結合に書かれた順で0, 1, 2…を割り当てる（tecsgenの`add_array_member`と同じ）。
+ * 形が揃わない呼び口は名前を返す（診断`W-JOIN-INDEX-INCONSISTENT`用）。揃わない結合は、
+ * 省く形の呼び口では書かれた添字のまま、書く形の呼び口では添字なしのまま残し、結合としては解決しない。
+ */
+export function assignOmittedSubscripts(
+  joins: readonly JoinAssignDecl[],
+): { readonly joins: readonly JoinAssignDecl[]; readonly inconsistentPorts: readonly string[] } {
+  const omittedMode = new Map<string, boolean>();
+  for (const join of joins) {
+    if (!omittedMode.has(join.cport)) omittedMode.set(join.cport, join.subscriptOmitted === true);
+  }
+  const counters = new Map<string, number>();
+  const inconsistent = new Set<string>();
+  const out = joins.map((join): JoinAssignDecl => {
+    const omitted = join.subscriptOmitted === true;
+    if (omitted !== omittedMode.get(join.cport)) {
+      inconsistent.add(join.cport);
+      return join;
+    }
+    if (!omitted) return join;
+    const next = counters.get(join.cport) ?? 0;
+    counters.set(join.cport, next + 1);
+    return { ...join, cportIndex: next };
+  });
+  return { joins: out, inconsistentPorts: [...inconsistent] };
 }
 
 export interface AttrAssignDecl {
@@ -52,6 +92,8 @@ export interface CellDecl {
   readonly celltypeName: string;
   readonly cellName: string;
   readonly joins: readonly JoinAssignDecl[];
+  /** 添字を書いた結合と省いた結合が混ざっている呼び口の名前（外部仕様4.6.x）。 */
+  readonly inconsistentJoinPorts?: readonly string[];
   readonly attrs: readonly AttrAssignDecl[];
   readonly line: number;
   readonly column: number;
@@ -95,9 +137,10 @@ export interface CompositeDecl {
   readonly name: string;
   readonly ports: readonly PortDecl[];
   readonly attributes: readonly string[];
-  readonly active: boolean;
+  readonly attributeOptions?: ReadonlyMap<string, readonly string[]>;
   readonly structure: CompositeStructure;
   readonly hasUnsupportedSyntax: boolean;
+  readonly active: boolean;
 }
 
 export interface ParsedCdl {
@@ -148,6 +191,23 @@ function innermostIdentifier(node: Node): string | undefined {
   return undefined;
 }
 
+function hasActiveSpecifier(node: Node): boolean {
+  const container = node.type === "specified_statement" || node.type === "specified_composite_celltype_statement"
+    ? node
+    : (node.parent?.type === "specified_statement" || node.parent?.type === "specified_composite_celltype_statement")
+    ? node.parent
+    : undefined;
+  if (!container) return false;
+  for (let i = 0; i < container.namedChildCount; i += 1) {
+    const child = container.namedChild(i);
+    if (!child) continue;
+    if (child.type === "specifier_list" || child.type.includes("specifier")) {
+      if (/\bactive\b/.test(child.text)) return true;
+    }
+  }
+  return false;
+}
+
 export class CdlDocumentBuilder {
   private constructor() {}
 
@@ -178,9 +238,6 @@ export class CdlDocumentBuilder {
       const statement = node.type === "specified_statement" ? node.childForFieldName("statement") :
         node.type === "region_cell" ? node.childForFieldName("cell") : node;
       if (!statement) return;
-      const active = node.type === "specified_statement" &&
-        (node.childForFieldName("specifiers")?.namedChildren.some((specifier) =>
-          specifier?.type === "statement_specifier" && specifier.text.trim() === "active") ?? false);
       if (statement.type === "namespace" || statement.type === "region") {
         const name = statement.childForFieldName("name");
         if (!name) return;
@@ -204,12 +261,12 @@ export class CdlDocumentBuilder {
           break;
         }
         case "celltype": {
-          const celltype = CdlDocumentBuilder.collectCelltype(statement, parentPath, active);
+          const celltype = CdlDocumentBuilder.collectCelltype(statement, parentPath);
           if (celltype) celltypes.push(celltype);
           break;
         }
         case "composite_celltype": {
-          const composite = CdlDocumentBuilder.collectComposite(statement, parentPath, active);
+          const composite = CdlDocumentBuilder.collectComposite(statement, parentPath);
           if (composite) composites.push(composite);
           break;
         }
@@ -297,12 +354,17 @@ export class CdlDocumentBuilder {
     if (!kindNode || !signature || !name) return undefined;
     const kind = kindNode.text === "entry" ? "entry" : "call";
     const sizeNode = portNode.childForFieldName("size");
-    const parsedSize = sizeNode ? Number(sizeNode.text) : Number.NaN;
+    const parsedSize = sizeNode ? evaluateConstInt(sizeNode.text) : undefined;
+    // 長さは1以上。式が評価できない・0以下のときは長さを決めず、呼び出し側が警告にする。
+    const arraySize = parsedSize !== undefined && parsedSize >= 1 ? parsedSize : undefined;
     return {
       kind,
       signature: signature.text,
       name: name.text,
-      arraySize: Number.isFinite(parsedSize) ? parsedSize : undefined,
+      arraySize,
+      // `[]`（可変長）だけを配列として扱う。長さの式が評価できないものは、推測せず単一のポートのままにする。
+      isArray: arraySize !== undefined || (sizeNode === null && portNode.children.some((child) => child?.type === "[")),
+      ...(sizeNode && arraySize === undefined ? { unresolvedSize: sizeNode.text } : {}),
       // 実際のCDLでは require は独立した celltype_statement であり、ポート宣言の修飾子ではない。
       // `port`文から立てることはない（`require`は`collectRequire`が拾う）。
       isRequire: false,
@@ -313,23 +375,39 @@ export class CdlDocumentBuilder {
   }
 
   private static collectAttributeNames(attributeNode: Node): string[] {
+    return this.collectAttributes(attributeNode).names;
+  }
+
+  private static collectAttributes(attributeNode: Node): {
+    names: string[];
+    options: Map<string, readonly string[]>;
+  } {
     const names: string[] = [];
+    const options = new Map<string, readonly string[]>();
     const body = attributeNode.childForFieldName("body");
-    if (!body) return names;
+    if (!body) return { names, options };
     for (let i = 0; i < body.namedChildCount; i += 1) {
       const decl = body.namedChild(i);
       if (!decl || decl.type !== "attribute_declaration") continue;
-      const name = innermostIdentifier(decl);
-      if (name !== undefined) names.push(name);
+      const declarator = decl.childForFieldName("declarator");
+      const name = declarator ? innermostIdentifier(declarator) : innermostIdentifier(decl);
+      if (name !== undefined) {
+        names.push(name);
+        const text = decl.text;
+        if (/\bbool(_t)?\b/.test(text)) {
+          options.set(name, ["true", "false"]);
+        }
+      }
     }
-    return names;
+    return { names, options };
   }
 
-  private static collectComposite(compositeNode: Node, parentPath: string, active = false): CompositeDecl | undefined {
+  private static collectComposite(compositeNode: Node, parentPath: string): CompositeDecl | undefined {
     const name = compositeNode.childForFieldName("name");
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const attributeOptions = new Map<string, readonly string[]>();
     const internalCells: CompositeStructure["internalCells"][number][] = [];
     const portExports: CompositeStructure["portExports"][number][] = [];
     let hasUnsupportedSyntax = compositeNode.hasError;
@@ -351,9 +429,12 @@ export class CdlDocumentBuilder {
             if (port) ports.push(port);
             else hasUnsupportedSyntax = true;
           } else if (member.type === "composite_attribute") {
-            const names = CdlDocumentBuilder.collectAttributeNames(member);
-            if (names.length === 0) hasUnsupportedSyntax = true;
-            attributes.push(...names);
+            const collected = CdlDocumentBuilder.collectAttributes(member);
+            if (collected.names.length === 0) hasUnsupportedSyntax = true;
+            attributes.push(...collected.names);
+            for (const [k, v] of collected.options) {
+              attributeOptions.set(k, v);
+            }
           } else if (member.type === "internal_cell") {
             const type = member.childForFieldName("type");
             const cellName = member.childForFieldName("name");
@@ -405,17 +486,19 @@ export class CdlDocumentBuilder {
       name: qualifiedName,
       ports,
       attributes,
-      active,
+      attributeOptions,
       structure: { internalCells, portExports, rawText: compositeNode.text },
       hasUnsupportedSyntax,
+      active: hasActiveSpecifier(compositeNode),
     };
   }
 
-  private static collectCelltype(celltypeNode: Node, parentPath: string, active = false): CelltypeDecl | undefined {
+  private static collectCelltype(celltypeNode: Node, parentPath: string): CelltypeDecl | undefined {
     const name = celltypeNode.childForFieldName("name");
     if (!name) return undefined;
     const ports: PortDecl[] = [];
     const attributes: string[] = [];
+    const attributeOptions = new Map<string, readonly string[]>();
     const body = celltypeNode.childForFieldName("body");
     if (body) {
       for (let i = 0; i < body.namedChildCount; i += 1) {
@@ -430,7 +513,11 @@ export class CdlDocumentBuilder {
             const port = CdlDocumentBuilder.collectPort(member, parentPath);
             if (port) ports.push(port);
           } else if (member.type === "attribute") {
-            attributes.push(...CdlDocumentBuilder.collectAttributeNames(member));
+            const collected = CdlDocumentBuilder.collectAttributes(member);
+            attributes.push(...collected.names);
+            for (const [k, v] of collected.options) {
+              attributeOptions.set(k, v);
+            }
           } else if (member.type === "require") {
             const required = CdlDocumentBuilder.collectRequire(member, parentPath);
             if (required) ports.push(required);
@@ -440,7 +527,7 @@ export class CdlDocumentBuilder {
       }
     }
     const qualifiedName = parentPath === "::" ? name.text : `${parentPath.slice(2)}::${name.text}`;
-    return { name: name.text, qualifiedName, ports, attributes, active };
+    return { name: name.text, qualifiedName, ports, attributes, attributeOptions, active: hasActiveSpecifier(celltypeNode) };
   }
 
   private static collectCell(cellNode: Node, regionPath = "::"): CellDecl | undefined {
@@ -462,8 +549,8 @@ export class CdlDocumentBuilder {
       if (!lhs || !rawValue) continue;
 
       const indexNode = join.childForFieldName("index");
-      const parsedIndex = indexNode ? Number(indexNode.text) : Number.NaN;
-      const cportIndex = Number.isFinite(parsedIndex) ? parsedIndex : undefined;
+      const parsedIndex = indexNode ? evaluateConstInt(indexNode.text) : undefined;
+      const cportIndex = parsedIndex !== undefined && parsedIndex >= 0 ? parsedIndex : undefined;
 
       const value = unwrapInitializer(rawValue);
       if (value.type === "field_expression") {
@@ -471,18 +558,57 @@ export class CdlDocumentBuilder {
         const argument = value.childForFieldName("argument");
         const field = value.childForFieldName("field");
         if (argument && field) {
-          joins.push({ cport: lhs.text, cportIndex, targetCell: argument.text, eport: field.text });
+          const subscriptOmitted = !indexNode && /^[^=]*\[\s*\]/.test(join.text);
+          joins.push({
+            cport: lhs.text, cportIndex, ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+            targetCell: argument.text, eport: field.text,
+          });
           continue;
+        }
+      }
+      if (value.type === "subscript_expression") {
+        // `cPort = targetCell.ePort[idx];` — 添字付き受け口への結合
+        const targetExpr = value.childForFieldName("argument") ?? value.namedChild(0);
+        if (targetExpr && targetExpr.type === "field_expression") {
+          const argument = targetExpr.childForFieldName("argument");
+          const field = targetExpr.childForFieldName("field");
+          if (argument && field) {
+            const subscriptOmitted = !indexNode && /^[^=]*\[\s*\]/.test(join.text);
+            const eportIndexNode = value.childForFieldName("index") ?? value.namedChild(1);
+            const parsedEportIndex = eportIndexNode ? evaluateConstInt(eportIndexNode.text) : undefined;
+            if (eportIndexNode && parsedEportIndex !== undefined && parsedEportIndex >= 0) {
+              joins.push({
+                cport: lhs.text,
+                cportIndex,
+                ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+                targetCell: argument.text,
+                eport: field.text,
+                eportIndex: parsedEportIndex,
+              });
+            } else {
+              joins.push({
+                cport: lhs.text,
+                cportIndex,
+                ...(subscriptOmitted ? { subscriptOmitted: true } : {}),
+                targetCell: argument.text,
+                eport: field.text,
+                eportSubscriptInvalid: eportIndexNode ? eportIndexNode.text.trim() : "",
+              });
+            }
+            continue;
+          }
         }
       }
       // それ以外は属性代入。値は元テキストのまま保持する。
       attrs.push({ name: lhs.text, expr: value.text });
     }
 
+    const { joins: numberedJoins, inconsistentPorts } = assignOmittedSubscripts(joins);
     return {
       celltypeName: type.text,
       cellName: name.text,
-      joins,
+      joins: numberedJoins,
+      ...(inconsistentPorts.length > 0 ? { inconsistentJoinPorts: inconsistentPorts } : {}),
       attrs,
       line: cellNode.startPosition.row + 1,
       column: cellNode.startPosition.column + 1,

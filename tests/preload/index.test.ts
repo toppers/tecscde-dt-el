@@ -35,6 +35,16 @@ function exposedApi(): TecscdeApi {
   return exposedApiObject;
 }
 
+describe("preload - runtime versions (for the version dialog, 3.8)", () => {
+  it("exposes read-only Electron, Chromium, Node versions and the platform", () => {
+    const v = exposedApi().versions;
+    expect(v.node).toBe(process.versions.node);
+    expect(v.platform).toBe(process.platform);
+    expect(typeof v.electron).toBe("string");
+    expect(typeof v.chrome).toBe("string");
+  });
+});
+
 describe("preload", () => {
   it("file.save invokes file:save with path and content", () => {
     exposedApi().file.save("/a.cde", "content");
@@ -49,6 +59,20 @@ describe("preload", () => {
   it("file.export invokes file:export with path and data", () => {
     exposedApi().file.export("/out.txt", "data");
     expect(invoke).toHaveBeenCalledWith("file:export", "/out.txt", "data");
+  });
+
+  it("file export forwards PNG bytes and a format-specific path request", () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    exposedApi().file.chooseExportPath("png", "diagram.png");
+    expect(invoke).toHaveBeenCalledWith("file:chooseExportPath", "png", "diagram.png");
+    exposedApi().file.export("/out.png", bytes);
+    expect(invoke).toHaveBeenCalledWith("file:export", "/out.png", bytes);
+  });
+
+  it("file.exportPdf forwards the SVG and page options", () => {
+    const page = { kind: "custom" as const, widthMm: 100, heightMm: 80 };
+    exposedApi().file.exportPdf("/out.pdf", "<svg/>", page);
+    expect(invoke).toHaveBeenCalledWith("file:exportPdf", "/out.pdf", "<svg/>", page);
   });
 
   it("log.append invokes log:append with the lines", () => {
@@ -126,6 +150,11 @@ describe("preload", () => {
   it("settings.get invokes settings:get", () => {
     exposedApi().settings.get();
     expect(invoke).toHaveBeenCalledWith("settings:get");
+  });
+
+  it("settings.chooseCppPath invokes settings:chooseCppPath with currentPath", () => {
+    exposedApi().settings.chooseCppPath("/usr/bin/gcc");
+    expect(invoke).toHaveBeenCalledWith("settings:chooseCppPath", "/usr/bin/gcc");
   });
 
   it("clipboard.writeText invokes clipboard:writeText with the text", () => {

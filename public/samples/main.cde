@@ -1,9 +1,147 @@
-cell tLogger cLogger1 {
-  level = 1;
-};
 
-cell tSensor cSensor1 {
-};
+
+
+
+
+
+__tool_info__("tecsgen") {
+  "tecscde_version": "0.1.0",
+  "cde_format_version": "0.1.0.0",
+  "saved_at": "2026-10-28T05:14:12.875Z",
+  "base_dir": "E:/example/project",
+  "define_macro": [],
+  "import_path": [
+    "./include"
+  ],
+  "direct_import": [
+    "celltypes.cdl"
+  ],
+  "cpp": "gcc -E -DTECSGEN"
+}
+
+__tool_info__("tecscde") {
+  "paper": {
+    "size": "A4",
+    "orientation": "LANDSCAPE"
+  },
+  "cell_list": {
+    "cController1": {
+      "location": [
+        120,
+        10,
+        25,
+        15
+      ],
+      "region": "::",
+      "ports": {
+        "cLog": {
+          "edge": "LEFT",
+          "offset": 6
+        },
+        "cSensor": {
+          "edge": "LEFT",
+          "offset": 10
+        }
+      }
+    },
+    "cLogger1": {
+      "location": [
+        34,
+        9,
+        25,
+        15
+      ],
+      "region": "::",
+      "ports": {
+        "eLog": {
+          "edge": "RIGHT",
+          "offset": 11
+        }
+      }
+    },
+    "cSensor1": {
+      "location": [
+        76,
+        65,
+        25,
+        15
+      ],
+      "region": "::",
+      "ports": {
+        "eRead": {
+          "edge": "TOP",
+          "offset": 12
+        }
+      }
+    }
+  },
+  "join_list": {
+    "cController1.cLog": {
+      "cell": "cController1",
+      "cport": "cLog",
+      "targetCell": "cLogger1",
+      "eport": "eLog",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 16,
+          "from": 120,
+          "to": 116
+        },
+        {
+          "dir": "H",
+          "fixed": 16,
+          "from": 116,
+          "to": 63
+        },
+        {
+          "dir": "V",
+          "fixed": 63,
+          "from": 16,
+          "to": 20
+        },
+        {
+          "dir": "H",
+          "fixed": 20,
+          "from": 63,
+          "to": 59
+        }
+      ]
+    },
+    "cController1.cSensor": {
+      "cell": "cController1",
+      "cport": "cSensor",
+      "targetCell": "cSensor1",
+      "eport": "eRead",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 20,
+          "from": 120,
+          "to": 116
+        },
+        {
+          "dir": "H",
+          "fixed": 20,
+          "from": 116,
+          "to": 88
+        },
+        {
+          "dir": "V",
+          "fixed": 88,
+          "from": 20,
+          "to": 61
+        },
+        {
+          "dir": "V",
+          "fixed": 88,
+          "from": 61,
+          "to": 65
+        }
+      ]
+    }
+  }
+}
 
 cell tController cController1 {
   cLog = cLogger1.eLog;
@@ -11,19 +149,9 @@ cell tController cController1 {
   intervalMs = 100;
 };
 
-__tool_info__("tecsgen") {
-  "tecscde_version": "0.1.0",
-  "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-08-29T00:00:00.000Z",
-  "base_dir": "E:/example/project",
-  "import_path": ["./include"],
-  "define_macro": [],
-  "direct_import": ["celltypes.cdl"],
-  "cpp": "gcc -E -DTECSGEN"
-}
+cell tLogger cLogger1 {
+  level = 1;
+};
 
-__tool_info__("tecscde") {
-  "paper": { "size": "A4", "orientation": "LANDSCAPE" },
-  "cell_list": {},
-  "join_list": {}
-}
+cell tSensor cSensor1 {
+};

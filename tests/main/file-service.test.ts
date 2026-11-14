@@ -8,6 +8,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FileService } from "../../src/main/file-service.js";
 
+const pdfRender = vi.hoisted(() => vi.fn());
+vi.mock("../../src/main/pdf-exporter.js", () => ({ PdfExporter: { render: pdfRender } }));
+
 const showOpenDialog = vi.fn();
 const showSaveDialog = vi.fn();
 const showMessageBox = vi.fn();
@@ -37,6 +40,7 @@ describe("FileService", () => {
     showOpenDialog.mockReset();
     showSaveDialog.mockReset();
     showMessageBox.mockReset();
+    pdfRender.mockReset();
     getPath.mockReset().mockReturnValue(dir);
     // このマシン自体がWindowsのため、app-settings.tsのLOCALAPPDATA分岐（2026-09-22）が
     // 実際のユーザーのAppDataへ書き込まないよう、一時ディレクトリへ差し替えて分離する。
@@ -207,6 +211,77 @@ describe("FileService", () => {
     expect(readFileSync(target, "utf-8")).toBe("content");
   });
 
+  it("chooseExportPath asks for an SVG file and cancels without writing", async () => {
+    showSaveDialog.mockResolvedValue({ canceled: true });
+    const service = new FileService({} as never);
+
+    await expect(service.chooseExportPath("svg", "diagram.svg")).resolves.toBeNull();
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.svg",
+      filters: [{ name: "SVG files", extensions: ["svg"] }],
+    });
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("chooseExportPath returns the selected SVG path, which exportFile writes atomically", async () => {
+    const target = join(dir, "diagram.svg");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const service = new FileService({} as never);
+
+    const chosen = await service.chooseExportPath("svg", "diagram.svg");
+    expect(chosen).toBe(target);
+    await service.exportFile(chosen!, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    expect(readFileSync(target, "utf-8")).toContain("<svg");
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("chooses a PNG path and writes PNG bytes without text conversion", async () => {
+    const target = join(dir, "diagram.png");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const service = new FileService({} as never);
+    const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 255]);
+
+    await expect(service.chooseExportPath("png", "diagram.png")).resolves.toBe(target);
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.png",
+      filters: [{ name: "PNG files", extensions: ["png"] }],
+    });
+    await service.exportFile(target, bytes);
+    expect(readFileSync(target)).toEqual(Buffer.from(bytes));
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("chooses a PDF path and writes generated PDF bytes atomically", async () => {
+    const target = join(dir, "diagram.pdf");
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: target });
+    const bytes = Buffer.from("%PDF-1.7\n");
+    pdfRender.mockResolvedValue(bytes);
+    const service = new FileService({} as never);
+    const page = { kind: "paper" as const, size: "A4" as const, orientation: "LANDSCAPE" as const };
+
+    await expect(service.chooseExportPath("pdf", "diagram.pdf")).resolves.toBe(target);
+    expect(showSaveDialog).toHaveBeenCalledWith(expect.anything(), {
+      defaultPath: "diagram.pdf",
+      filters: [{ name: "PDF files", extensions: ["pdf"] }],
+    });
+    await service.exportPdf(target, "<svg/>", page);
+    expect(pdfRender).toHaveBeenCalledWith("<svg/>", page);
+    expect(readFileSync(target)).toEqual(bytes);
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("keeps an existing PDF when PDF generation fails", async () => {
+    const target = join(dir, "diagram.pdf");
+    writeFileSync(target, "old PDF");
+    pdfRender.mockRejectedValue(new Error("print failed"));
+    const service = new FileService({} as never);
+
+    await expect(service.exportPdf(target, "<svg/>", { kind: "custom", widthMm: 100, heightMm: 80 }))
+      .rejects.toThrow("print failed");
+    expect(readFileSync(target, "utf-8")).toBe("old PDF");
+    expect(readdirSync(dir).filter((file) => file.includes(".tmp-"))).toEqual([]);
+  });
+
   it("openPath (7.4節: コマンドライン引数由来) reads a single path without a dialog", async () => {
     const path = join(dir, "argv.cde");
     writeFileSync(path, "from-argv");
@@ -237,7 +312,14 @@ describe("FileService", () => {
     showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [chosen] });
     const service = new FileService({} as never);
 
-    await service.chooseFolder();
+    // LOCALAPPDATA分岐はWindows限定のため、実行OSに関わらずwin32として扱う。
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      await service.chooseFolder();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
 
     const saved = JSON.parse(
       readFileSync(join(localAppDataDir, "tecscde-dt-el", "settings.json"), "utf-8"),
@@ -438,6 +520,160 @@ describe("FileService", () => {
 
     expect(result.editable.path).toBe(resolve(messyPath));
     expect(result.editable.path).toBe(cleanPath);
+  });
+
+  describe("resolveImports - _CDL_FILES.txt in a -S directory and its subdirectories (DT spec 5.3)", () => {
+    let editablePath: string;
+    let sysDir: string;
+
+    beforeEach(() => {
+      mkdirSync(join(dir, "editable"), { recursive: true });
+      editablePath = join(dir, "editable", "main.cde");
+      sysDir = join(dir, "sys");
+      mkdirSync(join(sysDir, "kernel", "deep"), { recursive: true });
+    });
+
+    const resolveInSys = (service: FileService, specifier: string, kind: "import" | "import_C" = "import") =>
+      service.resolveImports(editablePath, [{ kind, specifier }], {
+        importPaths: [sysDir],
+        systemDirs: [sysDir],
+      });
+
+    it("finds a file listed in the -S directory's own list", async () => {
+      writeFileSync(join(sysDir, "top.cdl"), "top-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "top.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "top.cdl"));
+      expect(resolved?.content).toBe("top-content");
+    });
+
+    it("for sub/x.cdl, reads sub's own _CDL_FILES.txt and looks for x.cdl in it", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "k.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
+      expect(resolved?.content).toBe("k-content");
+    });
+
+    it("works for nested subdirectories (a/b/x.cdl uses a/b/_CDL_FILES.txt)", async () => {
+      writeFileSync(join(sysDir, "kernel", "deep", "d.cdl"), "d-content");
+      writeFileSync(join(sysDir, "kernel", "deep", "_CDL_FILES.txt"), "d.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/deep/d.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "deep", "d.cdl"));
+    });
+
+    it("does not use the parent's list for a subdirectory file (the subdirectory's list is the one that counts)", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "other.cdl\n"); // k.cdl は載っていない
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "kernel/k.cdl\n"); // 親の一覧に相対パスで載せても使わない
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
+
+      expect(resolved).toEqual({ request: { kind: "import", specifier: "kernel/k.cdl" }, error: "not-found" });
+    });
+
+    it("does not look in the directory when the list exists but the file is not listed", async () => {
+      writeFileSync(join(sysDir, "other.cdl"), "other-content"); // 実在するが、リストに無い
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "other.cdl");
+
+      expect(resolved).toEqual({ request: { kind: "import", specifier: "other.cdl" }, error: "not-found" });
+    });
+
+    it("probes a subdirectory that has no list of its own, even when the -S directory has one", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n"); // kernel/ には一覧が無い
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "kernel/k.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
+    });
+
+    it("keeps probing the directory when there is no list at all (existing behaviour)", async () => {
+      writeFileSync(join(sysDir, "plain.cdl"), "plain-content");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "plain.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "plain.cdl"));
+    });
+
+    // 仕様の入力は`\`区切りのパス。`\`が区切りになるのはWindowsだけなので、他のOSではスキップする。
+    it.skipIf(process.platform !== "win32")("normalizes separators, a leading ./ and CRLF in the list; ignores blank lines", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "\r\n.\\k.cdl\r\n\r\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "./kernel\\k.cdl");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
+    });
+
+    it("treats a listed file that does not exist on disk as not found", async () => {
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "ghost.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "ghost.cdl");
+
+      expect(resolved).toEqual({ request: { kind: "import", specifier: "ghost.cdl" }, error: "not-found" });
+    });
+
+    it("keeps probing the directory for import_C (the list names CDL files only)", async () => {
+      writeFileSync(join(sysDir, "tecs.h"), "header-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+
+      const [resolved] = await resolveInSys(new FileService({} as never), "tecs.h", "import_C");
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "tecs.h"));
+    });
+
+    it("uses lists only under -S directories; a -I directory without systemDirs is still probed", async () => {
+      writeFileSync(join(sysDir, "other.cdl"), "other-content");
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "other.cdl" }],
+        { importPaths: [sysDir] }, // systemDirs なし = -I と同じ扱い
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "other.cdl"));
+    });
+
+    it("does not apply a list to a file that a specifier like ../x.cdl places outside the -S directories", async () => {
+      writeFileSync(join(dir, "outside.cdl"), "outside-content");
+      writeFileSync(join(dir, "_CDL_FILES.txt"), "nothing.cdl\n"); // -S の外の一覧は使わない
+      writeFileSync(join(sysDir, "_CDL_FILES.txt"), "top.cdl\n");
+      const service = new FileService({} as never);
+
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "../outside.cdl" }],
+        { importPaths: [sysDir], systemDirs: [sysDir], baseDir: sysDir },
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(dir, "outside.cdl"));
+    });
+
+    it("also finds -S directories that a relative importPaths entry cannot reach from the search directories", async () => {
+      writeFileSync(join(sysDir, "kernel", "k.cdl"), "k-content");
+      writeFileSync(join(sysDir, "kernel", "_CDL_FILES.txt"), "k.cdl\n");
+      const service = new FileService({} as never);
+
+      // 相対指定は editable のディレクトリを基点にすると sysDir に一致しない。それでも systemDirs（絶対）から見つかる。
+      const [resolved] = await service.resolveImports(
+        editablePath,
+        [{ kind: "import", specifier: "kernel/k.cdl" }],
+        { importPaths: ["../nowhere"], systemDirs: [sysDir] },
+      );
+
+      expect(resolved?.canonicalPath).toBe(join(sysDir, "kernel", "k.cdl"));
+    });
   });
 
   describe("resolveImports (第7D章7.5.2節)", () => {

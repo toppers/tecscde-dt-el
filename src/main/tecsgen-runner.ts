@@ -8,9 +8,18 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { TecsgenResult, TecsgenVersionResult, TecsgenLaunchFailure, CppResult, GeneratedCdlResult, ResolvedTecsgenCommand } from "../shared/ipc-types.js";
+import type {
+  TecsgenResult,
+  TecsgenVersionResult,
+  TecsgenLaunchFailure,
+  CppResult,
+  CppOriginReason,
+  GeneratedCdlResult,
+  ResolvedTecsgenCommand,
+} from "../shared/ipc-types.js";
 import { environmentCommand, snapshotTecsgenEnvironment, splitCommand } from "./tecsgen-path-resolver.js";
 import { createTecsgenInvocation } from "./tecsgen-invocation.js";
+import { findOnPath, type ResolvedCppCommand } from "./tool-settings.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +68,30 @@ function withoutOutputOption(args: readonly string[]): string[] {
   return filtered;
 }
 
+/**
+ * `-S`/`--system-dir`（システム定義ディレクトリ）をtecsgen向けの`-I`に置き換える（記述順を保つ）。
+ * tecsgen本体は`-S`を持たない（アプリ独自。外部仕様5.3・8.x）。そのまま渡すと、`-S`をCDLのファイル名と
+ * 取り違えて失敗し、Plugin生成型が読み込まれない。`-S<dir>`・`--system-dir=<dir>`の形も扱う。
+ */
+function systemDirsAsImportPaths(args: readonly string[]): string[] {
+  const converted: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "-S" || arg === "--system-dir") {
+      const value = args[i + 1];
+      if (value !== undefined) converted.push("-I", value);
+      i += 1;
+    } else if (arg.startsWith("--system-dir=")) {
+      converted.push("-I", arg.slice("--system-dir=".length));
+    } else if (arg.startsWith("-S") && !arg.startsWith("--")) {
+      converted.push("-I", arg.slice(2));
+    } else {
+      converted.push(arg);
+    }
+  }
+  return converted;
+}
+
 /** `-k`/`--kcode`（CDLの文字コード指定）が書かれているか。`-k <code>`、`-k<code>`、`--kcode <code>`、`--kcode=<code>`の各形を見る。 */
 function hasKcodeOption(args: readonly string[]): boolean {
   return args.some((arg) => arg === "-k" || arg === "--kcode" || arg.startsWith("--kcode=") || (arg.startsWith("-k") && !arg.startsWith("--")));
@@ -77,6 +110,21 @@ export function classifyLaunchFailure(err: unknown, command: string): TecsgenLau
   if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return { kind: "output-overflow", command, detail };
   if (e.killed) return { kind: "timeout", command, detail: e.signal ?? detail };
   return { kind: "launch-error", command, detail };
+}
+
+/**
+ * 標準エラー出力を最大 maxLen 文字に要約する。
+ * 空行を除き、改行を空白に置換して切り詰める。
+ */
+export function summarizeStderr(stderr: string, maxLen = 200): string {
+  if (!stderr) return "";
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return "";
+  const joined = lines.join(" ");
+  return joined.length <= maxLen ? joined : joined.slice(0, maxLen);
 }
 
 export class TecsgenRunner {
@@ -113,16 +161,30 @@ export class TecsgenRunner {
     cwd?: string,
     execOptions?: { readonly timeout: number; readonly cwd?: string },
   ): Promise<TecsgenResult> {
+    return (await this.runCommandWithText(resolved, args, cwd, execOptions)).result;
+  }
+
+  /** `result`に加え、実際に使った起動コマンド（引数込み）を返す。バージョン情報ダイアログ用（外部仕様3.8）。 */
+  private async runCommandWithText(
+    resolved: Promise<ResolvedTecsgenCommand>,
+    args: readonly string[],
+    cwd?: string,
+    execOptions?: { readonly timeout: number; readonly cwd?: string },
+  ): Promise<{ readonly result: TecsgenResult; readonly command: string }> {
+    let commandText = "tecsgen";
     let command = this.environment.TECSGEN_COMMAND ?? "tecsgen";
     let settingsRevision: number | undefined;
-    const withRevision = (result: TecsgenResult): TecsgenResult =>
-      settingsRevision === undefined ? result : { ...result, settingsRevision };
+    const done = (result: TecsgenResult): { readonly result: TecsgenResult; readonly command: string } => ({
+      result: settingsRevision === undefined ? result : { ...result, settingsRevision },
+      command: commandText,
+    });
     try {
       const snapshot = await resolved;
       settingsRevision = snapshot.revision;
       if (snapshot.source === "missing") throw Object.assign(new Error("tecsgen not found"), { code: "ENOENT" });
       if (!snapshot.executable) throw new Error("TECSGEN_COMMAND or tecsgen path is empty or invalid");
       command = snapshot.executable;
+      commandText = [snapshot.executable, ...snapshot.args].join(" ");
       // A script host can exist after its selected entry point has disappeared.
       // Preserve the normal not-found result instead of treating host exit 1 as
       // an unknown version, and do not resolve unqualified environment commands.
@@ -139,19 +201,19 @@ export class TecsgenRunner {
         ...(invocation.windowsVerbatimArguments !== undefined ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
         ...(invocation.env ? { env: { ...process.env, ...invocation.env } } : {}),
       });
-      return withRevision({ stdout, stderr, exitCode: 0, executableFound: true });
+      return done({ stdout, stderr, exitCode: 0, executableFound: true });
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
       const launchFailure = classifyLaunchFailure(err, command);
       if (launchFailure?.kind === "not-found") {
         // 実行ファイルが見つからない（第2章2.4節の新規制約、11.2節#3の未決事項）
-        return withRevision({ stdout: "", stderr: "", exitCode: null, executableFound: false, launchFailure });
+        return done({ stdout: "", stderr: "", exitCode: null, executableFound: false, launchFailure });
       }
       if (launchFailure) {
         // 権限なし・タイムアウト・出力過多など（第9章9.7節）。終了コードは無い。
-        return withRevision({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: null, executableFound: true, launchFailure });
+        return done({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: null, executableFound: true, launchFailure });
       }
-      return withRevision({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.code as number, executableFound: true });
+      return done({ stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.code as number, executableFound: true });
     }
   }
 
@@ -172,7 +234,7 @@ export class TecsgenRunner {
       const kcodeArgs = optionsFilePath && !hasKcodeOption(invocationArgs) ? ["-k", "utf8"] : [];
       const result = await this.runCommand(
         Promise.resolve(command),
-        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(invocationArgs)],
+        ["-g", outputDir, ...kcodeArgs, ...withoutOutputOption(systemDirsAsImportPaths(invocationArgs))],
         dirname(optionsFilePath ?? editingFilePath),
       );
       return { result, sources: await generatedCdlSources(outputDir) };
@@ -185,22 +247,123 @@ export class TecsgenRunner {
    * `includeDirs`はtecsgenの`-I`/import_pathに相当する探索ディレクトリ。これを渡さないと
    * `#include "kernel.h"`のようなプロジェクト内のヘッダを解決できず、プリプロセスが失敗する。
    */
-  async preprocess(headerPath: string, cppCommand?: string, includeDirs: readonly string[] = []): Promise<CppResult> {
-    const cmd = cppCommand?.trim() || "gcc -E -DTECSGEN";
+  async preprocess(
+    headerPath: string,
+    cppCommand?: string | ResolvedCppCommand,
+    includeDirs: readonly string[] = [],
+  ): Promise<CppResult> {
+    let cmd: string;
+    let executable: string;
+    let fullPath: string;
+    let originReason: CppOriginReason;
+
+    if (typeof cppCommand === "object" && cppCommand !== null) {
+      cmd = cppCommand.command;
+      executable = cppCommand.executable;
+      fullPath = cppCommand.fullPath;
+      originReason = cppCommand.originReason;
+    } else if (typeof cppCommand === "string" && cppCommand.trim().length > 0) {
+      cmd = cppCommand.trim();
+      originReason = "ユーザ直接指定";
+      try {
+        const parts = splitCommand(cmd);
+        executable = parts[0] ?? "";
+      } catch {
+        executable = cmd.split(/\s+/)[0] ?? "";
+      }
+      fullPath = isAbsolute(executable) ? executable : (findOnPath(executable) ?? executable);
+    } else {
+      cmd = "gcc -E -DTECSGEN";
+      originReason = "フォールバック";
+      executable = "gcc";
+      const fallbackFound = findOnPath("gcc");
+      fullPath = fallbackFound ?? "未検出 (PATH上)";
+    }
+
     try {
-      const [executable, ...baseArgs] = splitCommand(cmd);
+      const parts = splitCommand(cmd);
+      const exe = parts[0];
+      const baseArgs = parts.slice(1);
+      if (!exe) {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          executableFound: false,
+          command: cmd,
+          originReason,
+          fullPath: fullPath || "未検出 (PATH上)",
+          failureKind: "not-found",
+          failureDetail: `'${executable || cmd}' が見つかりません`,
+        };
+      }
+      executable = exe;
+
       const includeArgs = [...new Set(includeDirs.map((dir) => `-I${resolve(dir)}`))];
-      const { stdout, stderr } = await execFileAsync(executable!, [...baseArgs, ...includeArgs, headerPath], {
+      const { stdout, stderr } = await execFileAsync(executable, [...baseArgs, ...includeArgs, headerPath], {
         timeout: 30_000,
       });
-      return { stdout, stderr, exitCode: 0, executableFound: true };
+      return {
+        stdout,
+        stderr,
+        exitCode: 0,
+        executableFound: true,
+        command: cmd,
+        originReason,
+        fullPath,
+      };
     } catch (err) {
       const e = err as ExecFileException & { stdout?: string; stderr?: string };
       if (e.code === "ENOENT") {
-        return { stdout: "", stderr: "", exitCode: null, executableFound: false };
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          executableFound: false,
+          command: cmd,
+          originReason,
+          fullPath: fullPath || "未検出 (PATH上)",
+          failureKind: "not-found",
+          failureDetail: `'${executable}' が見つかりません`,
+        };
       }
+
+      const isTimeout =
+        e.killed === true ||
+        e.signal === "SIGTERM" ||
+        e.code === "ETIMEDOUT" ||
+        (typeof e.message === "string" && e.message.toLowerCase().includes("timed out"));
+
+      if (isTimeout) {
+        return {
+          stdout: e.stdout ?? "",
+          stderr: e.stderr ?? "",
+          exitCode: typeof e.code === "number" ? e.code : null,
+          executableFound: true,
+          command: cmd,
+          originReason,
+          fullPath,
+          failureKind: "timeout",
+          failureDetail: "30秒以内に完了しなかったためタイムアウトしました",
+        };
+      }
+
       const exitCode = typeof e.code === "number" ? e.code : 1;
-      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode, executableFound: true };
+      const rawStderr = e.stderr ?? "";
+      const stderrExcerpt = summarizeStderr(rawStderr);
+      const failureDetail = stderrExcerpt ? `終了コード ${exitCode}: ${stderrExcerpt}` : `終了コード ${exitCode}`;
+
+      return {
+        stdout: e.stdout ?? "",
+        stderr: rawStderr,
+        exitCode,
+        executableFound: true,
+        command: cmd,
+        originReason,
+        fullPath,
+        failureKind: "failed",
+        failureDetail,
+      };
     }
   }
 
@@ -209,16 +372,17 @@ export class TecsgenRunner {
    * 標準出力が空なら標準エラー出力から読む。
    */
   async version(): Promise<TecsgenVersionResult> {
-    const result = await this.run(["--version"]);
-    if (result.launchFailure?.kind === "not-found") return { kind: "not-found" };
+    // 外部仕様3.8: バージョン情報ダイアログに、使われた起動コマンドも出す。
+    const { result, command } = await this.runCommandWithText(this.command(), ["--version"]);
+    if (result.launchFailure?.kind === "not-found") return { kind: "not-found", command };
     if (result.launchFailure) {
       const { kind, detail } = result.launchFailure;
-      return { kind: "failed", detail: `${kind}: ${detail}` };
+      return { kind: "failed", detail: `${kind}: ${detail}`, command };
     }
     if (result.exitCode !== 0) {
       const reason = (result.stderr.trim() || result.stdout.trim()).slice(0, 1000);
-      return { kind: "failed", detail: `終了コード ${result.exitCode}${reason ? `: ${reason}` : ""}` };
+      return { kind: "failed", detail: `終了コード ${result.exitCode}${reason ? `: ${reason}` : ""}`, command };
     }
-    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim() };
+    return { kind: "ok", text: result.stdout.trim() || result.stderr.trim(), command };
   }
 }

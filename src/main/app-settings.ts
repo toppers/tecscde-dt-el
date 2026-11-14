@@ -5,11 +5,17 @@
 import { promises as fs } from "node:fs";
 import { join, posix, win32 } from "node:path";
 import { app } from "electron";
-import type { SessionSnapshot } from "../shared/ipc-types.js";
+import type { PluginTypeSource, SessionSnapshot } from "../shared/ipc-types.js";
 
 export interface AppSettings {
   readonly [key: string]: unknown;
   readonly fileBrowserRoot?: string;
+  readonly tecsgenPath?: string;
+  readonly cdlFilesRoot?: string;
+  /** V0.2.1: Cプリプロセッサ実行ファイルへのパス */
+  readonly cppPath?: string;
+  /** V0.2.1: Cプリプロセッサ引数列 */
+  readonly cppArgs?: string;
   /**
    * 第3章3.2節: `true`なら、システム定義CDL（`-S`のディレクトリ配下）のセルも通常のCDLと同じく
    * 編集可能にする。既定は`false`（閲覧のみ）。現状は`settings.json`を直接編集して設定する。
@@ -20,11 +26,14 @@ export interface AppSettings {
    * 有効であり、未保存本文は復元せず、保存済み参照をその役割のまま復元する。
    */
   readonly lastSession?: SessionSnapshot;
+  /** V0.2.1 Stage 4: Plugin生成型の取り込み方式 */
+  readonly pluginTypeSource?: PluginTypeSource;
 }
 
 /** Legacy session fields are accepted at the update boundary and normalized before writing. */
 export type AppSettingsPatch = Omit<Partial<AppSettings>, "lastSession"> & {
   readonly lastSession?: Partial<SessionSnapshot>;
+  readonly pluginTypeSource?: PluginTypeSource;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,10 +96,13 @@ export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | unde
 export function normalizeAppSettings(value: unknown): AppSettings {
   if (!isRecord(value)) return {};
   const normalized = { ...value };
-  for (const key of ["fileBrowserRoot", "tecsgenPath", "cdlFilesRoot"]) {
+  for (const key of ["fileBrowserRoot", "tecsgenPath", "cdlFilesRoot", "cppPath", "cppArgs"]) {
     if (normalized[key] !== undefined && typeof normalized[key] !== "string") delete normalized[key];
   }
   if (typeof normalized.allowEditSystemDefined !== "boolean") delete normalized.allowEditSystemDefined;
+  if (normalized.pluginTypeSource !== "external" && normalized.pluginTypeSource !== "internal") {
+    delete normalized.pluginTypeSource;
+  }
   if (normalized.lastSession !== undefined) {
     const session = normalizeSessionSnapshot(normalized.lastSession);
     if (session) normalized.lastSession = session;
@@ -106,11 +118,16 @@ export function normalizeAppSettings(value: unknown): AppSettings {
  * 復元されてしまう——PC固有の設定は明示的にLocal AppData配下へ置く。Windows以外に
  * Roaming/Localの区別は無いため、Windows以外では`userData`のままでよい。
  */
-function settingsDir(): string {
+export function settingsDir(): string {
   if (process.platform === "win32" && process.env["LOCALAPPDATA"]) {
     return join(process.env["LOCALAPPDATA"], "tecscde-dt-el");
   }
   return app.getPath("userData");
+}
+
+/** 外部仕様9.5.2の規定2: 診断ログは、設定ファイルと同じフォルダの `logs/` に置く。 */
+export function logsDirectory(): string {
+  return join(settingsDir(), "logs");
 }
 
 function settingsPath(): string {

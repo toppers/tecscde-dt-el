@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-11T00:45:21.503Z",
+  "isolation": "C:\\Users\\ykomi\\AppData\\Local\\Temp\\tecscde-stage4-smoke-GdpvgN",
+  "checks": [
+    {
+      "name": "active cell rect has .active class",
+      "passed": true,
+      "detail": {
+        "activeRectCount": 1
+      }
+    },
+    {
+      "name": "status badges rendered on cells with issues/unconnected ports",
+      "passed": true,
+      "detail": {
+        "badgesCount": 2
+      }
+    },
+    {
+      "name": "status-legend present in DOM",
+      "passed": true
+    },
+    {
+      "name": "region outline mode toggled on",
+      "passed": true,
+      "detail": {
+        "outlineAria": "true"
+      }
+    },
+    {
+      "name": "region outlines rendered in SVG",
+      "passed": true,
+      "detail": {
+        "regionOutlinesDrawn": 1
+      }
+    },
+    {
+      "name": "only active cell is visible with activeOnly filter",
+      "passed": true,
+      "detail": {
+        "visibleCellsActiveOnly": 1
+      }
+    },
+    {
+      "name": "connection focus toggled on",
+      "passed": true,
+      "detail": {
+        "cfAria": "true"
+      }
+    },
+    {
+      "name": "move active to top status message displayed",
+      "passed": true,
+      "detail": {
+        "statusText": "アクティブセル 1 個を最上段へ配置しました"
+      }
+    },
+    {
+      "name": "screenshot captured",
+      "passed": true,
+      "path": "C:\\Users\\ykomi\\orca\\workspaces\\TECSCDE-DT-EL\\TECSCDE-DT-EL-agy\\tests\\verification\\stage4-electron-smoke.png"
+    }
+  ],
+  "logs": [],
+  "success": true
+}

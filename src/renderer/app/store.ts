@@ -8,6 +8,7 @@
 // 触れない（gateways 経由のみ）。
 
 import { sourceSaveState } from "./source-save-state";
+import type { TecsgenInfo } from "./about-info";
 import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
@@ -114,8 +115,20 @@ export class AppStore {
    */
   private environmentDiagnostics: readonly Diagnostic[] = [];
   private tecsgenStatus = { version: "未確認", command: "未確認" };
+  /** 外部仕様3.8: 起動時の tecsgen の確認で分かったこと。確認が終わるまでは未設定。 */
+  private tecsgenInfo: TecsgenInfo | undefined;
+  private exportDiagnostics: readonly Diagnostic[] = [];
+  private logWriteWarning: Diagnostic | undefined;
+  /** 自動配置し直したときに収まらなかったセルの警告（外部仕様7.3.x）。別のファイルを読み込むと消える。 */
+  private autoLayoutDiagnostics: readonly Diagnostic[] = [];
   /** 第9章9.5節: 二重起動防止（実行中はツールバーのGenerateボタンを無効化する）。 */
   private generating = false;
+  /** 第6C章6C.3節: 結合強調モード（監査#46）。 */
+  private connectionFocusEnabled = false;
+  /** 第6C章6C.4節: コマンド実行に伴う診断（Undoで解除、Redoで再構成）。ノードIDキーで保持。 */
+  private historyDiagnostics = new Map<number, readonly Diagnostic[]>();
+  /** コマンド確定を伴わない操作由来の診断（配置不能など）。次の編集や文書読込で解除。 */
+  private transientActionDiagnostics: readonly Diagnostic[] = [];
   private readonly listeners = new Set<StoreListener>();
 
   constructor(
@@ -143,6 +156,15 @@ export class AppStore {
 
   get selection(): SelectionState {
     return this.selectionState;
+  }
+
+  isConnectionFocusEnabled(): boolean {
+    return this.connectionFocusEnabled;
+  }
+
+  toggleConnectionFocus(): void {
+    this.connectionFocusEnabled = !this.connectionFocusEnabled;
+    this.notify();
   }
 
   getMode(): InputMode {
@@ -206,6 +228,10 @@ export class AppStore {
 
   getGeneratedTypeSources(): readonly GeneratedCdlFile[] {
     return this.generatedTypeSources;
+  }
+
+  setGeneratedTypeSources(sources: readonly GeneratedCdlFile[]): void {
+    this.generatedTypeSources = sources;
   }
 
   getPortTypeIndex(): PortTypeIndex {
@@ -335,7 +361,24 @@ export class AppStore {
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);
     collector.reportAll(this.environmentDiagnostics);
+    const activeHistoryDiags = this.historyDiagnostics.get(this.history.nodeId);
+    if (activeHistoryDiags) collector.reportAll(activeHistoryDiags);
+    collector.reportAll(this.transientActionDiagnostics);
+    collector.reportAll(this.exportDiagnostics);
+    if (this.logWriteWarning) collector.report(this.logWriteWarning);
+    collector.reportAll(this.autoLayoutDiagnostics);
     return collector.toReport();
+  }
+
+  setCommandDiagnostics(historyNodeId: number, diagnostics: readonly Diagnostic[]): void {
+    this.historyDiagnostics.set(historyNodeId, diagnostics);
+    this.transientActionDiagnostics = [];
+    this.notify();
+  }
+
+  setTransientActionDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.transientActionDiagnostics = diagnostics;
+    this.notify();
   }
 
   // --- 更新（すべて通知を伴う） ---
@@ -343,6 +386,7 @@ export class AppStore {
   /** 新しいコマンドを確定する（Undo で戻せる）。適用不能なら History が doc を素通しする。 */
   dispatch(command: Command): void {
     if (this.closing) return;
+    this.transientActionDiagnostics = [];
     const previous = this.historyState;
     this.historyState = this.historyState.commit(command);
     if (this.historyState !== previous) this.documentRevision++;
@@ -484,8 +528,11 @@ export class AppStore {
     this.systemDirs = systemDirs;
     this.generatedTypeSources = generatedTypeSources;
     this.portTypeIndex = portTypeIndex;
+    this.historyDiagnostics.clear();
+    this.transientActionDiagnostics = [];
     // 前のファイルのtecsgen実行結果は、読み込んだ別ファイルには対応しないため破棄する。
     this.tecsgenDiagnostics = [];
+    this.autoLayoutDiagnostics = [];
     // 第6B章6B.7: 非表示にしたリージョンのIDは前のドキュメントのものなので、別のファイルを開くときは
     // 戻す（参照ファイルの追加＝keepDirtyでは保つ）。色分け・シグニチャ名の切り替えは保つ。
     if (!keepDirty) this.viewState = this.viewState.withFilters(this.viewState.filters.withAllRegionsShown());
@@ -507,9 +554,27 @@ export class AppStore {
     this.notify();
   }
 
+  /** 外部仕様3.8: バージョン情報ダイアログ用に、tecsgen の版と使われた起動コマンドを保持する。 */
+  setTecsgenInfo(info: TecsgenInfo): void {
+    this.tecsgenInfo = info;
+  }
+
+  getTecsgenInfo(): TecsgenInfo | undefined {
+    return this.tecsgenInfo;
+  }
+
   /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */
   setEnvironmentDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.environmentDiagnostics = diagnostics;
+    this.notify();
+  }
+
+  /**
+   * 監査#66: ログ書き込み失敗などの起動中環境警告を重複なく追加する。
+   */
+  addEnvironmentDiagnostic(diagnostic: Diagnostic): void {
+    if (this.environmentDiagnostics.some((d) => d.code === diagnostic.code && d.message === diagnostic.message)) return;
+    this.environmentDiagnostics = [...this.environmentDiagnostics, diagnostic];
     this.notify();
   }
 
@@ -536,6 +601,26 @@ export class AppStore {
 
   setTecsgenStatus(version: string, command: string): void {
     this.tecsgenStatus = { version, command };
+    this.notify();
+  }
+
+  /** 外部仕様9.5.2の規定13: ログを書けないときの警告。ドキュメントを読み込み直しても残る。 */
+  setLogWriteWarning(diagnostic: Diagnostic): void {
+    this.logWriteWarning = diagnostic;
+    this.notify();
+  }
+
+  /** 外部仕様7.3.x: 自動配置し直した結果の警告（用紙に収まらなかったセル）。空を渡すと消す。 */
+  setAutoLayoutDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.autoLayoutDiagnostics = diagnostics;
+    // 読み込み時に出した同じ警告は、今回の結果で置き換える（古い件数を残さない）。
+    this.loadDiagnostics = this.loadDiagnostics.filter((d) => d.code !== "W-AUTO-LAYOUT-OVERFLOW");
+    this.notify();
+  }
+
+  /** 7F章: 直近のエクスポート失敗だけを診断一覧に保持する。 */
+  setExportDiagnostics(diagnostics: readonly Diagnostic[]): void {
+    this.exportDiagnostics = diagnostics;
     this.notify();
   }
 

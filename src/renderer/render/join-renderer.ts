@@ -52,12 +52,13 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
       element.appendChild(highlight);
     }
     if (parts.isStub) {
-      this.appendStub(element, parts.points, ctx, k);
+      this.appendStub(element, parts.points, ctx, k, join);
       return;
     }
     const line = svgEl("polyline");
     setAttrs(line, { points: pointsAttr(points, k) });
-    line.setAttribute("class", "join-line");
+    const isFocused = ctx.view.focusedJoinIds?.has(join.id) === true;
+    line.setAttribute("class", isFocused ? "join-line join-focus" : "join-line");
     line.setAttribute("fill", "none");
     element.appendChild(line);
 
@@ -75,17 +76,18 @@ export class JoinRenderer extends ElementRenderer<Join, JoinRenderContext> {
   }
 
   /** 第6B章6B.5: 一端が非表示の結合を、可視側から短い線と先端の横線で描く。ホバーで相手を示す。 */
-  private appendStub(element: SVGGElement, stub: readonly Point[], ctx: JoinRenderContext, k: number): void {
+  private appendStub(element: SVGGElement, stub: readonly Point[], ctx: JoinRenderContext, k: number, join: Join): void {
+    const isFocused = ctx.view.focusedJoinIds?.has(join.id) === true;
     const line = svgEl("polyline");
     setAttrs(line, { points: pointsAttr(stub, k) });
-    line.setAttribute("class", "join-line join-stub");
+    line.setAttribute("class", isFocused ? "join-line join-stub join-focus" : "join-line join-stub");
     line.setAttribute("fill", "none");
     element.appendChild(line);
 
     const [a, b] = stubTick(stub, STUB_TICK_MM);
     const tick = svgEl("line");
     setAttrs(tick, { x1: a.x * k, y1: a.y * k, x2: b.x * k, y2: b.y * k });
-    tick.setAttribute("class", "join-stub-tick");
+    tick.setAttribute("class", isFocused ? "join-stub-tick join-focus" : "join-stub-tick");
     element.appendChild(tick);
 
     const other = ctx.targetHidden === true ? ctx.target : ctx.source;

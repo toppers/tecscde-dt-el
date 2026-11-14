@@ -16,10 +16,11 @@ import { ALIGN_MM } from "../model/align";
 import type { Bar, Join } from "../model/join";
 import type { Cell } from "../model/cell";
 import type { CellId, JoinId, RegionId } from "../model/ids";
-import type { Point } from "../model/geometry";
+import { portPosition, type Point } from "../model/geometry";
 import type { TecscdeDocument } from "../model/document";
 import type { SearchHighlights } from "./search-highlights";
-import { isActiveCell, isCellVisible } from "./cell-visibility";
+import { isActiveCell } from "../model/active-cell";
+import { computeRegionOutlines } from "./region-outlines";
 
 export interface JoinPreviewLine {
   readonly from: Point;
@@ -36,6 +37,7 @@ export interface RenderOptions {
 const GRID_STEP_MM = ALIGN_MM * 10;
 
 export class SvgRenderer {
+  private readonly regionOutlinesLayer: SVGGElement;
   private readonly gridLayer: SVGGElement;
   private readonly cellLayer: SVGGElement;
   private readonly joinLayer: SVGGElement;
@@ -53,14 +55,16 @@ export class SvgRenderer {
   private readonly joinBarPreviews = new Map<JoinId, readonly Bar[]>();
 
   constructor(private readonly svg: SVGSVGElement) {
-    // 5.1節スケッチの順序: #cells, #joins, #join-preview, #selection-overlay, #grid。
+    // 5.1節スケッチの順序: #region-outlines, #joins, #cells, #join-preview, #selection-overlay, #grid。
+    this.regionOutlinesLayer = this.makeLayer("region-outlines");
+    this.regionOutlinesLayer.style.pointerEvents = "none";
     this.cellLayer = this.makeLayer("cells");
     this.joinLayer = this.makeLayer("joins");
     this.previewLayer = this.makeLayer("join-preview");
     this.selectionLayer = this.makeLayer("selection-overlay");
     this.gridLayer = this.makeLayer("grid");
-    // 結合はセルの背面に置く（折れ線がセル矩形へ潜り込んで見えるのを避ける）。
-    this.svg.append(this.joinLayer, this.cellLayer, this.previewLayer, this.selectionLayer, this.gridLayer);
+    // 結合はセルの背面に置き、リージョン外周はさらにその背面に置く（6C.5）。
+    this.svg.append(this.regionOutlinesLayer, this.joinLayer, this.cellLayer, this.previewLayer, this.selectionLayer, this.gridLayer);
   }
 
   private makeLayer(id: string): SVGGElement {
@@ -83,6 +87,7 @@ export class SvgRenderer {
     this.updateCanvasSize(doc, view);
     this.reconcileCells(doc, view, viewChanged, opts.searchHighlights);
     this.reconcileJoins(doc, view, viewChanged, opts.searchHighlights);
+    this.renderRegionOutlines(doc, view);
     this.renderGrid(doc, view);
     this.renderSelectionOverlay(doc, view, selection);
     this.renderJoinPreview(view, opts.joinPreview);
@@ -108,6 +113,12 @@ export class SvgRenderer {
     setAttrs(this.svg, { width: width * k, height: height * k });
   }
 
+  private isCellHidden(cell: Cell, view: CanvasView, doc: TecscdeDocument): boolean {
+    if (view.hiddenRegionIds.has(cell.regionId)) return true;
+    if (view.activeOnly && !isActiveCell(doc, cell)) return true;
+    return false;
+  }
+
   private reconcileCells(doc: TecscdeDocument, view: CanvasView, viewChanged: boolean, highlights?: SearchHighlights): void {
     for (const [id, group] of this.cellElements) {
       if (!doc.getCell(id)) {
@@ -116,18 +127,17 @@ export class SvgRenderer {
       }
     }
     for (const cell of doc.cellValues()) {
-      const hidden = !isCellVisible(doc, cell, view);
+      const hidden = this.isCellHidden(cell, view, doc);
       const searchMatch = !hidden && highlights?.cellIds.has(cell.id) === true;
       const matchChanged = (highlights?.cellIds.has(cell.id) === true) !==
         (this.lastHighlights?.cellIds.has(cell.id) === true);
-      const ctx = { view, searchMatch, active: isActiveCell(doc, cell) };
+      const ctx = { view, searchMatch, doc };
       let group = this.cellElements.get(cell.id);
       if (!group) {
         group = this.cellRenderer.createElement(cell, ctx);
         this.cellLayer.appendChild(group);
         this.cellElements.set(cell.id, group);
-      } else if (viewChanged || matchChanged || this.lastDoc?.getCell(cell.id) !== cell ||
-        this.lastDoc?.getCelltype(cell.celltypeName) !== doc.getCelltype(cell.celltypeName)) {
+      } else if (viewChanged || matchChanged || this.lastDoc?.getCell(cell.id) !== cell) {
         this.cellRenderer.updateElement(cell, group, ctx);
       }
       group.style.display = hidden ? "none" : "";
@@ -148,8 +158,8 @@ export class SvgRenderer {
       const target = doc.getCell(join.eportCellId);
       if (!source || !target) continue;
       // 第6B章6B.5: 両端が非表示なら消し、一端だけなら可視側にスタブを描く。
-      const sourceHidden = !isCellVisible(doc, source, view);
-      const targetHidden = !isCellVisible(doc, target, view);
+      const sourceHidden = this.isCellHidden(source, view, doc);
+      const targetHidden = this.isCellHidden(target, view, doc);
       const hidden = sourceHidden && targetHidden;
       const searchMatch = !hidden && highlights?.joinIds.has(join.id) === true;
       const matchChanged = (highlights?.joinIds.has(join.id) === true) !==
@@ -166,6 +176,56 @@ export class SvgRenderer {
         this.joinRenderer.updateElement(join, group, ctx);
       }
       group.style.display = hidden ? "none" : "";
+    }
+  }
+
+  private renderRegionOutlines(doc: TecscdeDocument, view: CanvasView): void {
+    this.regionOutlinesLayer.replaceChildren();
+    if (!view.regionOutlineMode || !view.regionColors) {
+      this.regionOutlinesLayer.style.display = "none";
+      return;
+    }
+    this.regionOutlinesLayer.style.display = "";
+
+    const visibleCellIds = new Set<CellId>();
+    for (const cell of doc.cellValues()) {
+      if (!this.isCellHidden(cell, view, doc)) visibleCellIds.add(cell.id);
+    }
+
+    const outlines = computeRegionOutlines(doc, visibleCellIds, doc.regions, view.regionColors);
+    const k = pxPerMm(view);
+
+    for (const outline of outlines) {
+      const g = svgEl("g");
+      g.setAttribute("class", "region-outline");
+      g.dataset["regionId"] = outline.regionId;
+
+      for (const seg of outline.segments) {
+        const line = svgEl("line");
+        setAttrs(line, {
+          x1: seg.x1 * k,
+          y1: seg.y1 * k,
+          x2: seg.x2 * k,
+          y2: seg.y2 * k,
+        });
+        line.setAttribute("stroke", outline.color);
+        line.setAttribute("stroke-width", "1.5");
+        line.setAttribute("stroke-dasharray", "4 2");
+        g.appendChild(line);
+      }
+
+      const label = svgEl("text");
+      setAttrs(label, {
+        x: outline.labelPos.x * k + 4,
+        y: outline.labelPos.y * k + 10,
+      });
+      label.setAttribute("font-size", "9px");
+      label.setAttribute("fill", outline.color);
+      label.setAttribute("font-weight", "bold");
+      label.textContent = outline.regionName;
+      g.appendChild(label);
+
+      this.regionOutlinesLayer.appendChild(g);
     }
   }
 
@@ -196,9 +256,22 @@ export class SvgRenderer {
   ): void {
     this.selectionLayer.replaceChildren();
     const k = pxPerMm(view);
+    for (const selected of selection.ports) {
+      const cell = doc.getCell(selected.cellId);
+      if (!cell || view.hiddenRegionIds.has(cell.regionId)) continue;
+      const ports = selected.kind === "cport" ? cell.cports : cell.eports;
+      const port = ports.find((candidate) => candidate.name === selected.portName && candidate.subscript === selected.subscript);
+      if (!port) continue;
+      const point = portPosition(cell, port);
+      const circle = svgEl("circle");
+      setAttrs(circle, { cx: point.x * k, cy: point.y * k, r: 2.5 * k });
+      circle.setAttribute("class", "selection-outline port-selected");
+      circle.setAttribute("fill", "none");
+      this.selectionLayer.appendChild(circle);
+    }
     for (const id of selection.cellIds) {
       const cell = doc.getCell(id);
-      if (!cell || !isCellVisible(doc, cell, view)) continue;
+      if (!cell || this.isCellHidden(cell, view, doc)) continue;
       const rect = svgEl("rect");
       setAttrs(rect, {
         x: cell.x * k - 2,
@@ -216,13 +289,16 @@ export class SvgRenderer {
       const source = doc.getCell(join.cellId);
       const target = doc.getCell(join.eportCellId);
       if (!source || !target) continue;
+      const sourceHidden = this.isCellHidden(source, view, doc);
+      const targetHidden = this.isCellHidden(target, view, doc);
+      if (sourceHidden && targetHidden) continue;
       const full = joinPolyline(join, source, target);
       if (!full) continue;
       // 一端が非表示の結合は、描かれているスタブの部分だけを選択枠にする（6B.5）。
       const parts = joinStub(
         full,
-        !isCellVisible(doc, source, view),
-        !isCellVisible(doc, target, view),
+        sourceHidden,
+        targetHidden,
       );
       if (!parts) continue;
       const points = parts.points;
@@ -271,12 +347,12 @@ export class SvgRenderer {
     view: CanvasView,
   ): void {
     const group = this.joinElements.get(join.id);
-    if (!group || !this.lastDoc) return;
+    if (!group) return;
     this.joinBarPreviews.set(join.id, bars);
     this.joinRenderer.previewBars(group, join, {
       view, source, target,
-      sourceHidden: !isCellVisible(this.lastDoc, source, view),
-      targetHidden: !isCellVisible(this.lastDoc, target, view),
+      sourceHidden: view.hiddenRegionIds.has(source.regionId),
+      targetHidden: view.hiddenRegionIds.has(target.regionId),
     }, bars);
   }
 
@@ -289,15 +365,34 @@ export class SvgRenderer {
       const source = join && doc?.getCell(join.cellId);
       const target = join && doc?.getCell(join.eportCellId);
       const group = this.joinElements.get(id);
-      if (!doc || !join || !source || !target || !group || !view) continue;
+      if (!join || !source || !target || !group || !view) continue;
       this.joinRenderer.updateElement(join, group, {
         view, source, target,
-        sourceHidden: !isCellVisible(doc, source, view),
-        targetHidden: !isCellVisible(doc, target, view),
+        sourceHidden: view.hiddenRegionIds.has(source.regionId),
+        targetHidden: view.hiddenRegionIds.has(target.regionId),
         searchMatch: this.lastHighlights?.joinIds.has(id),
       });
     }
     this.joinBarPreviews.clear();
+  }
+
+  /** ポートのドラッグ中: 放した場合にポートが移る位置へ印（円）を描く。`undefined` で消去。 */
+  setPortDragPreview(view: CanvasView, positions: readonly Point[] | undefined): void {
+    Array.from(this.selectionLayer.querySelectorAll("circle.port-drag-preview")).forEach((el) => el.remove());
+    if (!positions) return;
+    const k = pxPerMm(view);
+    for (const p of positions) {
+      const dot = svgEl("circle");
+      setAttrs(dot, { cx: p.x * k, cy: p.y * k, r: 5 });
+      dot.setAttribute("class", "port-drag-preview");
+      dot.setAttribute("fill", "#2563eb");
+      dot.setAttribute("fill-opacity", "0.55");
+      dot.setAttribute("stroke", "#1d4ed8");
+      dot.setAttribute("stroke-width", "1.5");
+      // 印がポインタを遮らないようにする。
+      dot.setAttribute("pointer-events", "none");
+      this.selectionLayer.appendChild(dot);
+    }
   }
 
   /** ラバーバンド選択の矩形（モデル座標）。`undefined` で消去。 */
@@ -356,9 +451,6 @@ function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
     a.gridVisible === b.gridVisible &&
     a.showSignatureNames === b.showSignatureNames &&
     a.emphasizeCellName === b.emphasizeCellName &&
-    (a.activeOnly === true) === (b.activeOnly === true) &&
-    (a.regionOutlineMode === true) === (b.regionOutlineMode === true) &&
-    setsEqual(a.focusedJoinIds ?? new Set<JoinId>(), b.focusedJoinIds ?? new Set<JoinId>()) &&
     setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
     colorsEqual(a.regionColors, b.regionColors)
   );

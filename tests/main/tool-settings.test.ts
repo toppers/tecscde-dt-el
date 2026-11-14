@@ -1,7 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
-import { ToolSettingsService } from "../../src/main/tool-settings.js";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, delimiter } from "node:path";
+import {
+  ToolSettingsService,
+  findGccOnPath,
+  resolveCppCommand,
+  chooseCppPath,
+} from "../../src/main/tool-settings.js";
+import { splitCommand } from "../../src/main/tecsgen-path-resolver.js";
 
-vi.mock("electron", () => ({ app: { getPath: vi.fn() } }));
+const showOpenDialogMock = vi.fn();
+vi.mock("electron", () => ({
+  app: { getPath: vi.fn() },
+  dialog: { showOpenDialog: (...args: unknown[]) => showOpenDialogMock(...args) },
+}));
+
 const execFileMock = vi.fn();
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => {
@@ -109,7 +123,7 @@ describe("ToolSettingsService", () => {
     const { service, save } = setup({ tecsgenPath: "/saved/tool" }, { TECSGEN_COMMAND: "overriding-tool --flag" });
     const before = await service.get();
     execFileMock.mockReset().mockResolvedValue({ stdout: "", stderr: " tecsgen 1.9.1 " });
-    expect(await service.checkPath('/candidate with spaces/"literal"')).toEqual({ kind: "ok", text: "tecsgen 1.9.1" });
+    expect(await service.checkPath('/candidate with spaces/"literal"')).toMatchObject({ kind: "ok", text: "tecsgen 1.9.1" });
     expect(execFileMock).toHaveBeenCalledExactlyOnceWith('/candidate with spaces/"literal"', ["--version"], { timeout: 30_000, shell: false });
     expect(await service.get()).toEqual(before);
     expect(save).not.toHaveBeenCalled();
@@ -130,5 +144,260 @@ describe("ToolSettingsService", () => {
     const second = await service.resolveCommand();
     expect(first.revision).toBe(0);
     expect(second.revision).toBe(1);
+  });
+
+  // --- V0.2.1: C プリプロセッサ設定の更新と解決 ---
+  it("updates and clears cppPath and cppArgs via ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    const updateResult = await service.update({ cppPath: "/usr/local/bin/gcc", cppArgs: "-E -DTECSGEN" });
+    expect(updateResult).toMatchObject({
+      ok: true,
+      settings: {
+        cppPath: "/usr/local/bin/gcc",
+        cppArgs: "-E -DTECSGEN",
+        effectiveCppCommand: "/usr/local/bin/gcc -E -DTECSGEN",
+        cppOrigin: "settings",
+        cppOriginReason: "ユーザ直接指定",
+      },
+    });
+    expect(save).toHaveBeenCalledWith({ cppPath: "/usr/local/bin/gcc", cppArgs: "-E -DTECSGEN" });
+
+    // clear cppPath
+    const clearResult = await service.update({ cppPath: "" });
+    expect(clearResult).toMatchObject({
+      ok: true,
+      settings: {
+        cppPath: "",
+      },
+    });
+  });
+
+  it("rejects non-string cppPath or cppArgs in ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    expect(await service.update({ cppPath: 123 } as never)).toMatchObject({ ok: false });
+    expect(await service.update({ cppArgs: true } as never)).toMatchObject({ ok: false });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("defaults pluginTypeSource to 'external' and reads stored value", async () => {
+    const { service: defaultService } = setup({});
+    expect((await defaultService.get()).pluginTypeSource).toBe("external");
+
+    const { service: internalService } = setup({ pluginTypeSource: "internal" });
+    expect((await internalService.get()).pluginTypeSource).toBe("internal");
+  });
+
+  it("updates pluginTypeSource and increments revision via ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    const initial = await service.get();
+    expect(initial.pluginTypeSource).toBe("external");
+
+    const updateResult = await service.update({ pluginTypeSource: "internal" });
+    expect(updateResult).toMatchObject({
+      ok: true,
+      settings: {
+        pluginTypeSource: "internal",
+        revision: initial.revision + 1,
+      },
+    });
+    expect(save).toHaveBeenCalledWith({ pluginTypeSource: "internal" });
+    expect((await service.get()).pluginTypeSource).toBe("internal");
+
+    const revertResult = await service.update({ pluginTypeSource: "external" });
+    expect(revertResult).toMatchObject({
+      ok: true,
+      settings: {
+        pluginTypeSource: "external",
+        revision: initial.revision + 2,
+      },
+    });
+    expect(save).toHaveBeenCalledWith({ pluginTypeSource: "external" });
+    expect((await service.get()).pluginTypeSource).toBe("external");
+  });
+
+  it("rejects invalid pluginTypeSource in ToolSettingsService.update", async () => {
+    const { service, save } = setup({});
+    expect(await service.update({ pluginTypeSource: "invalid" as never })).toMatchObject({ ok: false });
+    expect(await service.update({ pluginTypeSource: 123 as never })).toMatchObject({ ok: false });
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe("findGccOnPath", () => {
+  let tmpDir: string;
+  let bin1: string;
+  let bin2: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "find-gcc-test-"));
+    bin1 = join(tmpDir, "bin1");
+    bin2 = join(tmpDir, "bin2");
+    mkdirSync(bin1, { recursive: true });
+    mkdirSync(bin2, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("prioritizes standalone gcc over prefix gcc in PATH order", () => {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    writeFileSync(join(bin1, `arm-none-eabi-gcc${ext}`), "");
+    if (process.platform !== "win32") chmodSync(join(bin1, `arm-none-eabi-gcc${ext}`), 0o755);
+    writeFileSync(join(bin2, `gcc${ext}`), "");
+    if (process.platform !== "win32") chmodSync(join(bin2, `gcc${ext}`), 0o755);
+
+    const envPath = `${bin1}${delimiter}${bin2}`;
+    const result = findGccOnPath(envPath);
+    expect(result).toEqual({ name: "gcc", fullPath: join(bin2, `gcc${ext}`) });
+  });
+
+  it("finds prefix gcc ending in gcc such as arm-none-eabi-gcc.exe when standalone gcc is absent", () => {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    writeFileSync(join(bin1, `arm-none-eabi-gcc${ext}`), "");
+    if (process.platform !== "win32") chmodSync(join(bin1, `arm-none-eabi-gcc${ext}`), 0o755);
+
+    const result = findGccOnPath(bin1);
+    expect(result).toEqual({ name: `arm-none-eabi-gcc${ext}`, fullPath: join(bin1, `arm-none-eabi-gcc${ext}`) });
+  });
+
+  it("ignores non-gcc tools like gcc-ar and g++", () => {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    writeFileSync(join(bin1, `gcc-ar${ext}`), "");
+    writeFileSync(join(bin1, `g++${ext}`), "");
+    if (process.platform !== "win32") {
+      chmodSync(join(bin1, `gcc-ar${ext}`), 0o755);
+      chmodSync(join(bin1, `g++${ext}`), 0o755);
+    }
+
+    const result = findGccOnPath(bin1);
+    expect(result).toBeNull();
+  });
+
+  it("is case-insensitive for gcc executable matching (e.g. GCC.EXE)", () => {
+    const ext = process.platform === "win32" ? ".EXE" : "";
+    writeFileSync(join(bin1, `ARM-NONE-EABI-GCC${ext}`), "");
+    if (process.platform !== "win32") chmodSync(join(bin1, `ARM-NONE-EABI-GCC${ext}`), 0o755);
+
+    const result = findGccOnPath(bin1);
+    expect(result).not.toBeNull();
+    expect(result?.fullPath).toBe(join(bin1, `ARM-NONE-EABI-GCC${ext}`));
+  });
+});
+
+describe("resolveCppCommand", () => {
+  let tmpDir: string;
+  let binDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "resolve-cpp-test-"));
+    binDir = join(tmpDir, "bin");
+    mkdirSync(binDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("uses cdlCppCommand as highest priority (origin: cdl, ユーザ直接指定)", () => {
+    const res = resolveCppCommand("arm-none-eabi-gcc -E -DTECSGEN", { cppPath: "custom-gcc", cppArgs: "-O2" });
+    expect(res).toMatchObject({
+      command: "arm-none-eabi-gcc -E -DTECSGEN",
+      executable: "arm-none-eabi-gcc",
+      origin: "cdl",
+      originReason: "ユーザ直接指定",
+    });
+  });
+
+  it("extracts executable correctly from cdlCppCommand when quoted", () => {
+    const res = resolveCppCommand('"C:\\Program Files\\GNU\\bin\\gcc.exe" -E -DTECSGEN', {});
+    expect(res).toMatchObject({
+      command: '"C:\\Program Files\\GNU\\bin\\gcc.exe" -E -DTECSGEN',
+      executable: "C:\\Program Files\\GNU\\bin\\gcc.exe",
+      origin: "cdl",
+      originReason: "ユーザ直接指定",
+    });
+  });
+
+  it("uses savedSettings.cppPath when cdl is empty (origin: settings, ユーザ直接指定)", () => {
+    const res = resolveCppCommand(undefined, { cppPath: "my-gcc", cppArgs: "-E -DTEST" });
+    expect(res).toMatchObject({
+      command: "my-gcc -E -DTEST",
+      executable: "my-gcc",
+      origin: "settings",
+      originReason: "ユーザ直接指定",
+    });
+  });
+
+  it("quotes executable containing spaces in command and round-trips through splitCommand", () => {
+    const cppPath = "C:\\Program Files\\GNU\\bin\\gcc.exe";
+    const res = resolveCppCommand(undefined, { cppPath, cppArgs: "-E -DTECSGEN" });
+    expect(res).toMatchObject({
+      command: '"C:\\Program Files\\GNU\\bin\\gcc.exe" -E -DTECSGEN',
+      executable: cppPath,
+      origin: "settings",
+      originReason: "ユーザ直接指定",
+    });
+    const parts = splitCommand(res.command);
+    expect(parts).toEqual(["C:\\Program Files\\GNU\\bin\\gcc.exe", "-E", "-DTECSGEN"]);
+  });
+
+  it("uses savedSettings.cppPath without args when cppArgs is empty", () => {
+    const res = resolveCppCommand(undefined, { cppPath: "my-gcc", cppArgs: "" });
+    expect(res).toMatchObject({
+      command: "my-gcc",
+      executable: "my-gcc",
+      origin: "settings",
+      originReason: "ユーザ直接指定",
+    });
+  });
+
+  it("uses auto-detected gcc from PATH when settings are empty (origin: path, 自動検出)", () => {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    const gccPath = join(binDir, `gcc${ext}`);
+    writeFileSync(gccPath, "");
+    if (process.platform !== "win32") chmodSync(gccPath, 0o755);
+
+    const res = resolveCppCommand(undefined, { cppArgs: "-E" }, binDir);
+    expect(res).toMatchObject({
+      command: "gcc -E",
+      executable: "gcc",
+      fullPath: gccPath,
+      origin: "path",
+      originReason: "自動検出",
+    });
+  });
+
+  it("falls back to default gcc when not found (origin: default, フォールバック)", () => {
+    const emptyDir = join(tmpDir, "empty");
+    mkdirSync(emptyDir, { recursive: true });
+    const res = resolveCppCommand(undefined, {}, emptyDir);
+    expect(res).toMatchObject({
+      command: "gcc",
+      executable: "gcc",
+      fullPath: "未検出 (PATH上)",
+      origin: "default",
+      originReason: "フォールバック",
+    });
+  });
+});
+
+describe("chooseCppPath", () => {
+  it("returns selected file path on dialog confirm", async () => {
+    showOpenDialogMock.mockResolvedValueOnce({ canceled: false, filePaths: ["/usr/bin/gcc"] });
+    const result = await chooseCppPath();
+    expect(result).toBe("/usr/bin/gcc");
+    expect(showOpenDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "C プリプロセッサ実行ファイルの選択",
+        properties: ["openFile"],
+      }),
+    );
+  });
+
+  it("returns null when dialog is canceled", async () => {
+    showOpenDialogMock.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    const result = await chooseCppPath();
+    expect(result).toBeNull();
   });
 });

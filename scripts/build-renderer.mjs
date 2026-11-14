@@ -10,6 +10,7 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { appInfoDefine } from "./app-info.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(root, "dist/renderer");
@@ -30,10 +31,25 @@ const options = {
   platform: "browser",
   target: "es2022",
   sourcemap: true,
-  define: { __TECSCDE_APP_VERSION__: JSON.stringify(version) },
   // web-tree-sitter contains Node-only dynamic imports behind runtime guards.
   // Keep them external; Electron renderer takes the browser branch.
   external: ["fs/promises", "module"],
+  // 外部仕様2.5.5: アプリケーションの版は package.json の version を唯一の情報源とし、ビルド時に埋め込む。
+  define: { __TECSCDE_APP_VERSION__: JSON.stringify(version), ...appInfoDefine(root) },
+  logLevel: "info",
+};
+
+/** @type {import('esbuild').BuildOptions} */
+const workerOptions = {
+  entryPoints: [resolve(root, "src/renderer/tecsgen/internal/worker.ts")],
+  outfile: resolve(outDir, "tecsgen-worker.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "es2022",
+  sourcemap: true,
+  external: ["fs/promises", "module"],
+  define: { __TECSCDE_APP_VERSION__: JSON.stringify(version), ...appInfoDefine(root) },
   logLevel: "info",
 };
 
@@ -48,11 +64,11 @@ async function copyStaticAssets() {
 
 if (watch) {
   await copyStaticAssets();
-  const ctx = await context(options);
-  await ctx.watch();
+  const [ctxRenderer, ctxWorker] = await Promise.all([context(options), context(workerOptions)]);
+  await Promise.all([ctxRenderer.watch(), ctxWorker.watch()]);
   console.log("[build-renderer] watching…");
 } else {
   await copyStaticAssets();
-  await build(options);
+  await Promise.all([build(options), build(workerOptions)]);
   console.log("[build-renderer] done →", outDir);
 }

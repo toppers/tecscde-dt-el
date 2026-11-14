@@ -1,10 +1,10 @@
 // DT-EL internal spec 6.4: list and cycle through the search snapshot from AppShell.
 // Jumping to hidden hits reveals their regions (6B.8).
 
-import { cellsForSearchHit, regionsToReveal, type SearchHit } from "../view-state/search";
-import { isActiveCell } from "../render/cell-visibility";
+import { regionsToReveal, type SearchHit } from "../view-state/search";
 import { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
+import { isActiveCell } from "../model/active-cell";
 
 export class SearchBoxView {
   private readonly input: HTMLInputElement;
@@ -12,9 +12,6 @@ export class SearchBoxView {
   private readonly resultsEl: HTMLElement;
   private hits: readonly SearchHit[] = [];
   private cursor = -1;
-  private readonly revealedHits = new Set<string>();
-  private lastQuery: string | null = null;
-  private lastEpoch = -1;
 
   constructor(
     private readonly root: HTMLElement,
@@ -43,24 +40,15 @@ export class SearchBoxView {
 
   render(hits: readonly SearchHit[]): void {
     const view = this.store.view;
-    if (this.lastQuery !== view.searchQuery || this.lastEpoch !== this.store.documentEpoch) {
-      this.revealedHits.clear();
-      this.lastQuery = view.searchQuery;
-      this.lastEpoch = this.store.documentEpoch;
-    }
     if (this.input.value !== (view.searchQuery ?? "")) {
       this.input.value = view.searchQuery ?? "";
     }
-    const present = new Set(hits.map((hit) => this.hitKey(hit)));
-    for (const key of this.revealedHits) if (!present.has(key)) this.revealedHits.delete(key);
-    this.hits = hits.map((hit) => this.revealedHits.has(this.hitKey(hit)) ? { ...hit, revealed: true } : hit);
+    this.hits = hits;
     if (this.cursor >= this.hits.length) this.cursor = this.hits.length > 0 ? 0 : -1;
 
     this.countEl.textContent = view.searchQuery ? `${this.hits.length}件` : "";
     this.renderResults();
   }
-
-  private hitKey(hit: SearchHit): string { return hit.kind + ":" + (hit.kind === "cell" ? hit.cellId : hit.joinId); }
 
   private renderResults(): void {
     this.resultsEl.replaceChildren();
@@ -90,15 +78,27 @@ export class SearchBoxView {
     if (!hit) return;
     this.cursor = index;
     const doc = this.store.getDocument();
-    // 第6B章6B.8（外部仕様7.4.2）: 非表示のリージョンにあるヒットは、見えるようフィルタを緩める。
-    // 緩めた分は元に戻さない（利用者がリージョン木で再び外す）。変化が無ければ同じ参照が返り何も起きない。
-    const filters = this.store.view.filters;
-    let revealedFilters = filters.withRegionsRevealed(regionsToReveal(doc, hit));
-    if (filters.activeOnly && cellsForSearchHit(doc, hit).some((cell) => !isActiveCell(doc, cell))) {
-      revealedFilters = revealedFilters.withActiveOnly(false);
+    // 第6B章6B.8（外部仕様7.4.2） / 監査#45: 非表示のリージョンにあるヒットや、activeOnlyで隠れる非activeヒットは見えるようフィルタを緩める。
+    // 緩めた分は元に戻さない（利用者がリージョン木やトグルで再び戻す）。変化が無ければ同じ参照が返り何も起きない。
+    let nextFilters = this.store.view.filters.withRegionsRevealed(regionsToReveal(doc, hit));
+    if (nextFilters.activeOnly) {
+      let isHiddenByActiveOnly = false;
+      if (hit.kind === "cell") {
+        const cell = doc.getCell(hit.cellId);
+        if (cell && !isActiveCell(doc, cell)) isHiddenByActiveOnly = true;
+      } else {
+        const join = doc.getJoin(hit.joinId);
+        const source = join ? doc.getCell(join.cellId) : undefined;
+        const target = join ? doc.getCell(join.eportCellId) : undefined;
+        if ((source && !isActiveCell(doc, source)) || (target && !isActiveCell(doc, target))) {
+          isHiddenByActiveOnly = true;
+        }
+      }
+      if (isHiddenByActiveOnly) {
+        nextFilters = nextFilters.withActiveOnly(false);
+      }
     }
-    if (!filters.equals(revealedFilters)) this.revealedHits.add(this.hitKey(hit));
-    this.store.setView(this.store.view.withFilters(revealedFilters));
+    this.store.setView(this.store.view.withFilters(nextFilters));
     if (hit.kind === "cell") {
       const cell = doc.getCell(hit.cellId);
       this.store.setSelection(SelectionState.ofCells([hit.cellId]));

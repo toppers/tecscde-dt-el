@@ -1,11 +1,12 @@
 /** @vitest-environment happy-dom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InformationDialog } from "../../src/renderer/app/information-dialog";
-import type { AppInformation, ToolSettings, TecsgenVersionResult } from "../../src/shared/ipc-types";
+import type { AppInformation, ToolSettings, ToolSettingsUpdate, TecsgenVersionResult } from "../../src/shared/ipc-types";
 
 const current: ToolSettings = {
   revision: 1, tecsgenPath: "/tools/tecsgen", tecspath: "/tecs", effectiveSource: "settings",
   effectiveCommand: "/tools/tecsgen", executable: "/tools/tecsgen", prefixArgs: [], override: false,
+  pluginTypeSource: "external",
 };
 const information: AppInformation = {
   name: "TECSCDE-DT-EL", version: "0.1.0", commit: "a123b45", cdeFormatVersion: "0.1.0.0",
@@ -22,7 +23,18 @@ function setup() {
     getToolSettings: vi.fn(async () => current),
     getAppInformation: vi.fn(async () => information),
     chooseTecsgenPath: vi.fn(async () => "/selected/tecsgen" as string | null),
-    updateToolSettings: vi.fn(async (patch: { tecsgenPath: string }) => ({ ok: true as const, settings: { ...current, revision: 2, tecsgenPath: patch.tecsgenPath, effectiveCommand: patch.tecsgenPath } })),
+    chooseCppPath: vi.fn(async (_current?: string) => "/selected/gcc" as string | null),
+    updateToolSettings: vi.fn(async (patch: ToolSettingsUpdate) => ({
+      ok: true as const,
+      settings: {
+        ...current,
+        revision: 2,
+        ...(patch.tecsgenPath !== undefined ? { tecsgenPath: patch.tecsgenPath, effectiveCommand: patch.tecsgenPath } : {}),
+        ...(patch.cppPath !== undefined ? { cppPath: patch.cppPath, effectiveCppFullPath: patch.cppPath, effectiveCppCommand: `${patch.cppPath} ${patch.cppArgs ?? ""}`.trim() } : {}),
+        ...(patch.cppArgs !== undefined ? { cppArgs: patch.cppArgs } : {}),
+        ...(patch.pluginTypeSource !== undefined ? { pluginTypeSource: patch.pluginTypeSource } : {}),
+      },
+    })),
   };
   const tecsgen = { checkPath: vi.fn(async (_path: string): Promise<TecsgenVersionResult> => ({ kind: "ok", text: "tecsgen candidate" })) };
   const clipboard = { writeText: vi.fn(async (_text: string) => {}) };
@@ -35,6 +47,24 @@ function button(action: string): HTMLButtonElement { return document.querySelect
 function input(): HTMLInputElement { return document.querySelector("#information-tecsgen-path")!; }
 function type(value: string) { input().value = value; input().dispatchEvent(new Event("input", { bubbles: true })); }
 function result(): string { return document.querySelector("#information-settings-result")!.textContent!; }
+
+function cppPathInput(): HTMLInputElement { return document.querySelector("#information-cpp-path")!; }
+function cppArgsInput(): HTMLInputElement { return document.querySelector("#information-cpp-args")!; }
+function cppBrowseButton(): HTMLButtonElement { return document.querySelector("#information-cpp-browse")!; }
+function cppSaveButton(): HTMLButtonElement { return document.querySelector("#information-cpp-save")!; }
+function cppResult(): string { return document.querySelector("#information-cpp-result")!.textContent!; }
+function cppEffective(): string { return document.querySelector("#information-cpp-effective")!.textContent!; }
+function cppMeta(): string { return document.querySelector("#information-cpp-meta")!.textContent!; }
+function typeCppPath(value: string) { cppPathInput().value = value; cppPathInput().dispatchEvent(new Event("input", { bubbles: true })); }
+function typeCppArgs(value: string) { cppArgsInput().value = value; cppArgsInput().dispatchEvent(new Event("input", { bubbles: true })); }
+
+function pluginSourceSelect(): HTMLSelectElement { return document.querySelector("#information-plugin-type-source")!; }
+function pluginSaveButton(): HTMLButtonElement { return document.querySelector("#information-plugin-save")!; }
+function pluginResult(): string { return document.querySelector("#information-plugin-result")!.textContent!; }
+function selectPluginSource(value: "external" | "internal") {
+  pluginSourceSelect().value = value;
+  pluginSourceSelect().dispatchEvent(new Event("change", { bubbles: true }));
+}
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -251,6 +281,241 @@ describe("InformationDialog", () => {
     view.refreshStatus();
     expect(document.querySelector("#information-version")!.textContent).toContain("tecsgen late version");
     expect(input().value).toBe("/keep/draft");
+    view.dispose();
+  });
+
+  // ==========================================
+  // V0.2.1: Cプリプロセッサ設定テスト (Unit D)
+  // ==========================================
+  it("displays effectiveCppCommand, fullPath, and originReason when opened", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      effectiveCppCommand: "arm-none-eabi-gcc -E -DTECSGEN",
+      effectiveCppFullPath: "C:/ArmGNU/bin/arm-none-eabi-gcc.exe",
+      cppOriginReason: "自動検出",
+    });
+    await view.open();
+    expect(cppEffective()).toContain("arm-none-eabi-gcc -E -DTECSGEN");
+    expect(cppMeta()).toContain("C:/ArmGNU/bin/arm-none-eabi-gcc.exe");
+    expect(cppMeta()).toContain("自動検出");
+    view.dispose();
+  });
+
+  it("displays fallback values safely when cpp fields are missing in ToolSettings", async () => {
+    const { view } = setup();
+    await view.open();
+    expect(cppEffective()).toContain("gcc");
+    expect(cppMeta()).toContain("未検出 (PATH上)");
+    expect(cppMeta()).toContain("フォールバック");
+    view.dispose();
+  });
+
+  it("initializes cppArgs input to default '-E -DTECSGEN' when settings.cppArgs is undefined", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      cppArgs: undefined,
+    });
+    await view.open();
+    expect(cppArgsInput().value).toBe("-E -DTECSGEN");
+    view.dispose();
+  });
+
+  it("initializes cppArgs input to empty string when settings.cppArgs is explicitly empty", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      cppArgs: "",
+    });
+    await view.open();
+    expect(cppArgsInput().value).toBe("");
+    view.dispose();
+  });
+
+  it("browses for cppPath using chooseCppPath and updates the input, keeping value on cancel", async () => {
+    const { view, settings } = setup();
+    settings.chooseCppPath.mockResolvedValue("C:/tools/arm-none-eabi-gcc.exe");
+    await view.open();
+    expect(cppPathInput().value).toBe("");
+    cppBrowseButton().click();
+    await tick();
+    expect(settings.chooseCppPath).toHaveBeenCalledOnce();
+    expect(cppPathInput().value).toBe("C:/tools/arm-none-eabi-gcc.exe");
+
+    // Cancel preserves current value
+    settings.chooseCppPath.mockResolvedValue(null);
+    cppBrowseButton().click();
+    await tick();
+    expect(cppPathInput().value).toBe("C:/tools/arm-none-eabi-gcc.exe");
+    view.dispose();
+  });
+
+  it("saves cppPath and cppArgs via save-cpp button and updates effective display and status message", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    typeCppPath("C:/mytools/gcc.exe");
+    typeCppArgs("-E -DFOO");
+    settings.updateToolSettings.mockResolvedValue({
+      ok: true,
+      settings: {
+        ...current,
+        revision: 2,
+        cppPath: "C:/mytools/gcc.exe",
+        cppArgs: "-E -DFOO",
+        effectiveCppCommand: "C:/mytools/gcc.exe -E -DFOO",
+        effectiveCppFullPath: "C:/mytools/gcc.exe",
+        cppOriginReason: "ユーザ直接指定",
+      },
+    });
+    cppSaveButton().click();
+    await tick();
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({
+      cppPath: "C:/mytools/gcc.exe",
+      cppArgs: "-E -DFOO",
+    });
+    expect(cppResult()).toContain("保存しました");
+    expect(cppEffective()).toContain("C:/mytools/gcc.exe -E -DFOO");
+    expect(cppMeta()).toContain("C:/mytools/gcc.exe");
+    expect(cppMeta()).toContain("ユーザ直接指定");
+    view.dispose();
+  });
+
+  it("sends empty cppPath and empty cppArgs to clear settings", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      cppPath: "C:/old/gcc.exe",
+      cppArgs: "-E -DOLD",
+    });
+    await view.open();
+    expect(cppPathInput().value).toBe("C:/old/gcc.exe");
+    typeCppPath("");
+    typeCppArgs("");
+    settings.updateToolSettings.mockResolvedValue({
+      ok: true,
+      settings: {
+        ...current,
+        revision: 2,
+        cppPath: "",
+        cppArgs: "",
+        effectiveCppCommand: "gcc",
+        effectiveCppFullPath: "未検出 (PATH上)",
+        cppOriginReason: "フォールバック",
+      },
+    });
+    cppSaveButton().click();
+    await tick();
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({
+      cppPath: "",
+      cppArgs: "",
+    });
+    expect(cppResult()).toContain("保存しました");
+    expect(cppEffective()).toContain("gcc");
+    expect(cppMeta()).toContain("フォールバック");
+    view.dispose();
+  });
+
+  it("shows an error message inline when cpp settings update fails", async () => {
+    const { view, settings } = setup();
+    settings.updateToolSettings.mockResolvedValue({ ok: false, error: "failed to write settings" } as never);
+    await view.open();
+    typeCppPath("/some/gcc");
+    cppSaveButton().click();
+    await tick();
+    expect(cppResult()).toContain("failed to write settings");
+    expect(cppResult()).not.toContain("保存しました");
+    view.dispose();
+  });
+
+  it("includes cppPath and cppArgs in tecsgen save button when cpp input was modified", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    type("/new/tecsgen");
+    typeCppPath("arm-gcc");
+    typeCppArgs("-E -DTECSGEN");
+    button("save").click();
+    await tick();
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({
+      tecsgenPath: "/new/tecsgen",
+      cppPath: "arm-gcc",
+      cppArgs: "-E -DTECSGEN",
+    });
+    view.dispose();
+  });
+
+  it("displays pluginTypeSource default, plugin registry table, and notes", async () => {
+    const { view } = setup();
+    await view.open();
+    expect(pluginSourceSelect().value).toBe("external");
+
+    const table = document.querySelector("#information-plugin-table")!;
+    expect(table).not.toBeNull();
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.textContent).toContain("MrubyBridgePlugin");
+    expect(rows[0]!.textContent).toContain("1.9.1");
+    expect(rows[1]!.textContent).toContain("MrubyBridgeCellPlugin");
+    expect(rows[1]!.textContent).toContain("1.9.1");
+
+    const dialogText = document.querySelector("#information-dialog")!.textContent!;
+    expect(dialogText).toContain("W-PLUGIN-UNSUPPORTED");
+    expect(dialogText).toContain("「実行(Generate)」および版確認は常に外部 tecsgen を使用します");
+    expect(dialogText).toContain("次回読み込みから反映されます");
+    view.dispose();
+  });
+
+  it("switches pluginTypeSource to internal and saves via dedicated save button", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    selectPluginSource("internal");
+    pluginSaveButton().click();
+    await tick();
+
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({ pluginTypeSource: "internal" });
+    expect(pluginResult()).toContain("保存しました");
+    expect(pluginResult()).toContain("次回読み込みから反映されます");
+    expect(pluginSourceSelect().value).toBe("internal");
+    view.dispose();
+  });
+
+  it("reflects existing internal pluginTypeSource on dialog open", async () => {
+    const { view, settings } = setup();
+    settings.getToolSettings.mockResolvedValue({
+      ...current,
+      pluginTypeSource: "internal",
+    });
+    await view.open();
+    expect(pluginSourceSelect().value).toBe("internal");
+    view.dispose();
+  });
+
+  it("displays an error when plugin settings update fails", async () => {
+    const { view, settings } = setup();
+    settings.updateToolSettings.mockResolvedValue({ ok: false, error: "failed to save plugin source" } as never);
+    await view.open();
+    selectPluginSource("internal");
+    pluginSaveButton().click();
+    await tick();
+
+    expect(pluginResult()).toContain("failed to save plugin source");
+    expect(pluginResult()).not.toContain("保存しました");
+    view.dispose();
+  });
+
+  it("includes pluginTypeSource in main save button when modified", async () => {
+    const { view, settings } = setup();
+    await view.open();
+    type("/custom/tecsgen");
+    selectPluginSource("internal");
+    button("save").click();
+    await tick();
+
+    expect(settings.updateToolSettings).toHaveBeenCalledWith({
+      tecsgenPath: "/custom/tecsgen",
+      pluginTypeSource: "internal",
+    });
+    expect(pluginResult()).toContain("保存しました");
     view.dispose();
   });
 });

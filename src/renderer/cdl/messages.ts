@@ -5,6 +5,15 @@
 
 import type { Diagnostic, SourceLocation } from "../diagnostics/types";
 import type { CellId } from "../model/ids";
+import type { CppOriginReason } from "../../shared/ipc-types.js";
+
+export interface CppFallbackOptions {
+  readonly command?: string;
+  readonly originReason?: CppOriginReason;
+  readonly fullPath?: string;
+  readonly failureKind?: "not-found" | "failed" | "timeout";
+  readonly failureDetail?: string;
+}
 
 export const G_CODES = {
   UNEXPECTED_EOF: "G1015",
@@ -15,6 +24,8 @@ export const W_CODES = {
   DUP_CELL: "W-DUP-CELL",
   UNRESOLVED_CELLTYPE: "W-UNRESOLVED-CELLTYPE",
   MISSING_JOIN_TARGET: "W-MISSING-JOIN-TARGET",
+  JOIN_INDEX_INCONSISTENT: "W-JOIN-INDEX-INCONSISTENT",
+  AUTO_LAYOUT_OVERFLOW: "W-AUTO-LAYOUT-OVERFLOW",
   /** DT-ELでは出さない（複合セルタイプの存在は警告にしない）。「出ない」ことを確かめるテストが参照する。 */
   COMPOSITE_UNSUPPORTED: "W-COMPOSITE-UNSUPPORTED",
   LAYOUT_DISCARDED: "W-LAYOUT-DISCARDED",
@@ -26,7 +37,13 @@ export const W_CODES = {
   CDECL_PARSE_ERROR: "W-CDECL-PARSE",
   C_TYPE_UNRESOLVED: "W-C-TYPE-UNRESOLVED",
   PORT_SIGNATURE_UNRESOLVED: "W-PORT-SIGNATURE-UNRESOLVED",
+  ARRAY_SIZE_UNRESOLVED: "W-ARRAY-SIZE-UNRESOLVED",
   REGION_MISMATCH: "W-REGION-MISMATCH",
+  ACTIVE_TOP_OVERFLOW: "W-ACTIVE-TOP-OVERFLOW",
+  ACTIVE_TOP_FAILED: "W-ACTIVE-TOP-FAILED",
+  LOG_WRITE_FAILED: "W-LOG-WRITE-FAILED",
+  PLUGIN_UNSUPPORTED: "W-PLUGIN-UNSUPPORTED",
+  PLUGIN_TYPE_LOAD: "W-PLUGIN-TYPE-LOAD",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -65,6 +82,26 @@ export function missingJoinTarget(cellName: string, portName: string, cellId: Ce
   };
 }
 
+/** 外部仕様5.3.x: 自動配置したセルのうち、用紙の内に収まらず、ずらして重ねて置いたものがある。 */
+export function autoLayoutOverflow(count: number): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.AUTO_LAYOUT_OVERFLOW,
+    message: `自動配置したセルのうち ${count} 個が用紙に収まらず、位置をずらして重ねて置きました。用紙を大きくしたあと、「全体再配置」を実行してください`,
+  };
+}
+
+/** 外部仕様4.6.x: 同じ呼び口の結合で、添字を書いた形と省いた形が混ざっている。 */
+export function joinIndexInconsistent(cellName: string, portName: string, cellId: CellId): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.JOIN_INDEX_INCONSISTENT,
+    message: `セル \`${cellName}\` の呼び口 \`${portName}\` の結合で、添字を書いた形と省いた形が混ざっています`,
+    relatedCellId: cellId,
+    relatedPortName: portName,
+  };
+}
+
 export function requirePortHidden(cellName: string, count: number, cellId: CellId): Diagnostic {
   return {
     severity: "warning",
@@ -88,16 +125,33 @@ export function unresolvedReferenceFile(fileName: string): Diagnostic {
 }
 
 /**
- * [[work/active/TECSCDE-DT-EL内部仕様/TECSCDE-DT-EL内部仕様 - 09 tecsgen連携設計#9.6]]:
+ * [[TECSCDE-DT外部仕様 - Cプリプロセッサ設定と失敗詳細(V0.2.1用)#2.1]],
+ * [[TECSCDE-DT-EL内部仕様 - 09E V0.2.1 Cプリプロセッサ設定と失敗詳細#9E.4]]:
  * import_CのCヘッダに対しCプリプロセッサの実行が見つからない・失敗したため、未展開の
- * 生ヘッダテキストへフォールバックしたことを利用者に提示する。#include未展開・#ifdef
- * 未評価の差分が生じ得る（[[work/active/TECSCDE外部仕様/TECSCDE外部仕様 - 08 CDL 連携#8.1.2]]）。
+ * 生ヘッダテキストへフォールバックしたことを利用者に提示する。
  */
-export function cppFallback(headerPath: string): Diagnostic {
+export function cppFallback(headerPath: string, options?: CppFallbackOptions): Diagnostic {
+  const command = options?.command?.trim() || "gcc";
+  const metaParts: string[] = [];
+  if (options?.fullPath) metaParts.push(`フルパス: ${options.fullPath}`);
+  if (options?.originReason) metaParts.push(`決定理由: ${options.originReason}`);
+  const metaLabel = metaParts.length > 0 ? `（${metaParts.join("、")}）` : "";
+
+  let body: string;
+  if (options?.failureKind === "not-found") {
+    body = `Cプリプロセッサ '${command}'${metaLabel}が見つからないため、'${headerPath}' は未展開のまま型を抽出しました（パス設定またはインストールを確認してください）`;
+  } else if (options?.failureKind === "failed") {
+    const detail = options.failureDetail ? `（${options.failureDetail}）` : "";
+    body = `Cプリプロセッサ '${command}'${metaLabel}の実行が失敗したため${detail}、'${headerPath}' は未展開のまま型を抽出しました`;
+  } else {
+    const detail = options?.failureDetail ? `（${options?.failureDetail}）` : "";
+    body = `Cプリプロセッサ '${command}'${metaLabel}を起動・実行できなかったため${detail}、'${headerPath}' は未展開のまま型を抽出しました`;
+  }
+
   return {
     severity: "warning",
     code: W_CODES.CPP_FALLBACK,
-    message: `Cプリプロセッサを実行できなかったため、\`${headerPath}\` は未展開のまま型を抽出しました（#include未展開・#ifdef未評価の差分が生じ得ます）`,
+    message: body,
   };
 }
 
@@ -113,3 +167,74 @@ export function cdeclParseError(headerPath: string): Diagnostic {
     message: `\`${headerPath}\` の一部を解析できませんでした（構文エラー）。捕捉できた範囲のtypedef/structのみ反映しています`,
   };
 }
+
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 06C V0.2.0表示と配置#6C.4]], [[TECSCDE-DT-EL内部仕様 - 08 整合性チェックとメッセージ設計#8.5]]:
+ * activeセルの最上段配置で最上段以外の行へ送った対象セル数を通知する。
+ */
+export function activeTopOverflow(count: number): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.ACTIVE_TOP_OVERFLOW,
+    message: `対象のうち ${count} 個が、最上段に置ききれず、次の行以降へ送られました。`,
+  };
+}
+
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 06C V0.2.0表示と配置#6C.4]], [[TECSCDE-DT-EL内部仕様 - 08 整合性チェックとメッセージ設計#8.5]]:
+ * 用紙内に重ならずに配置できないため操作全体を拒否したことを通知する。
+ */
+export function activeTopFailed(): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.ACTIVE_TOP_FAILED,
+    message: "現在の用紙内に重ならずに配置できないため、最上段への移動を行いませんでした。",
+  };
+}
+
+/**
+ * [[TECSCDE-DT外部仕様 - 09 エラーと警告#9.5]], 監査#66:
+ * 診断ログの作成・追記・保存先ディレクトリ作成が失敗した際に一度だけ画面へ出す警告。
+ */
+export function logWriteFailed(): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.LOG_WRITE_FAILED,
+    message: "診断ログを作れない、または追記できない。診断パネルの内容は、このファイルに残らない",
+  };
+}
+
+/**
+ * [[TECSCDE-DT-EL内部仕様 - 09D V0.2.0tecsgen設定と内部処理]] 9D.6 / 外部仕様 8.5 #3:
+ * 内部処理方式で未対応のプラグインが指定されている場合の警告。
+ * 生成型は取り込まず開く処理は続行し、外部 tecsgen 方式への切り替えを案内する。
+ */
+export function pluginUnsupported(pluginName: string, location?: SourceLocation): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.PLUGIN_UNSUPPORTED,
+    message: `プラグイン '${pluginName}' は内部処理の対象外です（生成型は取り込みません。開く処理は続行します。外部 tecsgen 方式に切り替えると取り込める可能性があります）`,
+    location,
+  };
+}
+
+/**
+ * Plugin生成型の読み込み・実行失敗の警告。
+ */
+export function pluginTypeLoad(message: string, location?: SourceLocation): Diagnostic {
+  return {
+    severity: "warning",
+    code: W_CODES.PLUGIN_TYPE_LOAD,
+    message,
+    location,
+  };
+}
+
+export function layoutDiscarded(target: string): string {
+  return `${target} の保存済みレイアウトは形式が不正なため破棄しました`;
+}
+
+export const MESSAGES = {
+  layoutDiscarded,
+} as const;
+

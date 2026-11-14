@@ -1,0 +1,15 @@
+/* 実機確認 #10・#11: 結合の削除、結合バーの選択（セル4個） */
+import("check-types.cdl");
+
+/* t1 には p1・p2・p3 の3本の結合が集まる */
+cell tT t1 {
+};
+cell tPlain p1 {
+	cPlain = t1.e;
+};
+cell tPlain p2 {
+	cPlain = t1.e;
+};
+cell tPlain p3 {
+	cPlain = t1.e;
+};

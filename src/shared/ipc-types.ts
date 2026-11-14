@@ -68,10 +68,22 @@ export interface TecsgenLaunchFailure {
  * [[TECSCDE-DT-EL内部仕様]] 第9C章9C.2節: `tecsgen --version`の結果。tecsgenは版を標準エラー出力へ出す
  * ため、`text`は標準出力、空なら標準エラー出力（trim済み）。
  */
+/**
+ * 起動に使われたコマンド（環境変数 TECSGEN_COMMAND、無ければ既定の tecsgen）。バージョン情報
+ * ダイアログ（外部仕様3.8）に出す。mainは常に付けるが、型は省略可（呼び出し側の既存の値のため）。
+ */
 export type TecsgenVersionResult =
-  | { readonly kind: "ok"; readonly text: string }
-  | { readonly kind: "not-found" }
-  | { readonly kind: "failed"; readonly detail: string };
+  | { readonly kind: "ok"; readonly text: string; readonly command?: string }
+  | { readonly kind: "not-found"; readonly command?: string }
+  | { readonly kind: "failed"; readonly detail: string; readonly command?: string };
+
+/** 外部仕様3.8: バージョン情報ダイアログに出す実行環境の版。preload が読み取り専用で公開する。 */
+export interface RuntimeVersions {
+  readonly electron: string;
+  readonly chrome: string;
+  readonly node: string;
+  readonly platform: string;
+}
 
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.run() の戻り値。 */
 export interface TecsgenResult {
@@ -96,12 +108,26 @@ export interface GeneratedCdlResult {
   readonly sources: readonly GeneratedCdlFile[];
 }
 
+/** V0.2.1: Cプリプロセッサ実行ファイルの決定理由 */
+export type CppOriginReason = "ユーザ直接指定" | "自動検出" | "フォールバック";
+export type CppOrigin = "cdl" | "settings" | "path" | "default";
+
 /** [[TECSCDE-DT-EL内部仕様]] 第9章9.1節: TecsgenRunner.preprocess() の戻り値。 */
 export interface CppResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
   readonly executableFound: boolean;
+  /** V0.2.1: 実行されたコマンド文字列 */
+  readonly command?: string;
+  /** V0.2.1: 実行ファイルの決定理由 */
+  readonly originReason?: CppOriginReason;
+  /** V0.2.1: 解決された実行ファイルへのフルパス（未解決の場合は "未検出 (PATH上)" 等） */
+  readonly fullPath?: string;
+  /** V0.2.1: 失敗の分類 */
+  readonly failureKind?: "not-found" | "failed" | "timeout";
+  /** V0.2.1: 失敗の具体的詳細（終了コード、stderrの抜粋、エラーメッセージ等） */
+  readonly failureDetail?: string;
 }
 
 /** tree-sitterランタイムとCDL/cdecl文法のWASMバイト列。 */
@@ -123,12 +149,16 @@ export interface ImportRequest {
 
 /** 第7D章7.5.2節: 探索候補ディレクトリの構築に使う入力。 */
 export interface ImportResolutionOptions {
-  readonly systemDirs?: readonly string[];
   readonly baseDir?: string;
   readonly importPaths: readonly string[];
   readonly cpp?: string;
   /** 第7D章7.5.3節: 解決が進むごとにrendererが蓄積する追加の探索ディレクトリ。 */
   readonly extraSearchDirs?: readonly string[];
+  /**
+   * `.tecsgen-opts`の`-S`で指定されたディレクトリ（絶対パス、外部仕様5.3節）。このうち`_CDL_FILES.txt`を
+   * 持つものは、ディレクトリを直接調べる代わりに、その一覧から`import`の参照先を探す。
+   */
+  readonly systemDirs?: readonly string[];
 }
 
 /** 第7D章7.5.2節: `resolveImports()`の1件あたりの結果。 */
@@ -164,6 +194,8 @@ export interface ResolvedTecsgenCommand {
   readonly args: readonly string[];
   readonly source: TecsgenCommandSource;
 }
+export type PluginTypeSource = "external" | "internal";
+
 export interface ToolSettings {
   readonly revision: number;
   readonly tecsgenPath: string;
@@ -173,6 +205,21 @@ export interface ToolSettings {
   readonly executable: string;
   readonly prefixArgs: readonly string[];
   readonly override: boolean;
+  /** V0.2.1: Cプリプロセッサ設定 */
+  readonly cppPath?: string;
+  readonly cppArgs?: string;
+  readonly effectiveCppCommand?: string;
+  readonly effectiveCppFullPath?: string;
+  readonly cppOrigin?: CppOrigin;
+  readonly cppOriginReason?: CppOriginReason;
+  /** V0.2.1 Stage 4: Plugin生成型の取り込み方式（既定: "external"） */
+  readonly pluginTypeSource: PluginTypeSource;
+}
+export interface ToolSettingsUpdate {
+  readonly tecsgenPath?: string;
+  readonly cppPath?: string;
+  readonly cppArgs?: string;
+  readonly pluginTypeSource?: PluginTypeSource;
 }
 export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
   | { readonly ok: false; readonly error: string };
@@ -188,8 +235,21 @@ export interface AppInformation {
   readonly arch: string;
 }
 
+export type ExportFormat = "svg" | "png" | "pdf";
+
+export type PdfPage =
+  | { readonly kind: "paper"; readonly size: "A4" | "A3" | "A2"; readonly orientation: "LANDSCAPE" | "PORTRAIT" }
+  | { readonly kind: "custom"; readonly widthMm: number; readonly heightMm: number };
+
+/** `log.append` の結果。`newFailure` は、ログを書けなくなった最初の一度だけ入る理由。 */
+export interface LogAppendResult {
+  readonly newFailure?: string;
+}
+
 /** preload が `window.tecscde` として公開する API 全体の型（第2章2.4節）。 */
 export interface TecscdeApi {
+  /** 外部仕様3.8: 実行環境の版（Electron・Chromium・Node・OS）。 */
+  readonly versions: RuntimeVersions;
   readonly cdl: {
     loadGrammarAssets(): Promise<CdlGrammarAssetBytes>;
   };
@@ -201,7 +261,9 @@ export interface TecscdeApi {
     save(path: string, content: string): Promise<void | SourceWriteReceipt>;
     chooseSavePath?(suggestedName: string): Promise<string | null>;
     saveAs(content: string, suggestedName: string): Promise<string | null>;
-    export(path: string, data: string): Promise<void>;
+    chooseExportPath(format: ExportFormat, suggestedName: string): Promise<string | null>;
+    export(path: string, data: string | Uint8Array): Promise<void>;
+    exportPdf(path: string, svg: string, page: PdfPage): Promise<void>;
     /** 第7章7.6.1節: ファイルブラウザのルートフォルダ選択。 */
     chooseFolder(): Promise<string | null>;
     /** 第7章7.6.1節: ディレクトリ直下のみを1階層返す（遅延展開）。 */
@@ -254,16 +316,20 @@ export interface TecscdeApi {
   readonly settings: {
     get(): Promise<AppSettingsView>;
     getToolSettings(): Promise<ToolSettings>;
-    updateToolSettings(patch: { readonly tecsgenPath: string }): Promise<ToolSettingsUpdateResult>;
+    updateToolSettings(patch: ToolSettingsUpdate): Promise<ToolSettingsUpdateResult>;
     chooseTecsgenPath(): Promise<string | null>;
+    chooseCppPath(currentPath?: string): Promise<string | null>;
     getAppInformation(): Promise<AppInformation>;
     getCdlFilesRoot(): Promise<string>;
     setCdlFilesRoot(root: string): Promise<void>;
     chooseCdlFilesRoot(): Promise<string | null>;
   };
-  /** 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。 */
+  /**
+   * 診断パネルに表示した内容を、起動ごとのログファイル（テキスト）へ追記する。
+   * 結果の `newFailure` は、書けなくなった最初の一度だけ入る理由（外部仕様9.5.2の規定13）。
+   */
   readonly log: {
-    append(lines: readonly string[]): Promise<void>;
+    append(lines: readonly string[]): Promise<LogAppendResult>;
   };
   /**
    * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・

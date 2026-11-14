@@ -14,25 +14,35 @@ vi.mock("electron", () => ({
   app: { getPath: (...args: unknown[]) => getPath(...args) },
 }));
 
-const { loadAppSettings, saveAppSettings } = await import("../../src/main/app-settings.js");
+const { loadAppSettings, saveAppSettings, logsDirectory } = await import("../../src/main/app-settings.js");
 
 describe("app-settings", () => {
   let userDataDir: string;
   let localAppDataDir: string;
+  let originalPlatform: PropertyDescriptor;
 
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-userdata-"));
     localAppDataDir = mkdtempSync(join(tmpdir(), "tecscde-dt-el-localappdata-"));
     getPath.mockReturnValue(userDataDir);
-    // このマシン自体がWindowsのため、LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    // LOCALAPPDATA分岐はWindows限定のため、実行OSに関わらずwin32として扱い、
+    // LOCALAPPDATAを一時ディレクトリへ差し替えて分離する。
+    originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
     vi.stubEnv("LOCALAPPDATA", localAppDataDir);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(process, "platform", originalPlatform);
     vi.unstubAllEnvs();
     rmSync(userDataDir, { recursive: true, force: true });
     rmSync(localAppDataDir, { recursive: true, force: true });
+  });
+
+  it("logsDirectory is logs/ in the same folder as settings.json: LOCALAPPDATA/tecscde-dt-el/logs (spec 9.5.2 rule 2)", () => {
+    expect(logsDirectory()).toBe(join(localAppDataDir, "tecscde-dt-el", "logs"));
+    expect(getPath).not.toHaveBeenCalled(); // Roaming の userData には置かない
   });
 
   it("loadAppSettings returns {} when no settings file exists yet (初回起動)", async () => {
@@ -233,5 +243,50 @@ describe("app-settings", () => {
     await Promise.all([first, second]);
     expect(observedBeforeRelease).toBe(false);
     expect((await read).fileBrowserRoot).toBe("/new");
+  });
+
+  it("saveAppSettings then loadAppSettings round-trips cppPath and cppArgs", async () => {
+    await saveAppSettings({ cppPath: "/usr/bin/gcc", cppArgs: "-E -DTECSGEN" });
+    await expect(loadAppSettings()).resolves.toEqual({
+      cppPath: "/usr/bin/gcc",
+      cppArgs: "-E -DTECSGEN",
+    });
+  });
+
+  it("normalizeAppSettings strips non-string cppPath and cppArgs", async () => {
+    seed({ cppPath: 123, cppArgs: true, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+  });
+
+  it("saveAppSettings then loadAppSettings round-trips pluginTypeSource", async () => {
+    await saveAppSettings({ pluginTypeSource: "internal" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "internal" });
+
+    await saveAppSettings({ pluginTypeSource: "external" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "external" });
+  });
+
+  it("normalizeAppSettings preserves valid pluginTypeSource and strips invalid values", async () => {
+    seed({ pluginTypeSource: "internal", fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ pluginTypeSource: "internal", fileBrowserRoot: "/root" });
+
+    seed({ pluginTypeSource: "invalid", fileBrowserRoot: "/root", other: 123 });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root", other: 123 });
+
+    seed({ pluginTypeSource: 42, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+
+    seed({ pluginTypeSource: true, fileBrowserRoot: "/root" });
+    await expect(loadAppSettings()).resolves.toEqual({ fileBrowserRoot: "/root" });
+  });
+
+  it("saveAppSettings merges pluginTypeSource without clobbering other settings", async () => {
+    await saveAppSettings({ fileBrowserRoot: "/root", cppPath: "/bin/gcc" });
+    await saveAppSettings({ pluginTypeSource: "internal" });
+    await expect(loadAppSettings()).resolves.toEqual({
+      fileBrowserRoot: "/root",
+      cppPath: "/bin/gcc",
+      pluginTypeSource: "internal",
+    });
   });
 });

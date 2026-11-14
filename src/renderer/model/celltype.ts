@@ -11,6 +11,8 @@ export interface PortTemplate {
   readonly offset: number;
   readonly subscript: number | null;
   readonly arraySize: number | null;
+  /** 可変長配列（`[]`）。セル生成時に、結合で使われた添字の最大値+1個の要素へ展開する。 */
+  readonly variableArray?: boolean;
 }
 
 export interface CelltypeRefCreateParams {
@@ -18,17 +20,20 @@ export interface CelltypeRefCreateParams {
   readonly cportTemplates: readonly PortTemplate[];
   readonly eportTemplates: readonly PortTemplate[];
   readonly attributeNames: readonly string[];
+  readonly attributeOptions?: ReadonlyMap<string, readonly string[]>;
   /** requireのため図に現れないポート数。ステータス表示・警告用（4.3.2）。 */
   readonly hiddenRequirePortCount: number;
-  readonly active?: boolean;
   /** 定義元ファイル。未解決セルタイプ由来のセルは持たない。 */
   readonly locale?: string;
   /** Stable defining file path; locale remains the display basename. */
   readonly sourcePath?: string;
   /** Generated definitions have virtual sources, never stable temporary file paths. */
   readonly generated?: boolean;
+  /** 定義している CDL ファイルのフルパス。詳細ダイアログに出す。パスを持たない型（Plugin 生成、新規作成）は無い。 */
+  readonly definitionPath?: string;
   readonly composite?: CompositeStructure;
   readonly hasUnsupportedSyntax?: boolean;
+  readonly active?: boolean;
 }
 
 export class CelltypeRef {
@@ -44,6 +49,8 @@ export class CelltypeRef {
     readonly composite: CompositeStructure | undefined,
     readonly hasUnsupportedSyntax: boolean,
     readonly active: boolean,
+    readonly attributeOptions: ReadonlyMap<string, readonly string[]> = new Map(),
+    readonly definitionPath: string | undefined = undefined,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
@@ -59,6 +66,12 @@ export class CelltypeRef {
       params.composite,
       params.hasUnsupportedSyntax ?? false,
       params.active ?? false,
+      params.attributeOptions ?? new Map(),
+      params.definitionPath,
     );
+  }
+
+  getAttributeOptions(attrName: string): readonly string[] | undefined {
+    return this.attributeOptions.get(attrName);
   }
 }

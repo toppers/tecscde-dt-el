@@ -5,11 +5,12 @@
 
 import { ToolInfoValidator } from "../cdl/tool-info";
 import { CdlDocumentBuilder, type ImportDecl } from "../cdl/cst";
-import { cdeclParseError, cppFallback, unresolvedReferenceFile } from "../cdl/messages";
+import { cdeclParseError, cppFallback, unresolvedReferenceFile, type CppFallbackOptions } from "../cdl/messages";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import { CdeclExtractor, type CdeclResult } from "../cdecl/extractor";
+import { CTypeRegistry } from "../cdecl/type-registry";
 import type {
   ImportRequest,
   ImportResolutionOptions,
@@ -18,6 +19,13 @@ import type {
 } from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics/types";
 import { normalizePathForCompare } from "../../shared/path-under";
+
+export interface ImportResolutionResult {
+  readonly references: OpenFileEntry[];
+  readonly diagnostics: Diagnostic[];
+  readonly cdeclResults: Map<string, CdeclResult>;
+  readonly cTypes: CTypeRegistry;
+}
 
 function toImportRequest(decl: ImportDecl): ImportRequest {
   return { kind: decl.kind, specifier: decl.path };
@@ -69,7 +77,22 @@ async function ingestImportC(
   const cpp = await tecsgenGateway.preprocess(canonicalPath, cppCommand, includeDirs);
   const usedFallback = !cpp.executableFound || cpp.exitCode !== 0;
   const text = usedFallback ? rawContent : cpp.stdout;
-  if (usedFallback) diagnostics.push(cppFallback(canonicalPath));
+  if (usedFallback) {
+    let failureDetail = cpp.failureDetail;
+    if (!failureDetail && cpp.exitCode !== null && cpp.exitCode !== 0) {
+      const trimmedStderr = cpp.stderr?.trim();
+      const firstLine = trimmedStderr ? (trimmedStderr.split(/\r?\n/)[0] ?? "").slice(0, 200) : "";
+      failureDetail = `終了コード ${cpp.exitCode}${firstLine ? `: ${firstLine}` : ""}`;
+    }
+    const fallbackOptions: CppFallbackOptions = {
+      command: cpp.command ?? cppCommand ?? "gcc",
+      originReason: cpp.originReason ?? (cppCommand ? "ユーザ直接指定" : "フォールバック"),
+      fullPath: cpp.fullPath ?? (!cpp.executableFound ? (cppCommand ? cppCommand.trim().split(/\s+/)[0] : "未検出 (PATH上)") : undefined),
+      failureKind: cpp.failureKind ?? (!cpp.executableFound ? "not-found" : "failed"),
+      failureDetail,
+    };
+    diagnostics.push(cppFallback(canonicalPath, fallbackOptions));
+  }
 
   const result = CdeclExtractor.extract(text);
   if (result.hasErrors) diagnostics.push(cdeclParseError(canonicalPath));
@@ -108,7 +131,7 @@ async function resolveImportClosure(
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
   useManualToolInfo = false,
-): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
+): Promise<ImportResolutionResult> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."],
     ...(systemDirs.length > 0 ? { systemDirs: [...systemDirs] } : {}) };
   const resolvedPaths = new Set([...seedResolvedPaths].map(sourceKey));
@@ -194,7 +217,8 @@ async function resolveImportClosure(
     }
     frontier = nextFrontier;
   }
-  return { references, diagnostics, cdeclResults };
+  const cTypes = new CTypeRegistry(cdeclResults);
+  return { references, diagnostics, cdeclResults, cTypes };
 }
 
 /**
@@ -216,7 +240,7 @@ export async function resolveAllImports(
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
   useManualToolInfo = false,
-): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
+): Promise<ImportResolutionResult> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
   return resolveImportClosure(
@@ -249,7 +273,7 @@ export async function resolveAddedReference(
   path: string,
   alreadyLoadedPaths: readonly string[],
   systemDirs: readonly string[] = [],
-): Promise<{ references: OpenFileEntry[]; diagnostics: Diagnostic[]; cdeclResults: Map<string, CdeclResult> }> {
+): Promise<ImportResolutionResult> {
   const seed = new Set([...(editablePath ? [editablePath] : []), ...alreadyLoadedPaths]);
   return resolveImportClosure(gateway, tecsgenGateway, editablePath ?? path, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs, true);
 }

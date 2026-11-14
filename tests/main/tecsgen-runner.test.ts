@@ -6,7 +6,8 @@ import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
 import { access, mkdir, mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { TecsgenRunner } from "../../src/main/tecsgen-runner.js";
+import { TecsgenRunner, summarizeStderr } from "../../src/main/tecsgen-runner.js";
+import type { ResolvedCppCommand } from "../../src/main/tool-settings.js";
 
 const execFileMock = vi.fn();
 const originalTecsgenCommand = process.env.TECSGEN_COMMAND;
@@ -128,7 +129,7 @@ describe("TecsgenRunner", () => {
       const runner = new TecsgenRunner(async () => ({ executable: path, args: [], source: "settings" }));
       await rm(path);
       execFileMock.mockResolvedValue({ stdout: "wrong fallback", stderr: "" });
-      expect(await runner.version()).toEqual({ kind: "not-found" });
+      expect(await runner.version()).toMatchObject({ kind: "not-found" });
       expect(execFileMock).not.toHaveBeenCalled();
     } finally { await rmdir(dir); }
   });
@@ -136,7 +137,7 @@ describe("TecsgenRunner", () => {
   it.skipIf(process.platform !== "win32")("keeps unqualified environment batch commands for the host's PATH lookup", async () => {
     process.env.TECSGEN_COMMAND = "tecsgen.bat";
     execFileMock.mockResolvedValue({ stdout: "version 1.9.1", stderr: "" });
-    expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "version 1.9.1" });
+    expect(await new TecsgenRunner().version()).toMatchObject({ kind: "ok", text: "version 1.9.1" });
     expect(execFileMock.mock.calls[0]?.[1].at(-1)).toContain("tecsgen.bat");
   });
 
@@ -172,6 +173,31 @@ describe("TecsgenRunner", () => {
       expect(args[0]).toBe("-g");
       // オプションファイルに`-k`が無いので、`-g <dir>`の直後に`-k utf8`が足される。
       expect(args.slice(2)).toEqual(["-k", "utf8", "-I", "./includes", "-L", "user plugins", "-D", "FLAG=1", "main.cdl"]);
+    } finally {
+      await rm(optionsFilePath, { force: true });
+      await rmdir(optionsDir);
+    }
+  });
+
+  // tecsgen本体は`-S`を持たない（アプリ独自。外部仕様5.3・8.x）。そのまま渡すと`-S`をファイル名と取り違えて
+  // 失敗し、Plugin生成型が読み込まれない。`-I`に置き換えて、記述順を保つ。
+  it.each([
+    ["-S <dir>", "-S ./sys -I ./inc -S ./lib main.cdl", ["-I", "./sys", "-I", "./inc", "-I", "./lib", "main.cdl"]],
+    ["-S<dir> (attached)", "-S./sys -I./inc main.cdl", ["-I", "./sys", "-I./inc", "main.cdl"]],
+    ["--system-dir <dir>", "--system-dir ./sys main.cdl", ["-I", "./sys", "main.cdl"]],
+    ["--system-dir=<dir>", "--system-dir=./sys main.cdl", ["-I", "./sys", "main.cdl"]],
+  ])("generatedTypes() passes %s to tecsgen as -I, keeping the order", async (_label, text, expected) => {
+    const optionsDir = await mkdtemp(join(tmpdir(), "tecscde-options-s-"));
+    const optionsFilePath = join(optionsDir, "s.tecsgen-opts");
+    try {
+      await writeFile(optionsFilePath, text, "utf8");
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      await new TecsgenRunner().generatedTypes(["ignored.cdl"], join(optionsDir, "main.cdl"), optionsFilePath);
+      const [, args] = execFileMock.mock.calls[0]!;
+      expect(args.slice(4)).toEqual(expected); // ["-g", dir, "-k", "utf8", ...]
+      expect(args).not.toContain("-S");
+      expect(args).not.toContain("--system-dir");
+      expect(args.some((arg: string) => arg.startsWith("-S") || arg.startsWith("--system-dir"))).toBe(false);
     } finally {
       await rm(optionsFilePath, { force: true });
       await rmdir(optionsDir);
@@ -282,7 +308,7 @@ describe("TecsgenRunner", () => {
     execFileMock.mockResolvedValue({ stdout: "1.9.1\n", stderr: "" });
     const runner = new TecsgenRunner();
 
-    await expect(runner.version()).resolves.toEqual({ kind: "ok", text: "1.9.1" });
+    await expect(runner.version()).resolves.toEqual({ kind: "ok", text: "1.9.1", command: "tecsgen" });
   });
 
   it("preprocess() runs preprocessor with default or custom command", async () => {
@@ -290,12 +316,12 @@ describe("TecsgenRunner", () => {
     const runner = new TecsgenRunner();
 
     const result = await runner.preprocess("header.h");
-    expect(result).toEqual({ stdout: "typedef int INT;", stderr: "", exitCode: 0, executableFound: true });
+    expect(result).toMatchObject({ stdout: "typedef int INT;", stderr: "", exitCode: 0, executableFound: true });
     expect(execFileMock).toHaveBeenCalledWith("gcc", ["-E", "-DTECSGEN", "header.h"], { timeout: 30_000 });
 
     execFileMock.mockResolvedValue({ stdout: "struct S {};", stderr: "" });
     const customResult = await runner.preprocess("header.h", "clang -E");
-    expect(customResult).toEqual({ stdout: "struct S {};", stderr: "", exitCode: 0, executableFound: true });
+    expect(customResult).toMatchObject({ stdout: "struct S {};", stderr: "", exitCode: 0, executableFound: true });
     expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], { timeout: 30_000 });
   });
 
@@ -330,7 +356,7 @@ describe("TecsgenRunner", () => {
 
     const result = await runner.preprocess("header.h", '"C:\\Program Files\\clang.exe -E');
 
-    expect(result).toEqual({ stdout: "", stderr: "", exitCode: 1, executableFound: true });
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 1, executableFound: true, failureKind: "failed" });
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
@@ -340,7 +366,128 @@ describe("TecsgenRunner", () => {
     const runner = new TecsgenRunner();
 
     const result = await runner.preprocess("header.h");
-    expect(result).toEqual({ stdout: "", stderr: "", exitCode: null, executableFound: false });
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: null, executableFound: false, failureKind: "not-found" });
+  });
+
+  it("preprocess() returns structured not-found failure on ENOENT", async () => {
+    const enoent = Object.assign(new Error("not found"), { code: "ENOENT" });
+    execFileMock.mockRejectedValue(enoent);
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "custom-gcc -E");
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      executableFound: false,
+      command: "custom-gcc -E",
+      originReason: "ユーザ直接指定",
+      failureKind: "not-found",
+      failureDetail: "'custom-gcc' が見つかりません",
+    });
+    expect(result.fullPath).toBeDefined();
+  });
+
+  it("preprocess() returns structured failed failure with summarized stderr excerpt", async () => {
+    const multiLineStderr = [
+      "In file included from header.h:1:",
+      "fatal error: sub.h: No such file or directory",
+      "compilation terminated.",
+    ].join("\n");
+    const failedErr = Object.assign(new Error("exit 1"), {
+      code: 1,
+      stdout: "",
+      stderr: multiLineStderr,
+    });
+    execFileMock.mockRejectedValue(failedErr);
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "gcc -E");
+    expect(result).toMatchObject({
+      exitCode: 1,
+      executableFound: true,
+      command: "gcc -E",
+      originReason: "ユーザ直接指定",
+      failureKind: "failed",
+      failureDetail: "終了コード 1: In file included from header.h:1: fatal error: sub.h: No such file or directory compilation terminated.",
+    });
+
+    // 200文字上限の切り詰め検証
+    const longStderr = "x".repeat(300);
+    execFileMock.mockRejectedValue(Object.assign(new Error("exit 2"), {
+      code: 2,
+      stderr: longStderr,
+    }));
+    const longResult = await runner.preprocess("header.h", "gcc -E");
+    expect(longResult.failureKind).toBe("failed");
+    expect(longResult.failureDetail).toBe(`終了コード 2: ${"x".repeat(200)}`);
+  });
+
+  it("preprocess() returns structured timeout failure on process timeout", async () => {
+    const timeoutErr = Object.assign(new Error("Process timed out"), {
+      killed: true,
+      signal: "SIGTERM",
+      stdout: "partial output",
+      stderr: "timeout occurred",
+    });
+    execFileMock.mockRejectedValue(timeoutErr);
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "gcc -E");
+    expect(result).toMatchObject({
+      stdout: "partial output",
+      stderr: "timeout occurred",
+      exitCode: null,
+      executableFound: true,
+      command: "gcc -E",
+      originReason: "ユーザ直接指定",
+      failureKind: "timeout",
+      failureDetail: "30秒以内に完了しなかったためタイムアウトしました",
+    });
+  });
+
+  it("preprocess() accepts ResolvedCppCommand and preserves originReason and fullPath", async () => {
+    execFileMock.mockResolvedValue({ stdout: "typedef int INT;", stderr: "" });
+    const runner = new TecsgenRunner();
+
+    const resolved: ResolvedCppCommand = {
+      command: "arm-none-eabi-gcc -E -DTECSGEN",
+      executable: "arm-none-eabi-gcc",
+      fullPath: "C:\\msys64\\bin\\arm-none-eabi-gcc.exe",
+      origin: "path",
+      originReason: "自動検出",
+    };
+
+    const result = await runner.preprocess("header.h", resolved);
+    expect(result).toEqual({
+      stdout: "typedef int INT;",
+      stderr: "",
+      exitCode: 0,
+      executableFound: true,
+      command: "arm-none-eabi-gcc -E -DTECSGEN",
+      originReason: "自動検出",
+      fullPath: "C:\\msys64\\bin\\arm-none-eabi-gcc.exe",
+    });
+    expect(execFileMock).toHaveBeenCalledWith(
+      "arm-none-eabi-gcc",
+      ["-E", "-DTECSGEN", "header.h"],
+      { timeout: 30_000 },
+    );
+  });
+
+  describe("summarizeStderr", () => {
+    it("handles empty and whitespace-only strings", () => {
+      expect(summarizeStderr("")).toBe("");
+      expect(summarizeStderr("   \n\n  \t  ")).toBe("");
+    });
+
+    it("joins non-empty lines with spaces", () => {
+      expect(summarizeStderr("line 1\n  \nline 2\r\nline 3")).toBe("line 1 line 2 line 3");
+    });
+
+    it("truncates at maxLen", () => {
+      expect(summarizeStderr("abcdefghij", 5)).toBe("abcde");
+    });
   });
 
   describe("generate() (外部仕様5.3節: 作業ディレクトリ)", () => {
@@ -360,33 +507,33 @@ describe("TecsgenRunner", () => {
   describe("version() (9C.2節)", () => {
     it("reads the version from stderr when stdout is empty (tecsgen prints its banner to stderr)", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "tecsgen  version 1.9.1  \n" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen  version 1.9.1", command: "tecsgen" });
       expect(execFileMock).toHaveBeenCalledWith("tecsgen", ["--version"], { timeout: 30_000, shell: false });
     });
 
     it("prefers stdout when it has text", async () => {
       execFileMock.mockResolvedValue({ stdout: "tecsgen 2.0.0\n", stderr: "warning" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 2.0.0" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "tecsgen 2.0.0", command: "tecsgen" });
     });
 
     it("returns an empty text when both streams are empty", async () => {
       execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "ok", text: "", command: "tecsgen" });
     });
 
     it("reports not-found on ENOENT", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("nf"), { code: "ENOENT" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "not-found" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "not-found", command: "tecsgen" });
     });
 
     it("reports a launch failure other than ENOENT as failed", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "permission: EACCES" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "permission: EACCES", command: "tecsgen" });
     });
 
     it("reports a non-zero exit as failed", async () => {
       execFileMock.mockRejectedValue(Object.assign(new Error("bad"), { code: 2, stdout: "", stderr: "x" }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2: x" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 2: x", command: "tecsgen" });
     });
 
     it("keeps a bounded host failure reason and uses stdout if stderr is empty", async () => {
@@ -398,9 +545,9 @@ describe("TecsgenRunner", () => {
         expect(policy.detail.length).toBe("終了コード 1: ".length + 1000);
       }
       execFileMock.mockRejectedValueOnce(Object.assign(new Error("out"), { code: 3, stdout: " host denied ", stderr: " " }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 3: host denied" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 3: host denied", command: "tecsgen" });
       execFileMock.mockRejectedValueOnce(Object.assign(new Error("empty"), { code: 4 }));
-      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 4" });
+      expect(await new TecsgenRunner().version()).toEqual({ kind: "failed", detail: "終了コード 4", command: "tecsgen" });
     });
   });
 });

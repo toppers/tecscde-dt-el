@@ -18,7 +18,7 @@
 
 import { DisplayFilters, resolveHiddenRegionIds } from "./display-filters";
 import type { Point } from "../model/geometry";
-import type { RegionId } from "../model/ids";
+import type { JoinId, RegionId } from "../model/ids";
 import type { RegionTree } from "../model/region";
 import { MM_TO_PX, type CanvasView } from "../render/view";
 import { regionColorMap } from "./region-colors";
@@ -59,8 +59,8 @@ export class ViewState {
     readonly filters: DisplayFilters,
     /** モデル全体を対象とする検索クエリ。空は null（6.4節）。 */
     readonly searchQuery: string | null,
-    /** 6C.5: display-only region outlines, never persisted. */
-    readonly regionOutlineMode: boolean,
+    /** リージョン矩形外周表示モード（内部仕様6C.5・監査#47）。既定 false。 */
+    readonly regionOutlineMode: boolean = false,
   ) {}
 
   static initial(): ViewState {
@@ -106,6 +106,14 @@ export class ViewState {
     return new ViewState(this.zoom, this.panCenter, !this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
+  toggleRegionOutlineMode(): ViewState {
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, !this.regionOutlineMode);
+  }
+
+  withRegionOutlineMode(on: boolean): ViewState {
+    return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, on);
+  }
+
   withFilters(filters: DisplayFilters): ViewState {
     return new ViewState(this.zoom, this.panCenter, this.gridVisible, filters, this.searchQuery, this.regionOutlineMode);
   }
@@ -113,11 +121,6 @@ export class ViewState {
   withSearchQuery(query: string | null): ViewState {
     const normalized = query && query.trim() !== "" ? query : null;
     return new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, normalized, this.regionOutlineMode);
-  }
-
-  withRegionOutlineMode(enabled: boolean): ViewState {
-    return enabled === this.regionOutlineMode ? this :
-      new ViewState(this.zoom, this.panCenter, this.gridVisible, this.filters, this.searchQuery, enabled);
   }
 
   /** モデル座標(mm)1つあたりの画面ピクセル数。 */
@@ -130,17 +133,18 @@ export class ViewState {
    * ここで `RegionTree` を使い非表示リージョンID集合へ解決される（`ViewState` 自体は
    * モデルを参照しない）。
    */
-  toCanvasView(regions: RegionTree): CanvasView {
+  toCanvasView(regions: RegionTree, focusedJoinIds?: ReadonlySet<JoinId>): CanvasView {
     const hiddenRegionIds: ReadonlySet<RegionId> = resolveHiddenRegionIds(this.filters, regions);
     return {
       zoom: this.zoom,
       gridVisible: this.gridVisible,
       showSignatureNames: this.filters.showSignatureNames,
       emphasizeCellName: this.filters.emphasizeCellName,
+      hiddenRegionIds,
+      regionColors: this.filters.colorByRegion || this.regionOutlineMode ? cachedColorMap(regions) : null,
       activeOnly: this.filters.activeOnly,
       regionOutlineMode: this.regionOutlineMode,
-      hiddenRegionIds,
-      regionColors: this.filters.colorByRegion ? cachedColorMap(regions) : null,
+      focusedJoinIds,
     };
   }
 }

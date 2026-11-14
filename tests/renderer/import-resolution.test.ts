@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveAddedReference, resolveAllImports } from "../../src/renderer/app/import-resolution";
-import { W_CODES } from "../../src/renderer/cdl/messages";
+import { cppFallback, W_CODES } from "../../src/renderer/cdl/messages";
+import { formatDiagnostic } from "../../src/renderer/diagnostics/format";
 import { emptyToolInfoTecsgen } from "../../src/renderer/model/tool-info-types";
 import { CdlDocumentLoader, type CdlSource } from "../../src/renderer/cdl/document-builder";
 import { CdlSerializer } from "../../src/renderer/cdl/serializer";
@@ -253,6 +254,194 @@ describe("resolveAllImports", () => {
       "/root/A.cdl",
       [{ kind: "import", specifier: "B.cdl" }],
       { baseDir: undefined, importPaths: [".", "./opts-dir"], extraSearchDirs: [] },
+    );
+  });
+
+  it("passes the -S directories to the gateway as systemDirs (so main can use _CDL_FILES.txt, spec 5.3)", async () => {
+    const { gateway } = fakeGateway({ "B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
+    const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
+
+    await resolveAllImports(
+      gateway, tecsgenGateway, "/root/A.cdl", 'import("B.cdl");', { ...toolInfo, importPath: ["."] },
+      ["/sys"], [], ["/sys"],
+    );
+
+    expect(resolveImportsSpy).toHaveBeenCalledWith(
+      "/root/A.cdl",
+      [{ kind: "import", specifier: "B.cdl" }],
+      { baseDir: undefined, importPaths: [".", "/sys"], extraSearchDirs: [], systemDirs: ["/sys"] },
+    );
+  });
+
+  it("passes the -S directories when resolving an added reference as well", async () => {
+    const { gateway } = fakeGateway({ "/root/B.cdl": { canonicalPath: "/root/B.cdl", content: "" } });
+    const resolveImportsSpy = gateway.resolveImports as unknown as ReturnType<typeof vi.fn>;
+
+    await resolveAddedReference(gateway, tecsgenGateway, "/root/A.cdl", toolInfo, "/root/B.cdl", [], ["/sys"]);
+
+    expect(resolveImportsSpy.mock.calls[0]![2]).toMatchObject({ systemDirs: ["/sys"] });
+  });
+});
+
+describe("V0.2.1 Cプリプロセッサ設定と失敗詳細 (Unit C)", () => {
+  it("reports command not found with origin reason and fallback full path when executable is not found", async () => {
+    const { gateway } = fakeGateway({
+      "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int INT;" },
+    });
+    const tecsgen = fakeTecsgenGateway({
+      executableFound: false,
+      command: "gcc",
+      originReason: "フォールバック",
+      fullPath: "未検出 (PATH上)",
+      failureKind: "not-found",
+    });
+
+    const { diagnostics } = await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("foo.h");', toolInfo);
+
+    const cppDiag = diagnostics.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(cppDiag).toBeDefined();
+    expect(cppDiag?.message).toContain("'gcc'");
+    expect(cppDiag?.message).toContain("フルパス: 未検出 (PATH上)");
+    expect(cppDiag?.message).toContain("決定理由: フォールバック");
+    expect(cppDiag?.message).toContain("見つからないため");
+    expect(cppDiag?.message).toBe(
+      "Cプリプロセッサ 'gcc'（フルパス: 未検出 (PATH上)、決定理由: フォールバック）が見つからないため、'/root/foo.h' は未展開のまま型を抽出しました（パス設定またはインストールを確認してください）",
+    );
+  });
+
+  it("reports failed execution with fullPath, originReason, exitCode, and stderr excerpt for auto-detected compiler", async () => {
+    const { gateway } = fakeGateway({
+      "sample.h": { canonicalPath: "/root/sample.h", content: "typedef int INT;" },
+    });
+    const tecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: 1,
+      command: "arm-none-eabi-gcc",
+      originReason: "自動検出",
+      fullPath: "C:\\ArmGNU\\bin\\arm-none-eabi-gcc.exe",
+      failureKind: "failed",
+      failureDetail: "終了コード 1: fatal error: stdio.h: No such file or directory",
+    });
+
+    const { diagnostics } = await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("sample.h");', toolInfo);
+
+    const cppDiag = diagnostics.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(cppDiag).toBeDefined();
+    expect(cppDiag?.message).toContain("'arm-none-eabi-gcc'");
+    expect(cppDiag?.message).toContain("フルパス: C:\\ArmGNU\\bin\\arm-none-eabi-gcc.exe");
+    expect(cppDiag?.message).toContain("決定理由: 自動検出");
+    expect(cppDiag?.message).toContain("終了コード 1: fatal error: stdio.h: No such file or directory");
+    expect(cppDiag?.message).toContain("の実行が失敗したため");
+    expect(cppDiag?.message).toBe(
+      "Cプリプロセッサ 'arm-none-eabi-gcc'（フルパス: C:\\ArmGNU\\bin\\arm-none-eabi-gcc.exe、決定理由: 自動検出）の実行が失敗したため（終了コード 1: fatal error: stdio.h: No such file or directory）、'/root/sample.h' は未展開のまま型を抽出しました",
+    );
+  });
+
+  it("auto-synthesizes failureDetail from exitCode and stderr when failureDetail is not provided by gateway", async () => {
+    const { gateway } = fakeGateway({
+      "sample.h": { canonicalPath: "/root/sample.h", content: "typedef int INT;" },
+    });
+    const tecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: 2,
+      stderr: "fatal error: header not found\nsecond line of error",
+    });
+
+    const { diagnostics } = await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("sample.h");', toolInfo);
+
+    const cppDiag = diagnostics.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(cppDiag).toBeDefined();
+    expect(cppDiag?.message).toContain("終了コード 2: fatal error: header not found");
+  });
+
+  it("reports user-specified compiler not found and timeout execution failure", async () => {
+    const { gateway } = fakeGateway({
+      "target.h": { canonicalPath: "/root/target.h", content: "typedef int INT;" },
+    });
+
+    // 1. ユーザ直接指定 ENOENT
+    const notFoundTecsgen = fakeTecsgenGateway({
+      executableFound: false,
+      command: "C:\\mytools\\gcc.exe",
+      fullPath: "C:\\mytools\\gcc.exe",
+      originReason: "ユーザ直接指定",
+      failureKind: "not-found",
+    });
+    const { diagnostics: notFoundDiags } = await resolveAllImports(
+      gateway,
+      notFoundTecsgen,
+      "/root/A.cdl",
+      'import_C("target.h");',
+      { ...toolInfo, cpp: "C:\\mytools\\gcc.exe" },
+    );
+    const notFoundDiag = notFoundDiags.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(notFoundDiag?.message).toBe(
+      "Cプリプロセッサ 'C:\\mytools\\gcc.exe'（フルパス: C:\\mytools\\gcc.exe、決定理由: ユーザ直接指定）が見つからないため、'/root/target.h' は未展開のまま型を抽出しました（パス設定またはインストールを確認してください）",
+    );
+
+    // 2. タイムアウト (failureKind: "timeout")
+    const timeoutTecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: null,
+      command: "gcc",
+      fullPath: "C:\\tools\\gcc.exe",
+      originReason: "フォールバック",
+      failureKind: "timeout",
+      failureDetail: "30秒以内に完了しなかったためタイムアウトしました",
+    });
+    const { diagnostics: timeoutDiags } = await resolveAllImports(
+      gateway,
+      timeoutTecsgen,
+      "/root/A.cdl",
+      'import_C("target.h");',
+      toolInfo,
+    );
+    const timeoutDiag = timeoutDiags.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(timeoutDiag?.message).toBe(
+      "Cプリプロセッサ 'gcc'（フルパス: C:\\tools\\gcc.exe、決定理由: フォールバック）を起動・実行できなかったため（30秒以内に完了しなかったためタイムアウトしました）、'/root/target.h' は未展開のまま型を抽出しました",
+    );
+  });
+
+  it("escapes multiline failureDetail into a single line when formatted via formatDiagnostic (audit #68)", async () => {
+    const { gateway } = fakeGateway({
+      "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int INT;" },
+    });
+    const tecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: 1,
+      command: "gcc",
+      originReason: "フォールバック",
+      fullPath: "C:\\msys64\\bin\\gcc.exe",
+      failureKind: "failed",
+      failureDetail: "終了コード 1: fatal error: stdio.h: No such file\nIn file included from foo.h:1:\r\nsyntax error",
+    });
+
+    const { diagnostics } = await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("foo.h");', toolInfo);
+
+    const cppDiag = diagnostics.find((d) => d.code === W_CODES.CPP_FALLBACK)!;
+    expect(cppDiag).toBeDefined();
+
+    const formatted = formatDiagnostic(cppDiag);
+    expect(formatted).not.toContain("\n");
+    expect(formatted).not.toContain("\r");
+    expect(formatted).toContain("\\n");
+    expect(formatted).toContain("\\r\\n");
+    expect(formatted).toBe(
+      "[W-CPP-FALLBACK] Cプリプロセッサ 'gcc'（フルパス: C:\\\\msys64\\\\bin\\\\gcc.exe、決定理由: フォールバック）の実行が失敗したため（終了コード 1: fatal error: stdio.h: No such file\\nIn file included from foo.h:1:\\r\\nsyntax error）、'/root/foo.h' は未展開のまま型を抽出しました",
+    );
+  });
+
+  it("cppFallback handles omitted options gracefully with default values", () => {
+    const diagOmitted = cppFallback("/root/foo.h");
+    expect(diagOmitted.severity).toBe("warning");
+    expect(diagOmitted.code).toBe(W_CODES.CPP_FALLBACK);
+    expect(diagOmitted.message).toBe(
+      "Cプリプロセッサ 'gcc'を起動・実行できなかったため、'/root/foo.h' は未展開のまま型を抽出しました",
+    );
+
+    const diagEmptyOptions = cppFallback("/root/foo.h", {});
+    expect(diagEmptyOptions.message).toBe(
+      "Cプリプロセッサ 'gcc'を起動・実行できなかったため、'/root/foo.h' は未展開のまま型を抽出しました",
     );
   });
 });

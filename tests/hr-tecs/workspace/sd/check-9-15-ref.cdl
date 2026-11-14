@@ -1,0 +1,13 @@
+/* 実機確認 #9〜#15 用: 「参照として追加」で読み込むと、これらのセルが読み込み専用になる(#9・#14) */
+import("check-types.cdl");
+
+cell tT rt {
+};
+cell tVar rv {
+	cVar[0] = rt.e;
+};
+cell tA ra {
+	enabled = true;
+	level = 9;
+	cPlain = rt.e;
+};
