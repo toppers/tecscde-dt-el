@@ -11,6 +11,7 @@ import type { ResolvedCppCommand } from "../../src/main/tool-settings.js";
 
 const execFileMock = vi.fn();
 const originalTecsgenCommand = process.env.TECSGEN_COMMAND;
+const onWindows = process.platform === "win32";
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => {
@@ -317,12 +318,12 @@ describe("TecsgenRunner", () => {
 
     const result = await runner.preprocess("header.h");
     expect(result).toMatchObject({ stdout: "typedef int INT;", stderr: "", exitCode: 0, executableFound: true });
-    expect(execFileMock).toHaveBeenCalledWith("gcc", ["-E", "-DTECSGEN", "header.h"], { timeout: 30_000 });
+    expect(execFileMock).toHaveBeenCalledWith("gcc", ["-E", "-DTECSGEN", "header.h"], expect.objectContaining({ timeout: 30_000 }));
 
     execFileMock.mockResolvedValue({ stdout: "struct S {};", stderr: "" });
     const customResult = await runner.preprocess("header.h", "clang -E");
     expect(customResult).toMatchObject({ stdout: "struct S {};", stderr: "", exitCode: 0, executableFound: true });
-    expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], { timeout: 30_000 });
+    expect(execFileMock).toHaveBeenCalledWith("clang", ["-E", "header.h"], expect.objectContaining({ timeout: 30_000 }));
   });
 
   it("preprocess() passes include dirs as absolute -I options, without duplicates", async () => {
@@ -334,7 +335,7 @@ describe("TecsgenRunner", () => {
     expect(execFileMock).toHaveBeenCalledWith(
       "gcc",
       ["-E", "-DTECSGEN", `-I${resolve("inc")}`, `-I${resolve("third")}`, "header.h"],
-      { timeout: 30_000 },
+      expect.objectContaining({ timeout: 30_000 }),
     );
   });
 
@@ -347,7 +348,7 @@ describe("TecsgenRunner", () => {
     expect(execFileMock).toHaveBeenCalledWith(
       "C:\\Program Files\\LLVM\\bin\\clang.exe",
       ["-E", "-DNAME=two words", "C:\\headers\\my header.h"],
-      { timeout: 30_000 },
+      onWindows ? { timeout: 30_000, env: expect.any(Object) } : { timeout: 30_000 },
     );
   });
 
@@ -471,8 +472,54 @@ describe("TecsgenRunner", () => {
     expect(execFileMock).toHaveBeenCalledWith(
       "arm-none-eabi-gcc",
       ["-E", "-DTECSGEN", "header.h"],
-      { timeout: 30_000 },
+      onWindows ? { timeout: 30_000, env: expect.any(Object) } : { timeout: 30_000 },
     );
+  });
+
+  // MSYS2 の gcc.exe は子プロセス cc1.exe を PATH 上の最初の DLL で起動する。PATH 上で先に
+  // 別ツール同梱の古い DLL（例: Meld）があると、標準エラー出力なしで終了コード 1 になる。
+  // gcc 自身のディレクトリを PATH の先頭へ足して、その衝突を避ける。
+  describe.skipIf(!onWindows)("preprocess() puts the compiler's own directory first on PATH (Windows)", () => {
+    const resolved: ResolvedCppCommand = {
+      command: "gcc -E -DTECSGEN",
+      executable: "gcc",
+      fullPath: "C:\\msys64\\ucrt64\\bin\\gcc.exe",
+      origin: "path",
+      originReason: "自動検出",
+    };
+    const pathOf = (options: { env?: NodeJS.ProcessEnv }): string => {
+      const key = Object.keys(options.env ?? {}).find((k) => k.toLowerCase() === "path");
+      return key === undefined ? "" : (options.env![key] ?? "");
+    };
+
+    it("prepends the directory of the resolved full path", async () => {
+      execFileMock.mockResolvedValue({ stdout: "x", stderr: "" });
+      await new TecsgenRunner().preprocess("header.h", resolved);
+      const options = execFileMock.mock.calls[0]![2] as { timeout: number; env?: NodeJS.ProcessEnv };
+      expect(options.timeout).toBe(30_000);
+      expect(pathOf(options).startsWith("C:\\msys64\\ucrt64\\bin;")).toBe(true);
+      expect(pathOf(options)).toContain(process.env.PATH ?? process.env.Path ?? "");
+    });
+
+    it("prepends the directory of an absolute executable written in the command", async () => {
+      execFileMock.mockResolvedValue({ stdout: "x", stderr: "" });
+      await new TecsgenRunner().preprocess("header.h", '"C:\\tools\\llvm\\bin\\clang.exe" -E');
+      const options = execFileMock.mock.calls[0]![2] as { env?: NodeJS.ProcessEnv };
+      expect(pathOf(options).startsWith("C:\\tools\\llvm\\bin;")).toBe(true);
+    });
+
+    it("leaves the environment alone when the compiler path is unknown", async () => {
+      execFileMock.mockResolvedValue({ stdout: "x", stderr: "" });
+      await new TecsgenRunner().preprocess("header.h", { ...resolved, fullPath: "未検出 (PATH上)" });
+      expect(execFileMock.mock.calls[0]![2]).toEqual({ timeout: 30_000 });
+    });
+
+    it("does not modify process.env", async () => {
+      const before = process.env.PATH ?? process.env.Path;
+      execFileMock.mockResolvedValue({ stdout: "x", stderr: "" });
+      await new TecsgenRunner().preprocess("header.h", resolved);
+      expect(process.env.PATH ?? process.env.Path).toBe(before);
+    });
   });
 
   describe("summarizeStderr", () => {

@@ -6,7 +6,7 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
   TecsgenResult,
@@ -22,6 +22,25 @@ import { createTecsgenInvocation } from "./tecsgen-invocation.js";
 import { findOnPath, type ResolvedCppCommand } from "./tool-settings.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Windows の MSYS2 の gcc.exe は、子プロセス cc1.exe を PATH 上の最初の DLL で起動する。PATH 上で
+ * gcc のディレクトリより前に、別ツールが同梱する古い libwinpthread などの DLL（例: Meld）があると、
+ * 標準エラー出力なしで終了コード 1 になる。コンパイラ自身のディレクトリを、子プロセスの PATH の
+ * 先頭へ足して避ける。コンパイラのフルパスが分からないとき、Windows 以外では何もしない（`undefined`）。
+ * `process.env` は書き換えない。
+ */
+function envWithCompilerDirFirst(
+  compilerPath: string,
+  platform: NodeJS.Platform = process.platform,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv | undefined {
+  if (platform !== "win32" || !isAbsolute(compilerPath)) return undefined;
+  const key = Object.keys(base).find((name) => name.toLowerCase() === "path") ?? "PATH";
+  const current = base[key] ?? "";
+  const dir = dirname(compilerPath);
+  return { ...base, [key]: current ? `${dir}${delimiter}${current}` : dir };
+}
 
 async function generatedCdlSources(root: string): Promise<GeneratedCdlResult["sources"]> {
   const sources: Array<{ fileName: string; content: string }> = [];
@@ -300,8 +319,10 @@ export class TecsgenRunner {
       executable = exe;
 
       const includeArgs = [...new Set(includeDirs.map((dir) => `-I${resolve(dir)}`))];
+      const env = envWithCompilerDirFirst(isAbsolute(executable) ? executable : fullPath);
       const { stdout, stderr } = await execFileAsync(executable, [...baseArgs, ...includeArgs, headerPath], {
         timeout: 30_000,
+        ...(env ? { env } : {}),
       });
       return {
         stdout,
