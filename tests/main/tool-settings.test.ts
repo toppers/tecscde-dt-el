@@ -368,12 +368,40 @@ describe("resolveCppCommand", () => {
     });
   });
 
+  // 未設定（undefined）のときだけ既定の引数を付ける。付けないと gcc がヘッダーをコンパイルして
+  // 型エラーで終了コード 1 になり、ヘッダーの隣に .gch を書き出してしまう。空文字は「付けない」。
+  it("defaults cppArgs to '-E -DTECSGEN' when cppArgs is unset (settings cppPath)", () => {
+    const res = resolveCppCommand(undefined, { cppPath: "my-gcc" });
+    expect(res).toMatchObject({ command: "my-gcc -E -DTECSGEN", executable: "my-gcc", origin: "settings" });
+  });
+
+  it("defaults cppArgs to '-E -DTECSGEN' for an auto-detected gcc when cppArgs is unset", () => {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    const gccPath = join(binDir, `gcc${ext}`);
+    writeFileSync(gccPath, "");
+    if (process.platform !== "win32") chmodSync(gccPath, 0o755);
+
+    const res = resolveCppCommand(undefined, {}, binDir);
+    expect(res).toMatchObject({ command: "gcc -E -DTECSGEN", executable: "gcc", fullPath: gccPath, origin: "path" });
+  });
+
+  it("keeps an explicitly saved empty cppArgs empty and a whitespace-only value as empty", () => {
+    expect(resolveCppCommand(undefined, { cppPath: "my-gcc", cppArgs: "" }).command).toBe("my-gcc");
+    expect(resolveCppCommand(undefined, { cppPath: "my-gcc", cppArgs: "   " }).command).toBe("my-gcc");
+  });
+
+  it("quotes a path with spaces and still adds the default arguments", () => {
+    const cppPath = "C:\Program Files\GNU\bin\gcc.exe";
+    const res = resolveCppCommand(undefined, { cppPath });
+    expect(splitCommand(res.command)).toEqual([cppPath, "-E", "-DTECSGEN"]);
+  });
+
   it("falls back to default gcc when not found (origin: default, フォールバック)", () => {
     const emptyDir = join(tmpDir, "empty");
     mkdirSync(emptyDir, { recursive: true });
     const res = resolveCppCommand(undefined, {}, emptyDir);
     expect(res).toMatchObject({
-      command: "gcc",
+      command: "gcc -E -DTECSGEN",
       executable: "gcc",
       fullPath: "未検出 (PATH上)",
       origin: "default",

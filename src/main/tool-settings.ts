@@ -136,6 +136,9 @@ export function findOnPath(
   return null;
 }
 
+/** C プリプロセッサの引数が未設定のときの既定値（設定ダイアログの入力欄の初期値と同じ）。 */
+export const DEFAULT_CPP_ARGS = "-E -DTECSGEN";
+
 export function resolveCppCommand(
   cdlCppCommand: string | undefined,
   savedSettings: { cppPath?: string; cppArgs?: string },
@@ -162,7 +165,10 @@ export function resolveCppCommand(
     };
   }
 
-  const args = savedSettings.cppArgs?.trim();
+  // 未設定（undefined）のときだけ既定の引数を付ける。付けないと gcc がヘッダーをコンパイルして
+  // 型エラーで終了コード 1 になり、ヘッダーの隣に .gch を書き出してしまう。
+  // 空文字で保存された場合は、利用者が意図して付けなかったものとして、そのまま付けない。
+  const args = (savedSettings.cppArgs ?? DEFAULT_CPP_ARGS).trim();
   const buildCommand = (executable: string) => {
     const quotedExe =
       /\s/.test(executable) && !executable.startsWith('"')
