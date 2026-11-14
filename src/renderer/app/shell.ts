@@ -486,7 +486,14 @@ export class AppShell {
         this.copyTecsgenCommand();
         break;
       case "about":
-        this.aboutDialog.open(this.toolbar.querySelector<HTMLElement>("[data-action='about']") ?? this.toolbar);
+        // ツールバーの「情報」ボタン（data-action="about"）の入口。設定の入口（settings）があるときは、
+        // バージョン情報に加えて tecsgen 設定・CDLファイル一覧作成を持つ「情報」ダイアログを開く
+        // （内部仕様 02B 2B.2、外部仕様 3.8）。無いとき（テスト用）は、バージョン情報だけの旧ダイアログにもどる。
+        if (this.information) {
+          void this.information.open().catch((error) => this.reportActionError(action, error));
+        } else {
+          this.aboutDialog.open(this.toolbar.querySelector<HTMLElement>("[data-action='about']") ?? this.toolbar);
+        }
         break;
       default:
         break;
