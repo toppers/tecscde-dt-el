@@ -7,7 +7,7 @@
 __tool_info__("tecsgen") {
   "tecscde_version": "0.1.0",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-10-28T05:14:12.875Z",
+  "saved_at": "2026-10-31T08:41:31.257Z",
   "base_dir": "E:/example/project",
   "define_macro": [],
   "import_path": [
@@ -46,8 +46,8 @@ __tool_info__("tecscde") {
     },
     "cLogger1": {
       "location": [
-        34,
-        9,
+        32,
+        31,
         25,
         15
       ],
@@ -61,7 +61,7 @@ __tool_info__("tecscde") {
     },
     "cSensor1": {
       "location": [
-        76,
+        104,
         65,
         25,
         15
@@ -92,19 +92,19 @@ __tool_info__("tecscde") {
           "dir": "H",
           "fixed": 16,
           "from": 116,
-          "to": 63
+          "to": 61
         },
         {
           "dir": "V",
-          "fixed": 63,
+          "fixed": 61,
           "from": 16,
-          "to": 20
+          "to": 42
         },
         {
           "dir": "H",
-          "fixed": 20,
-          "from": 63,
-          "to": 59
+          "fixed": 42,
+          "from": 61,
+          "to": 57
         }
       ]
     },
@@ -121,20 +121,14 @@ __tool_info__("tecscde") {
           "to": 116
         },
         {
-          "dir": "H",
-          "fixed": 20,
-          "from": 116,
-          "to": 88
-        },
-        {
           "dir": "V",
-          "fixed": 88,
+          "fixed": 116,
           "from": 20,
           "to": 61
         },
         {
           "dir": "V",
-          "fixed": 88,
+          "fixed": 116,
           "from": 61,
           "to": 65
         }
@@ -142,6 +136,12 @@ __tool_info__("tecscde") {
     }
   }
 }
+
+
+
+
+
+
 
 cell tController cController1 {
   cLog = cLogger1.eLog;

@@ -3,8 +3,17 @@ import("EV3_common.cdl");
 //[domain(HRP2, "trusted")]
 //[domain(HRP2, "nontrusted")]
 region rDomainEV3 {
-	cell nMruby::tMruby Mruby {
-		mrubyFile = "$(MRUBY_LIB_DIR)/EV3_common.rb "
+	
+	
+
+
+
+
+
+
+cell nMruby::tMruby Mruby {
+  cInit = VM_TECSInitializer.eInitialize;
+  mrubyFile = "$(MRUBY_LIB_DIR)/EV3_common.rb "
 			"$(MRUBY_LIB_DIR)/RTOS.rb "
 			"$(MRUBY_LIB_DIR)/Speaker.rb "
 			"$(MRUBY_LIB_DIR)/Button.rb "
@@ -21,16 +30,139 @@ region rDomainEV3 {
 			"$(APP_PARAM_RB) "
 			"$(APP_PARAM_SET_RB) "
 			"$(APP_RB)";
-		cInit = VM_TECSInitializer.eInitialize;
-	};
-	cell tTask MrubyTask1 {
-	// 呼び口の結合
-		cBody = Mruby.eMrubyBody;
-		//* 属性の設定
-		taskAttribute 	= C_EXP("TA_ACT");
-		priority 		= C_EXP("EV3_MRUBY_VM_PRIORITY");
-		systemStackSize = C_EXP("MRUBY_VM_STACK_SIZE");
-		//userStackSize = C_EXP("STACK_SIZE");
-	};
-
 };
+
+cell tTask MrubyTask1 {
+  cBody = Mruby.eMrubyBody;
+  taskAttribute = C_EXP("TA_ACT");
+  priority = C_EXP("EV3_MRUBY_VM_PRIORITY");
+  systemStackSize = C_EXP("MRUBY_VM_STACK_SIZE");
+};
+};
+
+__tool_info__("tecscde") {
+  "paper": {
+    "size": "A2",
+    "orientation": "LANDSCAPE"
+  },
+  "cell_list": {
+    "Mruby": {
+      "location": [
+        285,
+        10,
+        25,
+        15
+      ],
+      "region": "::rDomainEV3",
+      "ports": {
+        "cInit": {
+          "edge": "LEFT",
+          "offset": 8
+        },
+        "eMrubyBody": {
+          "edge": "RIGHT",
+          "offset": 8
+        }
+      }
+    },
+    "MrubyTask1": {
+      "location": [
+        340,
+        10,
+        25,
+        15
+      ],
+      "region": "::rDomainEV3",
+      "ports": {
+        "cBody": {
+          "edge": "LEFT",
+          "offset": 5
+        },
+        "cExceptionBody": {
+          "edge": "LEFT",
+          "offset": 10
+        },
+        "eTask": {
+          "edge": "RIGHT",
+          "offset": 5
+        },
+        "eiTask": {
+          "edge": "RIGHT",
+          "offset": 10
+        }
+      }
+    }
+  },
+  "join_list": {
+    "Mruby.cInit": {
+      "cell": "Mruby",
+      "cport": "cInit",
+      "targetCell": "VM_TECSInitializer",
+      "eport": "eInitialize",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "V",
+          "fixed": 281,
+          "from": 18,
+          "to": 29
+        },
+        {
+          "dir": "H",
+          "fixed": 29,
+          "from": 281,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 29,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
+    "MrubyTask1.cBody": {
+      "cell": "MrubyTask1",
+      "cport": "cBody",
+      "targetCell": "Mruby",
+      "eport": "eMrubyBody",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 15,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "H",
+          "fixed": 15,
+          "from": 336,
+          "to": 314
+        },
+        {
+          "dir": "V",
+          "fixed": 314,
+          "from": 15,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 314,
+          "to": 310
+        }
+      ]
+    }
+  }
+}

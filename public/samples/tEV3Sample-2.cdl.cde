@@ -1,0 +1,1251 @@
+__tool_info__("tecsgen") {
+  "tecscde_version": "0.1.0",
+  "cde_format_version": "0.1.0.0",
+  "saved_at": "2026-11-02T16:54:22.144Z",
+  "direct_import": [
+    "VM1.cdl",
+    "EV3_common.cdl",
+    "kernel.cdl",
+    "tMruby.cdl",
+    "tUltrasonicSensor.cdl",
+    "tColorSensor.cdl",
+    "tTouchSensor.cdl",
+    "tGyroSensor.cdl",
+    "tMotor.cdl",
+    "tLCD.cdl",
+    "tLED.cdl",
+    "tButton.cdl",
+    "tBattery.cdl",
+    "tSpeaker.cdl",
+    "tEV3Platform.cdl",
+    "tBalancer.cdl",
+    "tSharedMemory.cdl",
+    "mruby.cdl",
+    "sMruby.cdl",
+    "tTLSFMalloc.cdl",
+    "mrubyInitializer.cdl",
+    "mrubyPointers.cdl",
+    "mrubyVMs.cdl",
+    "sMalloc.cdl",
+    "posix.cdl"
+  ]
+}
+
+/*
+ *  tEV3Sample.cdl
+ *
+ *  VMの個数に応じてCDLファイルを選択する
+ *  (VMを２つ使う場合，VM2.cdlをインポートする）
+ *
+ */
+const int32_t MRUBY_VM_STACK_SIZE = 81920;
+
+import("VM1.cdl");
+//import("VM2.cdl");
+
+__tool_info__("tecscde") {
+  "paper": {
+    "size": "A2",
+    "orientation": "LANDSCAPE"
+  },
+  "join_list": {
+    "Mruby.cInit": {
+      "cell": "Mruby",
+      "cport": "cInit",
+      "targetCell": "VM_TECSInitializer",
+      "eport": "eInitialize",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 281,
+          "to": 55
+        },
+        {
+          "dir": "V",
+          "fixed": 55,
+          "from": 18,
+          "to": 30
+        },
+        {
+          "dir": "H",
+          "fixed": 30,
+          "from": 55,
+          "to": 51
+        }
+      ]
+    },
+    "MrubyTask1.cBody": {
+      "cell": "MrubyTask1",
+      "cport": "cBody",
+      "targetCell": "Mruby",
+      "eport": "eMrubyBody",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 15,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "H",
+          "fixed": 15,
+          "from": 336,
+          "to": 314
+        },
+        {
+          "dir": "V",
+          "fixed": 314,
+          "from": 15,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 314,
+          "to": 310
+        }
+      ]
+    },
+    "BridgeKernel.cTECS": {
+      "cell": "BridgeKernel",
+      "cport": "cTECS",
+      "targetCell": "HRP2Kernel",
+      "eport": "eKernel",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 395,
+          "to": 391
+        },
+        {
+          "dir": "V",
+          "fixed": 391,
+          "from": 18,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 391,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 149,
+          "to": 165
+        },
+        {
+          "dir": "H",
+          "fixed": 165,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
+    "BridgeMotorA.cTECS": {
+      "cell": "BridgeMotorA",
+      "cport": "cTECS",
+      "targetCell": "MotorA",
+      "eport": "eMotor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 450,
+          "to": 446
+        },
+        {
+          "dir": "V",
+          "fixed": 446,
+          "from": 18,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 446,
+          "to": 94
+        },
+        {
+          "dir": "V",
+          "fixed": 94,
+          "from": 149,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 94,
+          "to": 90
+        }
+      ]
+    },
+    "BridgeMotorB.cTECS": {
+      "cell": "BridgeMotorB",
+      "cport": "cTECS",
+      "targetCell": "MotorB",
+      "eport": "eMotor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "V",
+          "fixed": 501,
+          "from": 18,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 501,
+          "to": 149
+        },
+        {
+          "dir": "V",
+          "fixed": 149,
+          "from": 149,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 149,
+          "to": 145
+        }
+      ]
+    },
+    "BridgeMotorC.cTECS": {
+      "cell": "BridgeMotorC",
+      "cport": "cTECS",
+      "targetCell": "MotorC",
+      "eport": "eMotor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 281,
+          "to": 226
+        },
+        {
+          "dir": "V",
+          "fixed": 226,
+          "from": 48,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 226,
+          "to": 204
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 204,
+          "to": 200
+        }
+      ]
+    },
+    "BridgeMotorD.cTECS": {
+      "cell": "BridgeMotorD",
+      "cport": "cTECS",
+      "targetCell": "MotorD",
+      "eport": "eMotor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "V",
+          "fixed": 336,
+          "from": 48,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 336,
+          "to": 259
+        },
+        {
+          "dir": "V",
+          "fixed": 259,
+          "from": 149,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 259,
+          "to": 255
+        }
+      ]
+    },
+    "BridgeLCD.cTECS": {
+      "cell": "BridgeLCD",
+      "cport": "cTECS",
+      "targetCell": "LCD",
+      "eport": "eLCD",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 395,
+          "to": 391
+        },
+        {
+          "dir": "V",
+          "fixed": 391,
+          "from": 48,
+          "to": 59
+        },
+        {
+          "dir": "H",
+          "fixed": 59,
+          "from": 391,
+          "to": 314
+        },
+        {
+          "dir": "V",
+          "fixed": 314,
+          "from": 59,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 314,
+          "to": 310
+        }
+      ]
+    },
+    "BridgeLED.cTECS": {
+      "cell": "BridgeLED",
+      "cport": "cTECS",
+      "targetCell": "LED",
+      "eport": "eLED",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 450,
+          "to": 446
+        },
+        {
+          "dir": "V",
+          "fixed": 446,
+          "from": 48,
+          "to": 59
+        },
+        {
+          "dir": "H",
+          "fixed": 59,
+          "from": 446,
+          "to": 369
+        },
+        {
+          "dir": "V",
+          "fixed": 369,
+          "from": 59,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 369,
+          "to": 365
+        }
+      ]
+    },
+    "BridgeButton.cTECS": {
+      "cell": "BridgeButton",
+      "cport": "cTECS",
+      "targetCell": "Button",
+      "eport": "eButton",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 48,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "V",
+          "fixed": 501,
+          "from": 48,
+          "to": 59
+        },
+        {
+          "dir": "H",
+          "fixed": 59,
+          "from": 501,
+          "to": 424
+        },
+        {
+          "dir": "V",
+          "fixed": 424,
+          "from": 59,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 424,
+          "to": 420
+        }
+      ]
+    },
+    "BridgeBattery.cTECS": {
+      "cell": "BridgeBattery",
+      "cport": "cTECS",
+      "targetCell": "Battery",
+      "eport": "eBattery",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 78,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "V",
+          "fixed": 281,
+          "from": 78,
+          "to": 123
+        },
+        {
+          "dir": "H",
+          "fixed": 123,
+          "from": 281,
+          "to": 479
+        },
+        {
+          "dir": "V",
+          "fixed": 479,
+          "from": 123,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 479,
+          "to": 475
+        }
+      ]
+    },
+    "BridgeSpeaker.cTECS": {
+      "cell": "BridgeSpeaker",
+      "cport": "cTECS",
+      "targetCell": "Speaker",
+      "eport": "eSpeaker",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 78,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "V",
+          "fixed": 336,
+          "from": 78,
+          "to": 123
+        },
+        {
+          "dir": "H",
+          "fixed": 123,
+          "from": 336,
+          "to": 534
+        },
+        {
+          "dir": "V",
+          "fixed": 534,
+          "from": 123,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 534,
+          "to": 530
+        }
+      ]
+    },
+    "BridgeUltrasonicSensor1.cTECS": {
+      "cell": "BridgeUltrasonicSensor1",
+      "cport": "cTECS",
+      "targetCell": "UltrasonicSensor1",
+      "eport": "eUltrasonicSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 78,
+          "from": 395,
+          "to": 391
+        },
+        {
+          "dir": "V",
+          "fixed": 391,
+          "from": 78,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 391,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 149,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
+    "BridgeUltrasonicSensor2.cTECS": {
+      "cell": "BridgeUltrasonicSensor2",
+      "cport": "cTECS",
+      "targetCell": "UltrasonicSensor2",
+      "eport": "eUltrasonicSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 78,
+          "from": 450,
+          "to": 446
+        },
+        {
+          "dir": "V",
+          "fixed": 446,
+          "from": 78,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 446,
+          "to": 94
+        },
+        {
+          "dir": "V",
+          "fixed": 94,
+          "from": 149,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 94,
+          "to": 90
+        }
+      ]
+    },
+    "BridgeUltrasonicSensor3.cTECS": {
+      "cell": "BridgeUltrasonicSensor3",
+      "cport": "cTECS",
+      "targetCell": "UltrasonicSensor3",
+      "eport": "eUltrasonicSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 78,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "V",
+          "fixed": 501,
+          "from": 78,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 501,
+          "to": 149
+        },
+        {
+          "dir": "V",
+          "fixed": 149,
+          "from": 149,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 149,
+          "to": 145
+        }
+      ]
+    },
+    "BridgeUltrasonicSensor4.cTECS": {
+      "cell": "BridgeUltrasonicSensor4",
+      "cport": "cTECS",
+      "targetCell": "UltrasonicSensor4",
+      "eport": "eUltrasonicSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 281,
+          "to": 226
+        },
+        {
+          "dir": "V",
+          "fixed": 226,
+          "from": 108,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 226,
+          "to": 204
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 204,
+          "to": 200
+        }
+      ]
+    },
+    "BridgeGyroSensor1.cTECS": {
+      "cell": "BridgeGyroSensor1",
+      "cport": "cTECS",
+      "targetCell": "GyroSensor1",
+      "eport": "eGyroSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "V",
+          "fixed": 336,
+          "from": 108,
+          "to": 153
+        },
+        {
+          "dir": "H",
+          "fixed": 153,
+          "from": 336,
+          "to": 259
+        },
+        {
+          "dir": "V",
+          "fixed": 259,
+          "from": 153,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 259,
+          "to": 255
+        }
+      ]
+    },
+    "BridgeGyroSensor2.cTECS": {
+      "cell": "BridgeGyroSensor2",
+      "cport": "cTECS",
+      "targetCell": "GyroSensor2",
+      "eport": "eGyroSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 395,
+          "to": 391
+        },
+        {
+          "dir": "V",
+          "fixed": 391,
+          "from": 108,
+          "to": 153
+        },
+        {
+          "dir": "H",
+          "fixed": 153,
+          "from": 391,
+          "to": 314
+        },
+        {
+          "dir": "V",
+          "fixed": 314,
+          "from": 153,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 314,
+          "to": 310
+        }
+      ]
+    },
+    "BridgeGyroSensor3.cTECS": {
+      "cell": "BridgeGyroSensor3",
+      "cport": "cTECS",
+      "targetCell": "GyroSensor3",
+      "eport": "eGyroSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 450,
+          "to": 446
+        },
+        {
+          "dir": "V",
+          "fixed": 446,
+          "from": 108,
+          "to": 153
+        },
+        {
+          "dir": "H",
+          "fixed": 153,
+          "from": 446,
+          "to": 369
+        },
+        {
+          "dir": "V",
+          "fixed": 369,
+          "from": 153,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 369,
+          "to": 365
+        }
+      ]
+    },
+    "BridgeGyroSensor4.cTECS": {
+      "cell": "BridgeGyroSensor4",
+      "cport": "cTECS",
+      "targetCell": "GyroSensor4",
+      "eport": "eGyroSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 108,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "V",
+          "fixed": 501,
+          "from": 108,
+          "to": 153
+        },
+        {
+          "dir": "H",
+          "fixed": 153,
+          "from": 501,
+          "to": 424
+        },
+        {
+          "dir": "V",
+          "fixed": 424,
+          "from": 153,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 424,
+          "to": 420
+        }
+      ]
+    },
+    "BridgeColorSensor1.cTECS": {
+      "cell": "BridgeColorSensor1",
+      "cport": "cTECS",
+      "targetCell": "ColorSensor1",
+      "eport": "eColorSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 10,
+          "to": 6
+        },
+        {
+          "dir": "V",
+          "fixed": 6,
+          "from": 138,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 6,
+          "to": 479
+        },
+        {
+          "dir": "V",
+          "fixed": 479,
+          "from": 149,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 479,
+          "to": 475
+        }
+      ]
+    },
+    "BridgeColorSensor2.cTECS": {
+      "cell": "BridgeColorSensor2",
+      "cport": "cTECS",
+      "targetCell": "ColorSensor2",
+      "eport": "eColorSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 65,
+          "to": 61
+        },
+        {
+          "dir": "V",
+          "fixed": 61,
+          "from": 138,
+          "to": 149
+        },
+        {
+          "dir": "H",
+          "fixed": 149,
+          "from": 61,
+          "to": 534
+        },
+        {
+          "dir": "V",
+          "fixed": 534,
+          "from": 149,
+          "to": 198
+        },
+        {
+          "dir": "H",
+          "fixed": 198,
+          "from": 534,
+          "to": 530
+        }
+      ]
+    },
+    "BridgeColorSensor3.cTECS": {
+      "cell": "BridgeColorSensor3",
+      "cport": "cTECS",
+      "targetCell": "ColorSensor3",
+      "eport": "eColorSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 120,
+          "to": 116
+        },
+        {
+          "dir": "V",
+          "fixed": 116,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 116,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
+    "BridgeColorSensor4.cTECS": {
+      "cell": "BridgeColorSensor4",
+      "cport": "cTECS",
+      "targetCell": "ColorSensor4",
+      "eport": "eColorSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 175,
+          "to": 171
+        },
+        {
+          "dir": "V",
+          "fixed": 171,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 171,
+          "to": 94
+        },
+        {
+          "dir": "V",
+          "fixed": 94,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 94,
+          "to": 90
+        }
+      ]
+    },
+    "BridgeTouchSensor1.cTECS": {
+      "cell": "BridgeTouchSensor1",
+      "cport": "cTECS",
+      "targetCell": "TouchSensor1",
+      "eport": "eTouchSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 230,
+          "to": 226
+        },
+        {
+          "dir": "V",
+          "fixed": 226,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 226,
+          "to": 149
+        },
+        {
+          "dir": "V",
+          "fixed": 149,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 149,
+          "to": 145
+        }
+      ]
+    },
+    "BridgeTouchSensor2.cTECS": {
+      "cell": "BridgeTouchSensor2",
+      "cport": "cTECS",
+      "targetCell": "TouchSensor2",
+      "eport": "eTouchSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "V",
+          "fixed": 281,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 281,
+          "to": 204
+        },
+        {
+          "dir": "V",
+          "fixed": 204,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 204,
+          "to": 200
+        }
+      ]
+    },
+    "BridgeTouchSensor3.cTECS": {
+      "cell": "BridgeTouchSensor3",
+      "cport": "cTECS",
+      "targetCell": "TouchSensor3",
+      "eport": "eTouchSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 340,
+          "to": 336
+        },
+        {
+          "dir": "V",
+          "fixed": 336,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 336,
+          "to": 259
+        },
+        {
+          "dir": "V",
+          "fixed": 259,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 259,
+          "to": 255
+        }
+      ]
+    },
+    "BridgeTouchSensor4.cTECS": {
+      "cell": "BridgeTouchSensor4",
+      "cport": "cTECS",
+      "targetCell": "TouchSensor4",
+      "eport": "eTouchSensor",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 395,
+          "to": 391
+        },
+        {
+          "dir": "V",
+          "fixed": 391,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 391,
+          "to": 314
+        },
+        {
+          "dir": "V",
+          "fixed": 314,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 314,
+          "to": 310
+        }
+      ]
+    },
+    "BridgeBalancer.cTECS": {
+      "cell": "BridgeBalancer",
+      "cport": "cTECS",
+      "targetCell": "Balancer",
+      "eport": "eBalancer",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 450,
+          "to": 446
+        },
+        {
+          "dir": "V",
+          "fixed": 446,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 446,
+          "to": 369
+        },
+        {
+          "dir": "V",
+          "fixed": 369,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 369,
+          "to": 365
+        }
+      ]
+    },
+    "BridgeSharedMemory.cTECS": {
+      "cell": "BridgeSharedMemory",
+      "cport": "cTECS",
+      "targetCell": "SharedMemory",
+      "eport": "eSharedMemory",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 138,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "V",
+          "fixed": 501,
+          "from": 138,
+          "to": 183
+        },
+        {
+          "dir": "H",
+          "fixed": 183,
+          "from": 501,
+          "to": 424
+        },
+        {
+          "dir": "V",
+          "fixed": 424,
+          "from": 183,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 424,
+          "to": 420
+        }
+      ]
+    },
+    "LCD.cButton": {
+      "cell": "LCD",
+      "cport": "cButton",
+      "targetCell": "Button",
+      "eport": "eButton",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "V",
+          "fixed": 281,
+          "from": 168,
+          "to": 179
+        },
+        {
+          "dir": "H",
+          "fixed": 179,
+          "from": 281,
+          "to": 424
+        },
+        {
+          "dir": "V",
+          "fixed": 424,
+          "from": 179,
+          "to": 168
+        },
+        {
+          "dir": "H",
+          "fixed": 168,
+          "from": 424,
+          "to": 420
+        }
+      ]
+    },
+    "EV3Task.cBody": {
+      "cell": "EV3Task",
+      "cport": "cBody",
+      "targetCell": "EV3Platform",
+      "eport": "eTaskBody",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 225,
+          "from": 505,
+          "to": 501
+        },
+        {
+          "dir": "H",
+          "fixed": 225,
+          "from": 501,
+          "to": 479
+        },
+        {
+          "dir": "V",
+          "fixed": 479,
+          "from": 225,
+          "to": 228
+        },
+        {
+          "dir": "H",
+          "fixed": 228,
+          "from": 479,
+          "to": 475
+        }
+      ]
+    }
+  }
+}
