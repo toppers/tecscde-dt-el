@@ -57,6 +57,8 @@ export class AppStore {
   private selectionState: SelectionState = SelectionState.empty();
   private mode: InputMode = "select";
   private activeCelltype: string | undefined;
+  private actionDiagnostics: readonly Diagnostic[] = [];
+  setActionDiagnostics(diagnostics: readonly Diagnostic[]): void { this.actionDiagnostics = diagnostics; this.notify(); }
   private path: string | null = null;
   /** 7J: source checkpoints track successful writes independently of history depth. */
   private readonly savedSequences = new Map<string | null, number>();
@@ -346,6 +348,7 @@ export class AppStore {
    */
   getReport(): DiagnosticReport {
     const collector = new DiagnosticsCollector();
+    collector.reportAll(this.actionDiagnostics);
     collector.reportAll(this.loadDiagnostics);
     collector.reportAll(checkIntegrity(this.getDocument()));
     collector.reportAll(this.tecsgenDiagnostics);

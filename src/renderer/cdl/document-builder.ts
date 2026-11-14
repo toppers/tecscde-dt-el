@@ -460,13 +460,13 @@ export class CdlDocumentLoader {
         attributeNames: ct.attributes,
         attributeOptions: ct.attributeOptions,
         hiddenRequirePortCount,
+        active: ct.active,
         locale: source.fileName,
         ...(source.sourcePath && !source.generated ? { sourcePath: source.sourcePath } : {}),
         generated: source.generated === true,
         ...(source.generated || source.sourcePath === undefined ? {} : { definitionPath: source.sourcePath }),
         composite,
         hasUnsupportedSyntax: isOrdinaryCelltype(ct) ? false : ct.hasUnsupportedSyntax,
-        active: ct.active,
       });
       celltypes.set(typeName, celltype);
       qualifiedCelltypes.set(isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name, celltype);
