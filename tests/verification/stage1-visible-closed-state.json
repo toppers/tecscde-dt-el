@@ -1,0 +1,66 @@
+{
+  "id": "9a5a7201-784f-4bc0-8410-3831036c60d3",
+  "ok": true,
+  "result": {
+    "snapshot": {
+      "id": "7021a81c-6f52-4b6c-8632-dee5f332d983",
+      "app": {
+        "name": "electron",
+        "bundleId": "electron",
+        "pid": 114608
+      },
+      "window": {
+        "title": "(未保存) — TECSCDE",
+        "id": 329158,
+        "index": null,
+        "x": 320,
+        "y": 85,
+        "width": 1280,
+        "height": 900,
+        "isMinimized": null,
+        "isOffscreen": null,
+        "screenIndex": null
+      },
+      "coordinateSpace": "window",
+      "treeText": "App=electron (pid 114608)\nWindow: \"(未保存) — TECSCDE\", App: electron.\n\n0 window (未保存) — TECSCDE\n\t1 領域 (未保存) — TECSCDE\n\t\t2 領域\n\t\t\t3 領域\n\t\t\t\t4 領域\n\t\t\t\t\t5 領域\n\t\t\t\t\t\t6 メニュー バー\n\t\t\t\t\t\t\t7 ボタン File\n\t\t\t\t\t\t\t8 ボタン Edit\n\t\t\t\t\t\t\t9 ボタン View\n\t\t\t\t\t\t\t10 ボタン Window\n\t\t\t\t\t\t11 領域\n\t\t\t\t\t\t\t12 領域\n\t\t\t\t\t\t\t\t13 ドキュメント (未保存) — TECSCDE, Value: file:///C:/Users/ykomi/AppData/Local/Temp/tecscde-stage1-layout-N4Cqcw/index.html, Secondary Actions: SetValue, Scroll\n\t\t\t\t\t\t\t\t\t14 グループ toolbar\n\t\t\t\t\t\t\t\t\t\t15 ボタン ファイル\n\t\t\t\t\t\t\t\t\t\t16 ボタン セルタイプ一覧\n\t\t\t\t\t\t\t\t\t\t17 ボタン 保存\n\t\t\t\t\t\t\t\t\t\t18 ボタン 名前を付けて保存\n\t\t\t\t\t\t\t\t\t\t19 ボタン 消去\n\t\t\t\t\t\t\t\t\t\t20 ボタン 元に戻す\n\t\t\t\t\t\t\t\t\t\t21 ボタン やり直し\n\t\t\t\t\t\t\t\t\t\t22 ボタン 上端をそろえる\n\t\t\t\t\t\t\t\t\t\t23 ボタン 左端をそろえる\n\t\t\t\t\t\t\t\t\t\t24 ボタン アクティブを最上段へ\n\t\t\t\t\t\t\t\t\t\t25 ボタン Reset Rate\n\t\t\t\t\t\t\t\t\t\t26 スライダー 表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）, Value: 25, Secondary Actions: SetValue\n\t\t\t\t\t\t\t\t\t\t27 ボタン グリッド\n\t\t\t\t\t\t\t\t\t\t28 ボタン ナビゲータ\n\t\t\t\t\t\t\t\t\t\t29 ボタン 実行\n\t\t\t\t\t\t\t\t\t\t30 ボタン コマンドをコピー\n\t\t\t\t\t\t\t\t\t\t31 コンボ ボックス コピー先のシェル, Value: PowerShell 7, Secondary Actions: SetValue\n\t\t\t\t\t\t\t\t\t\t32 ボタン 情報\n\t\t\t\t\t\t\t\t\t\t33 グループ 表示設定\n\t\t\t\t\t\t\t\t\t\t\t34 切り替えボタン 結合強調, Secondary Actions: Toggle\n\t\t\t\t\t\t\t\t\t\t\t35 切り替えボタン アクティブのみ, Secondary Actions: Toggle\n\t\t\t\t\t\t\t\t\t\t\t36 切り替えボタン リージョン矩形, Secondary Actions: Toggle\n\t\t\t\t\t\t\t\t\t\t\t37 ボタン リージョン\n\t\t\t\t\t\t\t\t\t\t\t38 グループ リージョンごとにセルの左端を色分けする（外部仕様7.5.2）\n\t\t\t\t\t\t\t\t\t\t\t\t39 チェック ボックス 色分け, Secondary Actions: SetValue, Toggle\n\t\t\t\t\t\t\t\t\t\t\t\t40 テキスト 色分け\n\t\t\t\t\t\t\t\t\t\t\t41 グループ 結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）\n\t\t\t\t\t\t\t\t\t\t\t\t42 チェック ボックス シグニチャ名, Secondary Actions: SetValue, Toggle\n\t\t\t\t\t\t\t\t\t\t\t\t43 テキスト シグニチャ名\n\t\t\t\t\t\t\t\t\t\t\t44 グループ セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）\n\t\t\t\t\t\t\t\t\t\t\t\t45 チェック ボックス セル名強調, Secondary Actions: SetValue, Toggle\n\t\t\t\t\t\t\t\t\t\t\t\t46 テキスト セル名強調\n\t\t\t\t\t\t\t\t\t\t47 編集 検索: セル名/セルタイプ/シグニチャ, Secondary Actions: SetValue\n\t\t\t\t\t\t\t\t\t\t48 ボタン ↑\n\t\t\t\t\t\t\t\t\t\t49 ボタン ↓\n\t\t\t\t\t\t\t\t\t50 見出し セルの状態\n\t\t\t\t\t\t\t\t\t51 テキスト 編集不可\n\t\t\t\t\t\t\t\t\t52 テキスト 不完全\n\t\t\t\t\t\t\t\t\t53 テキスト 未結合の呼び口あり\n\t\t\t\t\t\t\t\t\t54 グラフィック canvas\n\t\t\t\t\t\t\t\t\t55 見出し プロパティ\n\t\t\t\t\t\t\t\t\t56 テキスト 選択\n\t\t\t\t\t\t\t\t\t57 状態 status-connection\n\t\t\t\t\t\t\t\t\t58 状態 status-action\n\t\t\t\t\t\t\t\t\t59\n\t\t\t\t\t\t\t\t\t60 テキスト 25%\n\t\t\t\t\t\t\t\t\t61 ボタン ⚠ 0 エラー / 12 警告\n\t\t\t\t\t\t\t\t\t62 テキスト (未保存)\n\t\t\t\t\t\t\t63 領域",
+      "elementCount": 64,
+      "focusedElementId": null,
+      "truncation": {
+        "truncated": false,
+        "maxNodes": 1200,
+        "maxDepth": 64,
+        "maxDepthReached": false
+      }
+    },
+    "screenshot": {
+      "format": "png",
+      "width": 1280,
+      "height": 900,
+      "scale": 1,
+      "path": "C:\\Users\\ykomi\\AppData\\Local\\Temp\\orca-computer-use\\9a5a7201-784f-4bc0-8410-3831036c60d3-screenshot.png",
+      "dataOmitted": true,
+      "expiresAt": "2026-11-13T10:37:25.525Z"
+    },
+    "screenshotStatus": {
+      "state": "captured",
+      "metadata": {
+        "engine": "unknown",
+        "windowId": 329158
+      }
+    },
+    "action": {
+      "path": "synthetic",
+      "actionName": null,
+      "fallbackReason": "actionUnsupported",
+      "targetWindowId": 329158,
+      "targetWindowIndex": null,
+      "verification": {
+        "state": "unverified",
+        "reason": "synthetic_input"
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "a75c8aa1-7a0e-4a39-8c81-01db2f092cf6"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": "4e1c6f32-589f-4ac2-a851-337a64ad52a3",
+  "ok": true,
+  "result": {
+    "snapshot": {
+      "id": "8cc91a0b-a19e-485d-b1a9-da7e25e932ec",
+      "app": {
+        "name": "electron",
+        "bundleId": "electron",
+        "pid": 114608
+      },
+      "window": {
+        "title": "(未保存) — TECSCDE",
+        "id": 329158,
+        "index": null,
+        "x": 320,
+        "y": 85,
+        "width": 1280,
+        "height": 900,
+        "isMinimized": null,
+        "isOffscreen": null,
+        "screenIndex": null
+      },
+      "coordinateSpace": "window",
+      "treeText": "App=electron (pid 114608)\nWindow: \"(未保存) — TECSCDE\", App: electron.\n\n0 window (未保存) — TECSCDE\n\t1 領域 (未保存) — TECSCDE\n\t\t2 領域\n\t\t\t3 領域\n\t\t\t\t4 領域\n\t\t\t\t\t5 領域\n\t\t\t\t\t\t6 メニュー バー\n\t\t\t\t\t\t\t7 ボタン File\n\t\t\t\t\t\t\t8 ボタン Edit\n\t\t\t\t\t\t\t9 ボタン View\n\t\t\t\t\t\t\t10 ボタン Window\n\t\t\t\t\t\t11 領域\n\t\t\t\t\t\t\t12 領域\n\t\t\t\t\t\t\t13 領域",
+      "elementCount": 14,
+      "focusedElementId": null,
+      "truncation": {
+        "truncated": false,
+        "maxNodes": 1200,
+        "maxDepth": 64,
+        "maxDepthReached": false
+      }
+    },
+    "screenshot": {
+      "format": "png",
+      "width": 1280,
+      "height": 900,
+      "scale": 1,
+      "path": "C:\\Users\\ykomi\\AppData\\Local\\Temp\\orca-computer-use\\4e1c6f32-589f-4ac2-a851-337a64ad52a3-screenshot.png",
+      "dataOmitted": true,
+      "expiresAt": "2026-11-13T10:36:42.290Z"
+    },
+    "screenshotStatus": {
+      "state": "captured",
+      "metadata": {
+        "engine": "unknown",
+        "windowId": 329158
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "a75c8aa1-7a0e-4a39-8c81-01db2f092cf6"
+  }
+}
