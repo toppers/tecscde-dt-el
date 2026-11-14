@@ -1,7 +1,3 @@
-VM1.cdl
-VM1_bigtire.cdl
-VM2.cdl
-VM2_bigtire.cdl
 check-09.cdl
 check-10-11.cdl
 check-13-14.cdl
@@ -10,3 +6,7 @@ check-9-15-ref.cdl
 check-types.cdl
 tEV3Sample.cdl
 tEV3Sample_bigtire.cdl
+VM1.cdl
+VM1_bigtire.cdl
+VM2.cdl
+VM2_bigtire.cdl

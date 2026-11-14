@@ -18,8 +18,8 @@ send.cdl
 signature.cdl
 singleton.cdl
 struct.cdl
-tType.cdl
 test_arg_type.cdl
 test_type.cdl
+tType.cdl
 types.cdl
 uninit.cdl

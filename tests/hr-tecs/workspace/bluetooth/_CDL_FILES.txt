@@ -1,5 +1,5 @@
+tEV3Sample.cdl
+tEV3Sample_bigtire.cdl
 VM1.cdl
 VM2.cdl
 VM2_bigtire.cdl
-tEV3Sample.cdl
-tEV3Sample_bigtire.cdl
