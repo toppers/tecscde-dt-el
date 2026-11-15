@@ -121,7 +121,10 @@ function createWindow(): BrowserWindow {
 
   win.on("closed", () => { closeGuard.dispose(); closeBridge.dispose(); });
   const toolSettings = new ToolSettingsService();
-  const tecsgenRunner = new TecsgenRunner(() => toolSettings.resolveCommand());
+  const tecsgenRunner = new TecsgenRunner(
+    () => toolSettings.resolveCommand(),
+    async () => (await toolSettings.resolveForPreprocess()).fullPath,
+  );
   registerIpcHandlers(fileService, tecsgenRunner, logService, toolSettings, win);
 
   // モジュールG（renderer HTMLシェル）の成果物。`npm run build:renderer` が esbuild で

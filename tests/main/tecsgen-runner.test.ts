@@ -522,6 +522,39 @@ describe("TecsgenRunner", () => {
     });
   });
 
+  // tecsgen 自身も import_C のヘッダー展開で PATH 上の gcc を起動する。同じ DLL 衝突で失敗すると、
+  // C の型名が未知になり、構文エラー（G1016）の列で W-PLUGIN-TYPE-LOAD になる。
+  describe.skipIf(!onWindows)("run() puts the C preprocessor directory first on PATH for tecsgen (Windows)", () => {
+    const pathOf = (options: { env?: NodeJS.ProcessEnv }): string => {
+      const key = Object.keys(options.env ?? {}).find((k) => k.toLowerCase() === "path");
+      return key === undefined ? "" : (options.env![key] ?? "");
+    };
+    const tecsgen = async () => ({ executable: "tecsgen", args: [] as readonly string[], source: "settings" as const });
+
+    it("prepends the directory of the resolved C preprocessor", async () => {
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      const runner = new TecsgenRunner(tecsgen as never, async () => String.raw`C:\msys64\ucrt64\bin\gcc.exe`);
+      await runner.run(["main.cdl"]);
+      const options = execFileMock.mock.calls[0]![2] as { env?: NodeJS.ProcessEnv };
+      expect(pathOf(options).startsWith(String.raw`C:\msys64\ucrt64\bin;`)).toBe(true);
+    });
+
+    it("leaves the environment alone when no C preprocessor path is known", async () => {
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      const runner = new TecsgenRunner(tecsgen as never, async () => undefined);
+      await runner.run(["main.cdl"]);
+      expect((execFileMock.mock.calls[0]![2] as { env?: unknown }).env).toBeUndefined();
+    });
+
+    it("still runs tecsgen when the provider throws", async () => {
+      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+      const runner = new TecsgenRunner(tecsgen as never, async () => { throw new Error("boom"); });
+      const result = await runner.run(["main.cdl"]);
+      expect(result.exitCode).toBe(0);
+      expect((execFileMock.mock.calls[0]![2] as { env?: unknown }).env).toBeUndefined();
+    });
+  });
+
   describe("summarizeStderr", () => {
     it("handles empty and whitespace-only strings", () => {
       expect(summarizeStderr("")).toBe("");

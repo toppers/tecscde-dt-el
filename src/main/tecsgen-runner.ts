@@ -149,7 +149,23 @@ export function summarizeStderr(stderr: string, maxLen = 200): string {
 export class TecsgenRunner {
   private readonly environment = snapshotTecsgenEnvironment(process.env);
 
-  constructor(private readonly resolveCommandProvider?: () => Promise<ResolvedTecsgenCommand>) {}
+  /**
+   * @param resolveCppPathProvider tecsgen 自身も import_C のヘッダー展開で PATH 上の gcc を起動する。
+   *   C プリプロセッサのフルパスが分かるとき、そのディレクトリを tecsgen の子プロセスの PATH の
+   *   先頭へ足す（DLL 衝突で gcc が静かに失敗し、C の型名が未知になるのを避ける）。失敗しても tecsgen は実行する。
+   */
+  constructor(
+    private readonly resolveCommandProvider?: () => Promise<ResolvedTecsgenCommand>,
+    private readonly resolveCppPathProvider?: () => Promise<string | undefined>,
+  ) {}
+
+  private async cppPathOrUndefined(): Promise<string | undefined> {
+    try {
+      return await this.resolveCppPathProvider?.();
+    } catch {
+      return undefined;
+    }
+  }
 
   private async command(): Promise<ResolvedTecsgenCommand> {
     const resolved = this.resolveCommandProvider
@@ -214,11 +230,14 @@ export class TecsgenRunner {
         ? { timeout: 120_000, maxBuffer: 16 * 1024 * 1024, cwd }
         : { timeout: 30_000 });
       const invocation = createTecsgenInvocation(snapshot, args);
+      const baseEnv = invocation.env ? { ...process.env, ...invocation.env } : undefined;
+      const cppPath = await this.cppPathOrUndefined();
+      const childEnv = cppPath ? envWithCompilerDirFirst(cppPath, process.platform, baseEnv ?? process.env) ?? baseEnv : baseEnv;
       const { stdout, stderr } = await execFileAsync(invocation.executable, [...invocation.args], {
         ...options, shell: false,
         ...(invocation.executable !== snapshot.executable ? { windowsHide: true } : {}),
         ...(invocation.windowsVerbatimArguments !== undefined ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
-        ...(invocation.env ? { env: { ...process.env, ...invocation.env } } : {}),
+        ...(childEnv ? { env: childEnv } : {}),
       });
       return done({ stdout, stderr, exitCode: 0, executableFound: true });
     } catch (err) {
