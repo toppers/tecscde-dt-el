@@ -714,6 +714,8 @@ export class GestureController {
       if (svg.ownerDocument.querySelector("#information-dialog[open], #celltype-details-dialog[open]")) return;
       const t = e.target as HTMLElement | null;
       if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      // IME の変換中、編集可能な要素の編集中は、Delete／Backspace を図の削除にしない（三者相違一覧6-22）。
+      if (e.isComposing || t?.isContentEditable === true) return;
       if (this.keyDown(e.key, modsOf(e))) e.preventDefault();
     };
     const onContextMenu = (e: Event): void => e.preventDefault();

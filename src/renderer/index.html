@@ -730,7 +730,7 @@
         <button data-action="autoPlaceAll" type="button" title="編集できるすべてのセルを、重ならない位置へ置き直す（用紙を変えたあとなど。外部仕様7.3.x）">全体再配置</button>
         <span class="sep"></span>
         <button data-action="zoomReset" type="button">Reset Rate</button>
-        <input id="zoom-slider" type="range" min="5" max="200" step="1" value="100" title="表示倍率（外部仕様3.2.1: 5%〜200%、既定100%）" />
+        <input id="zoom-slider" type="range" min="5" max="200" step="5" value="100" title="表示倍率（外部仕様3.2.1・7.1.1: 5%〜200%、5%刻み、既定100%）" />
         <button data-action="toggleGrid" type="button">グリッド</button>
         <button data-action="toggleNavigator" type="button">ナビゲータ</button>
         <span class="sep"></span>
@@ -808,7 +808,6 @@
         <span id="status-mode"></span>
         <span id="status-pos"></span>
         <span id="status-zoom"></span>
-        <span id="status-mode"></span>
         <span id="status-region"></span>
         <span id="status-message" role="status" aria-live="polite"></span>
         <button id="status-diag" type="button" title="診断一覧を表示/非表示"></button>

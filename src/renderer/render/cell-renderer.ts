@@ -75,7 +75,7 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     element.appendChild(rect);
 
     // 第6B章6B.5: 色分け表示のリージョンの色は、状態を表す塗り・枠とは別に左端の帯で示す。
-    const regionColor = ctx.view.regionColors?.get(cell.regionId);
+    const regionColor = ctx.view.regionBands === false ? undefined : ctx.view.regionColors?.get(cell.regionId);
     if (regionColor !== undefined) {
       const tab = svgEl("rect");
       setAttrs(tab, { x, y, width: Math.min(REGION_TAB_MM * k, w), height: h });

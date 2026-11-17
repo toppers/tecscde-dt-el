@@ -17,7 +17,7 @@ import type { Point } from "../model/geometry";
 import type { PaperOrientation, PaperSize } from "../model/paper";
 import { ChangePaperCommand } from "../commands";
 import type { TecscdeDocument } from "../model/document";
-import { ZOOM_STEP } from "../view-state/view-state";
+import { snapZoom } from "../view-state/view-state";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
@@ -439,11 +439,22 @@ export class AppShell {
         if (!plan.success) {
           this.store.setTransientActionDiagnostics([activeTopFailed()]);
         } else {
+          // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
+          let moved = 0;
+          for (const [id, pos] of plan.moves) {
+            const cell = doc.getCell(id);
+            if (cell && (cell.x !== pos.x || cell.y !== pos.y)) moved += 1;
+          }
+          if (moved === 0) {
+            this.showMessage("アクティブなセルは、すでに最上段にあります");
+            break;
+          }
           this.store.dispatch(new MoveActiveCellsToTopCommand(plan));
           if (plan.spilledCellIds.length > 0) {
             this.store.setCommandDiagnostics(this.store.history.nodeId, [activeTopOverflow(plan.spilledCellIds.length)]);
           }
-          this.statusRegion.textContent = `アクティブセル ${plan.moves.size} 個を最上段へ配置しました`;
+          // 一過性の操作結果は、時間で消える案内欄へ出す（所属リージョン欄は固定情報。三者相違一覧2-11）。
+          this.showMessage(`アクティブなセル ${moved} 個を最上段へ移動しました`);
         }
         break;
       }
@@ -617,9 +628,10 @@ export class AppShell {
       });
   }
 
-  private zoomBy(factor: number, anchor?: Point): void {
+  /** 倍率を 5% 刻みで 1 段変える（Ctrl+／Ctrl−／Ctrl+ホイール。外部仕様7.1.2、三者相違一覧7-10）。 */
+  private stepZoom(direction: 1 | -1, anchor?: Point): void {
     const a = anchor ?? this.store.view.panCenter;
-    this.store.setView(this.store.view.zoomAt(a, factor));
+    this.store.setView(this.store.view.stepZoom(a, direction));
   }
 
   /**
@@ -628,9 +640,9 @@ export class AppShell {
    * 外部仕様7.1.2「倍率変更時は表示中央を保つ」を満たす。
    */
   private zoomTo(targetZoom: number): void {
-    const current = this.store.view.zoom;
-    if (current <= 0) return;
-    this.zoomBy(targetZoom / current);
+    if (this.store.view.zoom <= 0) return;
+    // 5% の倍数の整数%へ丸める（スライダの値と内部の値を常に一致させる）。
+    this.store.setView(this.store.view.zoomToAt(this.store.view.panCenter, snapZoom(targetZoom)));
   }
 
   private bindZoomSlider(): void {
@@ -815,12 +827,12 @@ export class AppShell {
         case "=":
         case "+":
           e.preventDefault();
-          this.zoomBy(ZOOM_STEP);
+          this.stepZoom(1);
           break;
         case "-":
         case "_":
           e.preventDefault();
-          this.zoomBy(1 / ZOOM_STEP);
+          this.stepZoom(-1);
           break;
         case "0":
           e.preventDefault();
@@ -911,7 +923,7 @@ export class AppShell {
         { x: e.clientX - rect.left, y: e.clientY - rect.top },
         canvasView,
       );
-      this.zoomBy(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, anchor);
+      this.stepZoom(e.deltaY < 0 ? 1 : -1, anchor);
     };
     this.scrollEl.addEventListener("wheel", onWheel, { passive: false });
     this.disposers.push(() => this.scrollEl.removeEventListener("wheel", onWheel));

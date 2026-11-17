@@ -452,6 +452,14 @@ function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
     a.showSignatureNames === b.showSignatureNames &&
     a.emphasizeCellName === b.emphasizeCellName &&
     setsEqual(a.hiddenRegionIds, b.hiddenRegionIds) &&
-    colorsEqual(a.regionColors, b.regionColors)
+    colorsEqual(a.regionColors, b.regionColors) &&
+    // 結合強調・アクティブのみ・矩形モード・色帯も、図の見え方を変える（三者相違一覧3-10、3-2）。
+    // 比べないと、これだけが変わったとき結合・セルの要素が描き直されない。
+    (a.activeOnly ?? false) === (b.activeOnly ?? false) &&
+    (a.regionOutlineMode ?? false) === (b.regionOutlineMode ?? false) &&
+    (a.regionBands ?? true) === (b.regionBands ?? true) &&
+    setsEqual(a.focusedJoinIds ?? EMPTY_SET, b.focusedJoinIds ?? EMPTY_SET)
   );
 }
+
+const EMPTY_SET: ReadonlySet<never> = new Set<never>();

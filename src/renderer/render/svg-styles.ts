@@ -9,7 +9,7 @@ svg text { font-family: system-ui, "Segoe UI", sans-serif; }
 .cell-rect.active.unresolved, .cell-rect.active.readonly.unresolved { fill: #cce5ff; stroke: #d29922; stroke-dasharray: 3 2; }
 .cell-label { font-size: 11px; fill: #111111; }
 .cell-label.emphasized { font-size: 14px; font-weight: 600; }
-.celltype-label { font-size: 9px; fill: #666666; }
+.celltype-label { font-size: 9px; fill: #595959; }
 .port-symbol { stroke: #333333; stroke-width: 0.75; }
 .port-symbol-cport { fill: #ffffff; }
 .port-symbol-eport { fill: #333333; }
