@@ -122,6 +122,23 @@ describe("LogService", () => {
       expect(service.path).not.toBeNull();
       expect(await readFile(service.path!, "utf8")).toContain("[W-B] second");
     });
+
+    // 三者相違一覧 1-17（2026-11-17 決定）: 同じ起動中は、書けるようになった後で再び失敗しても、再通知しない。
+    it("does not report again when it fails again after having recovered, within the same launch", async () => {
+      const service = new LogService(blockedDir, "0.1.0", () => started);
+      expect((await service.append(["[W-A] first"])).newFailure).toBeDefined(); // 最初の失敗は通知する
+
+      await rm(join(dir, "not-a-directory"));
+      await mkdir(blockedDir, { recursive: true });
+      await service.append(["[W-B] second"]); // 回復して書けた
+
+      await rm(service.path!); // 書き込み先を壊し、再び失敗させる（追記先が無くなる）
+      await rm(blockedDir, { recursive: true });
+      await writeFile(blockedDir, "x"); // 追記先のファイルの親をファイルにする
+      const third = await service.append(["[W-C] third"]);
+
+      expect(third).toEqual({});
+    });
   });
 });
 

@@ -86,8 +86,8 @@ export class LogService {
 
   /**
    * 行を順序どおりに追記する。失敗してもアプリの動作は止めない。
-   * 結果は、直前まで書けていたのに初めて失敗したときだけ `newFailure`（理由）を持つ。
-   * 書けるようになれば、次に失敗したときは再び知らせる。
+   * 結果は、この起動中に初めて失敗したときだけ `newFailure`（理由）を持つ。
+   * 書けるようになった後で再び失敗しても、同じ起動中は知らせない（外部仕様9.5.2の規定13、三者相違一覧1-17）。
    */
   append(lines: readonly string[]): Promise<LogAppendResult> {
     if (lines.length === 0) return this.queue;
@@ -107,7 +107,7 @@ export class LogService {
         await fs.writeFile(candidate, header + text, "utf8");
         this.filePath = candidate;
       }
-      this.failureReported = false;
+      // 書けるようになっても、失敗の通知済みの印は戻さない（同じ起動中は一度だけ通知する。三者相違一覧1-17）。
       return {};
     } catch (error) {
       console.error(`ログファイルへ書けませんでした: ${this.filePath ?? this.dir}`, error);

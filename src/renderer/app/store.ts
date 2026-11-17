@@ -350,7 +350,11 @@ export class AppStore {
     const collector = new DiagnosticsCollector();
     collector.reportAll(this.actionDiagnostics);
     collector.reportAll(this.loadDiagnostics);
-    collector.reportAll(checkIntegrity(this.getDocument()));
+    // 読み込み時の診断と、現在のドキュメントから再導出する整合性チェックは、同じ内容を出すことがある
+    // （例: セルタイプ未解決）。同じコード・文言・関連セルの診断は、一覧・件数・ログに1件だけ出す（三者相違一覧9-5）。
+    const diagnosticKey = (d: Diagnostic): string => `${d.code}\0${d.message}\0${d.relatedCellId ?? ""}\0${d.relatedJoinId ?? ""}`;
+    const loaded = new Set(this.loadDiagnostics.map(diagnosticKey));
+    collector.reportAll(checkIntegrity(this.getDocument()).filter((d) => !loaded.has(diagnosticKey(d))));
     collector.reportAll(this.tecsgenDiagnostics);
     collector.reportAll(this.environmentDiagnostics);
     const activeHistoryDiags = this.historyDiagnostics.get(this.history.nodeId);
@@ -558,15 +562,6 @@ export class AppStore {
   /** 第9C章9C.5節: 起動時のtecsgenの版の確認の結果を反映する。`getReport()`へ合流する。 */
   setEnvironmentDiagnostics(diagnostics: readonly Diagnostic[]): void {
     this.environmentDiagnostics = diagnostics;
-    this.notify();
-  }
-
-  /**
-   * 監査#66: ログ書き込み失敗などの起動中環境警告を重複なく追加する。
-   */
-  addEnvironmentDiagnostic(diagnostic: Diagnostic): void {
-    if (this.environmentDiagnostics.some((d) => d.code === diagnostic.code && d.message === diagnostic.message)) return;
-    this.environmentDiagnostics = [...this.environmentDiagnostics, diagnostic];
     this.notify();
   }
 

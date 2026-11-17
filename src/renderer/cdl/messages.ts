@@ -44,6 +44,17 @@ export const W_CODES = {
   LOG_WRITE_FAILED: "W-LOG-WRITE-FAILED",
   PLUGIN_UNSUPPORTED: "W-PLUGIN-UNSUPPORTED",
   PLUGIN_TYPE_LOAD: "W-PLUGIN-TYPE-LOAD",
+  /** 主ファイルが閲覧のみのため保存しなかった（V0.2.6 段4、4-3）。 */
+  SAVE_READONLY: "W-SAVE-READONLY",
+  /** `.tecsgen-opts`にCDLが0件（V0.2.6 段4、5-3）。 */
+  OPTS_NO_CDL: "W-OPTS-NO-CDL",
+} as const;
+
+/** 操作の失敗（V0.2.6 段4、外部仕様9章）。 */
+export const E_CODES = {
+  SAVE_FAILED: "E-SAVE-FAILED",
+  OPEN_FAILED: "E-OPEN-FAILED",
+  ACTION_FAILED: "E-ACTION-FAILED",
 } as const;
 
 export function syntaxError(location: SourceLocation, near: string): Diagnostic {
@@ -192,17 +203,8 @@ export function activeTopFailed(): Diagnostic {
   };
 }
 
-/**
- * [[TECSCDE-DT外部仕様 - 09 エラーと警告#9.5]], 監査#66:
- * 診断ログの作成・追記・保存先ディレクトリ作成が失敗した際に一度だけ画面へ出す警告。
- */
-export function logWriteFailed(): Diagnostic {
-  return {
-    severity: "warning",
-    code: W_CODES.LOG_WRITE_FAILED,
-    message: "診断ログを作れない、または追記できない。診断パネルの内容は、このファイルに残らない",
-  };
-}
+// 診断ログの書き込み失敗の警告 `W-LOG-WRITE-FAILED` の生成は、`app/log-warning.ts` の `logWriteFailedDiagnostic`
+// の1か所に集約している（理由付きの文言。三者相違一覧9-13）。コードだけを `W_CODES` に置く。
 
 /**
  * [[TECSCDE-DT-EL内部仕様 - 09D V0.2.0tecsgen設定と内部処理]] 9D.6 / 外部仕様 8.5 #3:
