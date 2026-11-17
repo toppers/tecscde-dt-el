@@ -28,11 +28,13 @@ function setup(initial: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = {
   let saved = { ...initial };
   const save = vi.fn(async (patch: Record<string, unknown>) => { saved = { ...saved, ...patch }; });
   const existing = new Set<string>();
-  const exists = vi.fn(async (path: string) => existing.has(path));
+  const directories = new Set<string>();
+  // 実装の pathExists と同じく、実行ファイル判定（第2引数）ではディレクトリを除く。
+  const exists = vi.fn(async (path: string, executableFile = false) => existing.has(path) && !(executableFile && directories.has(path)));
   const service = new ToolSettingsService({
     env, platform: "linux", load: async () => saved, save, exists, pathCandidates: ["tecsgen"],
   });
-  return { service, save, exists, existing, saved: () => saved };
+  return { service, save, exists, existing, directories, saved: () => saved };
 }
 
 describe("ToolSettingsService", () => {
@@ -57,11 +59,26 @@ describe("ToolSettingsService", () => {
     expect(exists).not.toHaveBeenCalled();
   });
 
-  it("auto-saves an existing TECSPATH literal without deriving a command inside the directory", async () => {
-    const { service, save, existing } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
-    existing.add("/tecs-directory");
-    expect(await service.get()).toMatchObject({ tecsgenPath: "/tecs-directory", effectiveSource: "tecspath", executable: "/tecs-directory" });
-    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/tecs-directory" });
+  it("auto-saves an existing TECSPATH executable file without deriving a command", async () => {
+    const { service, save, existing } = setup({}, { TECSPATH: "/tecs/tecsgen", PATH: "/bin" });
+    existing.add("/tecs/tecsgen");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "/tecs/tecsgen", effectiveSource: "tecspath", executable: "/tecs/tecsgen" });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/tecs/tecsgen" });
+  });
+
+  // 三者相違一覧 1-5（2026-11-17 決定）: TECSPATH がディレクトリのときは採用・保存せず、PATH 探索へ進む。
+  it("ignores a TECSPATH that is a directory and falls through to the PATH search", async () => {
+    const { service, save, existing, directories } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
+    existing.add("/tecs-directory"); directories.add("/tecs-directory"); existing.add("/bin/tecsgen");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "/bin/tecsgen", effectiveSource: "path", executable: "/bin/tecsgen" });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/bin/tecsgen" });
+  });
+
+  it("keeps the command unset when TECSPATH is a directory and PATH has no tecsgen", async () => {
+    const { service, save, existing, directories } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
+    existing.add("/tecs-directory"); directories.add("/tecs-directory");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "", effectiveSource: "missing", executable: "" });
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("searches PATH from the first directory and persists the found path", async () => {
