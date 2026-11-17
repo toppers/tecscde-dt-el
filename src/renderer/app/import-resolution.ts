@@ -131,6 +131,7 @@ async function resolveImportClosure(
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
   useManualToolInfo = false,
+  optionsCpp?: string,
 ): Promise<ImportResolutionResult> {
   const options: ImportResolutionOptions = { baseDir: toolInfo.baseDir, importPaths: toolInfo.importPath ?? ["."],
     ...(systemDirs.length > 0 ? { systemDirs: [...systemDirs] } : {}) };
@@ -201,12 +202,12 @@ async function resolveImportClosure(
       const own = useManualToolInfo && r.request.kind === "manual" ? extractToolInfoTecsgen(content) : inherited;
       sourceContexts.set(key, { ...inherited, ...own,
         baseDir: own.baseDir ?? inherited.baseDir, importPath: own.importPath ?? inherited.importPath,
-        cpp: own.cpp ?? inherited.cpp, defineMacro: own.defineMacro ?? inherited.defineMacro });
+        cpp: optionsCpp ?? own.cpp ?? inherited.cpp, defineMacro: own.defineMacro ?? inherited.defineMacro });
       const dir = dirnameOf(canonicalPath);
       if (!extraSearchDirs.includes(dir)) extraSearchDirs.push(dir); // tecsgenの$base_dir累積に相当
 
       if (r.request.kind === "import_C") {
-        const result = await ingestImportC(tecsgenGateway, canonicalPath, content, inherited.cpp, includeDirsFor(sourcePath, optionsFor(sourcePath)), diagnostics);
+        const result = await ingestImportC(tecsgenGateway, canonicalPath, content, optionsCpp ?? inherited.cpp, includeDirsFor(sourcePath, optionsFor(sourcePath)), diagnostics);
         cdeclResults.set(canonicalPath, result);
       } else {
         references.push({ path: canonicalPath, content });
@@ -240,6 +241,7 @@ export async function resolveAllImports(
   existingReferences: readonly OpenFileEntry[] = [],
   systemDirs: readonly string[] = [],
   useManualToolInfo = false,
+  optionsCpp?: string,
 ): Promise<ImportResolutionResult> {
   const mergedToolInfo: ToolInfoTecsgen = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
   // editablePath自身で種付けする——自己importの循環（A自身への参照）を防ぐ（第7D章7.5.4節）。
@@ -256,6 +258,7 @@ export async function resolveAllImports(
     existingReferences,
     systemDirs,
     useManualToolInfo,
+    optionsCpp,
   );
 }
 
@@ -273,7 +276,8 @@ export async function resolveAddedReference(
   path: string,
   alreadyLoadedPaths: readonly string[],
   systemDirs: readonly string[] = [],
+  optionsCpp?: string,
 ): Promise<ImportResolutionResult> {
   const seed = new Set([...(editablePath ? [editablePath] : []), ...alreadyLoadedPaths]);
-  return resolveImportClosure(gateway, tecsgenGateway, editablePath ?? path, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs, true);
+  return resolveImportClosure(gateway, tecsgenGateway, editablePath ?? path, toolInfo, [{ kind: "manual", specifier: path }], seed, [], systemDirs, true, optionsCpp);
 }

@@ -149,6 +149,7 @@ function createWindow(): BrowserWindow {
               extraImportPaths: parsed.importPaths,
               optionsFilePath: pendingOpenPath,
               ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
+              ...(parsed.cpp !== undefined ? { cpp: parsed.cpp } : {}),
             };
           } else {
             data = await loadSamples(fileService);

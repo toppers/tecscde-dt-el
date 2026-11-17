@@ -87,6 +87,8 @@ export async function applyOpenResult(
     contextPaths,
     result.references,
     result.systemDirs ?? [],
+    false,
+    result.cpp,
   );
   const references = mergeReferences(result.references, autoReferences);
 
@@ -138,14 +140,14 @@ export async function applyOpenResult(
       args: TecsgenCommandBuilder.buildArgs({
         importPath: [...(toolInfo.importPath ?? []), ...extraImportPaths],
         defineMacro: toolInfo.defineMacro,
-        cpp: toolInfo.cpp,
+        cpp: result.cpp ?? toolInfo.cpp,
         referenceFilePaths: references.map((reference) => reference.path),
         editingFilePath: result.editable.path,
       }),
       optionsFilePath: result.optionsFilePath,
       importPaths: [...(toolInfo.importPath ?? []), ...extraImportPaths],
       defineMacros: toolInfo.defineMacro,
-      cpp: toolInfo.cpp,
+      cpp: result.cpp ?? toolInfo.cpp,
     };
 
     try {
@@ -315,6 +317,16 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
   }
 }
 
+/** 今開いている`.tecsgen-opts`の`cpp`。無い・読めないときは`undefined`（`import_C`はCDLの`cpp`・設定に従う）。 */
+async function optionsCppOf(gateway: FileGateway, optionsFilePath: string): Promise<string | undefined> {
+  if (typeof gateway.parseTecsgenOptionsFile !== "function") return undefined;
+  try {
+    return (await gateway.parseTecsgenOptionsFile(optionsFilePath)).cpp;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Add a CDL selected in the file browser to the editable, jointly loaded files. */
 export async function addAsReference(
   store: AppStore,
@@ -332,6 +344,10 @@ export async function addAsReference(
     const toolInfo = store.getDocument().toolInfoTecsgen;
     const extraImportPaths = store.getExtraImportPaths();
     const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
+    // 追加のたびに、今開いている.tecsgen-optsのcppを読み直す（Generateと同じく呼ぶたびに再解析する）。
+    // opts を開いていないときは待たない（解決の呼び出しを非同期にずらさない）。
+    const optionsFilePath = store.getOptionsFilePath();
+    const optionsCpp = optionsFilePath ? await optionsCppOf(gateway, optionsFilePath) : undefined;
     const { references: discovered, diagnostics: importDiagnostics, cdeclResults: addedCdeclResults } = await resolveAddedReference(
       gateway,
       tecsgenGateway,
@@ -340,6 +356,7 @@ export async function addAsReference(
       path,
       existingPaths,
       store.getSystemDirs(),
+      optionsCpp,
     );
     if (!await store.canApplyLoad(guard)) return;
     if (discovered.length === 0 || importDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
@@ -355,7 +372,7 @@ export async function addAsReference(
     const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
     const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
     const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
-      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(), true,
+      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(), true, optionsCpp,
     );
     if (!await store.canApplyLoad(guard) || allImportDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
     // An empty key is only a transient loader input for the in-memory primary;
@@ -448,6 +465,7 @@ export async function loadOptionsFile(
       extraImportPaths: parsed.importPaths,
       optionsFilePath: path,
       ...(parsed.systemDirs.length > 0 ? { systemDirs: parsed.systemDirs } : {}),
+      ...(parsed.cpp !== undefined ? { cpp: parsed.cpp } : {}),
       primarySourceKey: editable.path,
       sourceOrder: [...new Set(opened.map((entry) => entry.path))],
       sources: [...new Map(opened.map((entry) => [entry.path, entry])).values()],

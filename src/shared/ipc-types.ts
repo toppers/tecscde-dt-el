@@ -18,6 +18,11 @@ export interface OpenResult {
   readonly optionsFilePath?: string;
   /** `.tecsgen-opts`の`-S`で指定されたシステム定義ディレクトリ（絶対パス）。第7C章7.7.4節。 */
   readonly systemDirs?: readonly string[];
+  /**
+   * `.tecsgen-opts`の`-c`/`--cpp`の値（引数込みの完全なコマンド）。あれば`import_C`のプリプロセスに使い、
+   * CDLの`__tool_info__`の`cpp`より優先する。`cppArgs`は付けない（三者相違一覧8-4、内部09E 9E.3）。
+   */
+  readonly cpp?: string;
 }
 
 export interface SessionSnapshot {

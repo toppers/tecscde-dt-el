@@ -18,11 +18,13 @@ export async function restoreSession(fileService: SessionFileService, saved: Ses
   const optionsFilePath = session.optionsFilePath;
   let extraImportPaths = [...session.extraImportPaths];
   let systemDirs: readonly string[] = [];
+  let cpp: string | undefined;
   if (optionsFilePath !== undefined) {
     try {
       const parsed = await fileService.parseTecsgenOptionsFile(optionsFilePath);
       extraImportPaths = [...parsed.importPaths];
       systemDirs = [...parsed.systemDirs];
+      cpp = parsed.cpp;
     } catch {
       // Keep the saved options path as the base for relative saved import paths.
     }
@@ -42,6 +44,7 @@ export async function restoreSession(fileService: SessionFileService, saved: Ses
     ...opened,
     extraImportPaths,
     systemDirs,
+    ...(cpp !== undefined ? { cpp } : {}),
     ...(optionsFilePath !== undefined ? { optionsFilePath } : {}),
   };
 }
