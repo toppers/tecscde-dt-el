@@ -1,6 +1,6 @@
-// [[TECSCDE-DT-EL内部仕様]] 第6章6.3節・第3章3.5節・7.1節・7.3.2 — ナビゲータ（モジュールG次段）。
+// [[TECSCDE-DT-EL内部仕様]] 第6章6.3節・第3章3.5節・7.1節・外部仕様7.1.2 — ナビゲータ（モジュールG次段）。
 // `computeNavigator`/`navigatorPointToPanCenter`（純粋な幾何計算、view-state/navigator.ts）を
-// 実DOM（SVGミニマップ）へ配線する。用紙全体が表示範囲に収まるときは自動的に隠す（7.3.2）。
+// 実DOM（SVGミニマップ）へ配線する。用紙全体が表示範囲に収まるときは自動的に隠す（外部仕様7.1.2）。
 // クリック位置→パン中心の変換はテスト済みの純関数側にあり、ここでは`getBoundingClientRect()`
 // に基づく画面座標→正規化座標の変換のみを行う——happy-domはレイアウトを持たないため、
 // この最後の一段（実ピクセル座標）はheadlessテストの対象外とし、`electron .`での目視確認に委ねる
@@ -15,7 +15,7 @@ export class NavigatorView {
   private readonly svg: SVGSVGElement;
   private readonly paperRect: SVGRectElement;
   private readonly viewportRect: SVGRectElement;
-  /** 利用者の指定。`auto` は用紙全体が収まるときだけ自動で隠す（7.3.2）。`shown`・`hidden` は自動判定に勝つ。 */
+  /** 利用者の指定。`auto` は用紙全体が収まるときだけ自動で隠す（外部仕様7.1.2）。`shown`・`hidden` は自動判定に勝つ。 */
   private override: "auto" | "shown" | "hidden" = "auto";
   private dragging = false;
 
@@ -33,7 +33,7 @@ export class NavigatorView {
     this.viewportRect = this.createRect("navigator-viewport");
     this.svg.append(this.paperRect, this.viewportRect);
 
-    // 外部仕様7.3.2: クリックまたはドラッグで、その位置を表示範囲の中央に移動する。
+    // 外部仕様7.1.2: クリックまたはドラッグで、その位置を表示範囲の中央に移動する。
     // 押した位置へ移し（クリック）、押している間はポインタに追従させる（ドラッグ）。
     // 枠の外へ出ても追従が切れないよう、移動と離すのはウィンドウ側で受ける。
     const win = this.root.ownerDocument.defaultView ?? window;

@@ -1,6 +1,6 @@
 // [[TECSCDE-DT-EL内部仕様]] 第6章6.1節 — 表示制御 `ViewState`。
 //
-// 本章は [[TECSCDE-TS内部仕様]] 第6章と「完全に同一、変更なし」（DT-EL内部仕様6章）。
+// 本章は [[TECSCDE-TS内部仕様]] 第6章を基礎とし、検索は6.4節、表示フィルタは第6B章・6C章の具体化を優先する（DT-EL内部仕様6章）。
 // 挙動の正典は [[TECSCDE内部仕様]] 第7章。ズーム・パン・グリッド・表示フィルタ・検索の
 // 状態を1つの不変クラスに集約する。`TecscdeDocument`（第3章）とは別の型にすることで
 // 「表示状態はモデルの一部ではなく `.cde` に保存されない」（外部仕様7.5.2）を型で表現する。
@@ -86,7 +86,7 @@ export class ViewState {
     return new ViewState(nextZoom, panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }
 
-  /** 倍率を保ったまま表示中心をリセットする（Ctrl+0 相当、7.1.2）。 */
+  /** 倍率を100%に戻す。表示中心は保つ（Ctrl+0 相当、外部仕様7.1.2）。 */
   resetZoom(): ViewState {
     return new ViewState(1.0, this.panCenter, this.gridVisible, this.filters, this.searchQuery, this.regionOutlineMode);
   }

@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["DOM", "ES2022"],
+    "types": [],
     "noEmit": true
   },
-  "include": ["src/renderer/**/*.ts", "tests/renderer/**/*.ts"]
+  "include": ["src/renderer/**/*.ts"]
 }

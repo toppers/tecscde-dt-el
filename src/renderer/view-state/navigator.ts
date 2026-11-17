@@ -3,7 +3,7 @@
 // 用紙全体の縮小表示＋現在の表示範囲を示す矩形は、`ViewState`（`zoom`・`panCenter`）と
 // `PaperSpec`（第3章の `TecscdeDocument` が保持）の両方から算出する読み取り専用の派生値
 // であり、`ViewState` 自体にフィールドとして持たせない（6.3節）。用紙全体が表示範囲に
-// 収まる縮小率のときは自動非表示にする（7.3.2）。
+// 収まる縮小率のときは自動非表示にする（外部仕様7.1.2）。
 //
 // 実 DOM（ナビゲータの描画・クリック）はモジュールG。本ファイルはその素材となる純粋な
 // 幾何計算のみを提供し、ヘッドレスで検証する（第5章の SVG 描画クラスと同じ方針）。
@@ -32,7 +32,7 @@ export interface NavigatorModel {
   readonly paper: { readonly width: number; readonly height: number };
   /** 現在ビューポートに映っているモデル座標範囲（mm）。用紙外へはみ出しうる。 */
   readonly viewport: ModelRect;
-  /** 用紙全体がビューポートに収まる → ナビゲータを自動的に隠す（7.3.2）。 */
+  /** 用紙全体がビューポートに収まる → ナビゲータを自動的に隠す（外部仕様7.1.2）。 */
   readonly autoHidden: boolean;
 }
 

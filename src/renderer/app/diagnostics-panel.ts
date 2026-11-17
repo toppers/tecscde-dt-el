@@ -2,7 +2,8 @@
 // `AppStore.getReport()`（B・H・Iの集約結果）を一覧表示する。`relatedCellId`/`relatedJoinId`を
 // 持つ診断は第6章6.4節の検索ジャンプ機構と同じ操作（選択＋パン）にそのまま渡し、専用の
 // ハイライト表現は新設しない（8.4節）。`location`のみの診断（CDL解析エラー等）は図要素への
-// ジャンプ先が無いため、テキスト位置の提示に留める（同節）。
+// ジャンプ先が無いため、現状はテキスト位置の提示に留める（同節）。
+// 図要素が無くても該当行・列へ移るソースジャンプは[[TECSCDE-DT-EL内部仕様 - 08B 診断位置へのソースジャンプ|8B]]で設計済みだが未実装（V0.3.0以降、三者相違一覧 8-12・9-7）。
 
 import type { Diagnostic } from "../diagnostics/types";
 import { formatDiagnostic } from "../diagnostics/format";

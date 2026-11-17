@@ -25,7 +25,7 @@ export class DisplayFilters {
     readonly showSignatureNames: boolean,
     /** セル名強調（外部仕様7.4.2）。オンでセル名を大きく表示し、セルタイプ名を隠す。既定はオフ。 */
     readonly emphasizeCellName: boolean,
-    /** アクティブセルのみ表示（外部仕様7.3.x、内部仕様6C.1・監査#45）。既定はオフ。 */
+    /** アクティブセルのみ表示（外部仕様7.5.x、内部仕様6C.1・監査#45）。既定はオフ。 */
     readonly activeOnly: boolean = false,
   ) {}
 
