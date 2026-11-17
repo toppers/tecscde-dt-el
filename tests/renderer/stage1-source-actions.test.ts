@@ -166,6 +166,17 @@ describe("stage1 source actions", () => {
     expect(store.getExtraImportPaths()).toEqual(["../inc", "/abs/inc"]); // ストアの原文は変えない
   });
 
+  // v0.2.6 の不具合（段3の取り出しで、区切り文字が `/` だけになった）の回帰テスト: Windows のパス（`\`区切り）でも、
+  // optsのファイル名を取り除いた親ディレクトリを基点にし、ドライブ付きの絶対パスはそのまま使う。
+  it("takes the directory of a Windows options file path as the base, and keeps drive-letter absolute paths as they are", async () => {
+    const { store, gateway, file } = setup();
+    await applyOpenResult(store, file, tool, { editable: { path: "C:\\proj\\src\\main.cdl", content: 'import("x.cdl");\n' + main }, references: [],
+      extraImportPaths: ["../inc", "..\\inc2", "D:\\abs\\inc"], optionsFilePath: "C:\\proj\\build\\opts.tecsgen-opts" });
+    const options = gateway.resolveImports.mock.calls[0]![2];
+    expect(options.importPaths).toEqual(expect.arrayContaining(["C:\\proj\\build/../inc", "C:\\proj\\build/..\\inc2", "D:\\abs\\inc"]));
+    expect(options.importPaths.some((path) => path.includes("opts.tecsgen-opts"))).toBe(false);
+  });
+
   it("uses the added file's own tool_info and parent to resolve its imports without a primary", async () => {
     const { store, gateway, file } = setup();
     gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) => ({ request,
