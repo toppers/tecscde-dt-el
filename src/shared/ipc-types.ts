@@ -125,7 +125,7 @@ export interface CppResult {
   /** V0.2.1: 解決された実行ファイルへのフルパス（未解決の場合は "未検出 (PATH上)" 等） */
   readonly fullPath?: string;
   /** V0.2.1: 失敗の分類 */
-  readonly failureKind?: "not-found" | "failed" | "timeout";
+  readonly failureKind?: "not-found" | "failed" | "timeout" | "launch-failed";
   /** V0.2.1: 失敗の具体的詳細（終了コード、stderrの抜粋、エラーメッセージ等） */
   readonly failureDetail?: string;
 }

@@ -352,13 +352,38 @@ describe("TecsgenRunner", () => {
     );
   });
 
-  it("preprocess() reports an unmatched quote as a command failure", async () => {
+  // 三者相違一覧 8-3（2026-11-17 決定）: 引数形式不正・権限なしなどの起動失敗は「起動できない」に分類し、
+  // 存在しない終了コード 1 を作らない（外部「Cプリプロセッサ設定と失敗詳細(V0.2.1用)」2.1、内部 09E 9E.2）。
+  it("preprocess() reports an unmatched quote as a launch failure without an exit code", async () => {
     const runner = new TecsgenRunner();
 
-    const result = await runner.preprocess("header.h", '"C:\\Program Files\\clang.exe -E');
+    const result = await runner.preprocess("header.h", '"C:\Program Files\clang.exe -E');
 
-    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 1, executableFound: true, failureKind: "failed" });
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: null, executableFound: true, failureKind: "launch-failed" });
+    expect(result.failureDetail).toContain("引用符");
+    expect(result.failureDetail).not.toContain("終了コード");
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["EACCES", "EPERM"])("preprocess() reports %s as a launch failure without an exit code", async (code) => {
+    execFileMock.mockRejectedValue(Object.assign(new Error(`spawn ${code}`), { code }));
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "clang -E");
+
+    expect(result).toMatchObject({ exitCode: null, executableFound: true, failureKind: "launch-failed" });
+    expect(result.failureDetail).toContain(code);
+    expect(result.failureDetail).not.toContain("終了コード");
+  });
+
+  it("preprocess() still reports a numeric exit code as a failed run", async () => {
+    execFileMock.mockRejectedValue(Object.assign(new Error("failed"), { code: 2, stderr: "error: boom" }));
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "clang -E");
+
+    expect(result).toMatchObject({ exitCode: 2, executableFound: true, failureKind: "failed" });
+    expect(result.failureDetail).toContain("終了コード 2");
   });
 
   it("preprocess() returns executableFound=false on ENOENT", async () => {

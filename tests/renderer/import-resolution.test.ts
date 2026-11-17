@@ -400,6 +400,23 @@ describe("V0.2.1 Cプリプロセッサ設定と失敗詳細 (Unit C)", () => {
     expect(timeoutDiag?.message).toBe(
       "Cプリプロセッサ 'gcc'（フルパス: C:\\tools\\gcc.exe、決定理由: フォールバック）を起動・実行できなかったため（30秒以内に完了しなかったためタイムアウトしました）、'/root/target.h' は未展開のまま型を抽出しました",
     );
+
+    // 3. 起動失敗（failureKind: "launch-failed"）。終了コードは無く、「終了コード 1」を作らない（三者相違一覧8-3）。
+    const launchTecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: null,
+      command: "gcc",
+      fullPath: "C:\tools\gcc.exe",
+      originReason: "フォールバック",
+      failureKind: "launch-failed",
+      failureDetail: "EACCES: spawn EACCES",
+    });
+    const { diagnostics: launchDiags } = await resolveAllImports(gateway, launchTecsgen, "/root/A.cdl", 'import_C("target.h");', toolInfo);
+    const launchDiag = launchDiags.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(launchDiag?.message).toBe(
+      "Cプリプロセッサ 'gcc'（フルパス: C:\tools\gcc.exe、決定理由: フォールバック）を起動・実行できなかったため（EACCES: spawn EACCES）、'/root/target.h' は未展開のまま型を抽出しました",
+    );
+    expect(launchDiag?.message).not.toContain("終了コード");
   });
 
   it("escapes multiline failureDetail into a single line when formatted via formatDiagnostic (audit #68)", async () => {

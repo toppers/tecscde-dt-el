@@ -318,8 +318,25 @@ export class TecsgenRunner {
       fullPath = fallbackFound ?? "未検出 (PATH上)";
     }
 
+    let parts: string[];
     try {
-      const parts = splitCommand(cmd);
+      parts = splitCommand(cmd);
+    } catch (err) {
+      // 引数形式不正（引用符の閉じ忘れなど）。プロセスを起動していないので終了コードは無い（三者相違一覧8-3）。
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        executableFound: true,
+        command: cmd,
+        originReason,
+        fullPath,
+        failureKind: "launch-failed",
+        failureDetail: `コマンドの引数の形式が不正です（${err instanceof Error && /quote|引用符/i.test(err.message) ? "引用符が閉じていません" : (err instanceof Error ? err.message : String(err))}）`,
+      };
+    }
+
+    try {
       const exe = parts[0];
       const baseArgs = parts.slice(1);
       if (!exe) {
@@ -388,7 +405,22 @@ export class TecsgenRunner {
         };
       }
 
-      const exitCode = typeof e.code === "number" ? e.code : 1;
+      if (typeof e.code !== "number") {
+        // 権限なし（EACCES・EPERM）など、プロセスを起動できなかった失敗。終了コードは無いので作らない（三者相違一覧8-3）。
+        return {
+          stdout: e.stdout ?? "",
+          stderr: e.stderr ?? "",
+          exitCode: null,
+          executableFound: true,
+          command: cmd,
+          originReason,
+          fullPath,
+          failureKind: "launch-failed",
+          failureDetail: typeof e.code === "string" ? `${e.code}: ${e.message}` : (e.message ?? String(err)),
+        };
+      }
+
+      const exitCode = e.code;
       const rawStderr = e.stderr ?? "";
       const stderrExcerpt = summarizeStderr(rawStderr);
       const failureDetail = stderrExcerpt ? `終了コード ${exitCode}: ${stderrExcerpt}` : `終了コード ${exitCode}`;

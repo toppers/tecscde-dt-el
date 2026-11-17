@@ -11,7 +11,7 @@ export interface CppFallbackOptions {
   readonly command?: string;
   readonly originReason?: CppOriginReason;
   readonly fullPath?: string;
-  readonly failureKind?: "not-found" | "failed" | "timeout";
+  readonly failureKind?: "not-found" | "failed" | "timeout" | "launch-failed";
   readonly failureDetail?: string;
 }
 
