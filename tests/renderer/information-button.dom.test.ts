@@ -18,7 +18,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const toolSettings: ToolSettings = {
   revision: 1, tecsgenPath: "/tools/tecsgen", tecspath: "/tecs", effectiveSource: "settings",
   effectiveCommand: "/tools/tecsgen", executable: "/tools/tecsgen", prefixArgs: [], override: false,
-  pluginTypeSource: "external",
+  pluginTypeSource: "external", cdlFilesRoot: "",
 };
 const appInformation: AppInformation = {
   name: "TECSCDE-DT-EL", version: "0.2.2", commit: "a123b45", cdeFormatVersion: "0.1.0.0",

@@ -18,6 +18,11 @@ export interface OpenResult {
   readonly optionsFilePath?: string;
   /** `.tecsgen-opts`の`-S`で指定されたシステム定義ディレクトリ（絶対パス）。第7C章7.7.4節。 */
   readonly systemDirs?: readonly string[];
+  /**
+   * `.tecsgen-opts`の`-c`/`--cpp`の値（引数込みの完全なコマンド）。あれば`import_C`のプリプロセスに使い、
+   * CDLの`__tool_info__`の`cpp`より優先する。`cppArgs`は付けない（三者相違一覧8-4、内部09E 9E.3）。
+   */
+  readonly cpp?: string;
 }
 
 export interface SessionSnapshot {
@@ -125,7 +130,7 @@ export interface CppResult {
   /** V0.2.1: 解決された実行ファイルへのフルパス（未解決の場合は "未検出 (PATH上)" 等） */
   readonly fullPath?: string;
   /** V0.2.1: 失敗の分類 */
-  readonly failureKind?: "not-found" | "failed" | "timeout";
+  readonly failureKind?: "not-found" | "failed" | "timeout" | "launch-failed";
   /** V0.2.1: 失敗の具体的詳細（終了コード、stderrの抜粋、エラーメッセージ等） */
   readonly failureDetail?: string;
 }
@@ -174,6 +179,8 @@ export interface TecsgenOptionsFile {
   readonly cdlFiles: readonly string[]; // 列挙順。最後の要素が編集対象候補
   readonly importPaths: readonly string[]; // -I/--import-path の値
   readonly cpp?: string;
+  /** `-k`/`--kcode`の値（最後に書かれたもの）。あればtecsgenの実行に引き継ぎ、`-k utf8`は付けない（外部仕様8.4.2、三者相違一覧8-20）。 */
+  readonly kcode?: string;
   /** `-D`/`--define`の値（記述順）。tecsgenの実行に引き継ぐ（外部仕様8.4.2）。 */
   readonly defineMacros: readonly string[];
   /** `-S`/`--system-dir`の値。オプションファイルのあるディレクトリ基点で絶対パスに解決済み。`importPaths`にも書かれた値のまま入る。 */
@@ -214,9 +221,12 @@ export interface ToolSettings {
   readonly cppOriginReason?: CppOriginReason;
   /** V0.2.1 Stage 4: Plugin生成型の取り込み方式（既定: "external"） */
   readonly pluginTypeSource: PluginTypeSource;
+  /** CDLファイル一覧の対象ディレクトリ。未設定は空文字（三者相違一覧1-6、内部09D 9D.5）。 */
+  readonly cdlFilesRoot: string;
 }
 export interface ToolSettingsUpdate {
   readonly tecsgenPath?: string;
+  readonly cdlFilesRoot?: string;
   readonly cppPath?: string;
   readonly cppArgs?: string;
   readonly pluginTypeSource?: PluginTypeSource;
@@ -320,8 +330,6 @@ export interface TecscdeApi {
     chooseTecsgenPath(): Promise<string | null>;
     chooseCppPath(currentPath?: string): Promise<string | null>;
     getAppInformation(): Promise<AppInformation>;
-    getCdlFilesRoot(): Promise<string>;
-    setCdlFilesRoot(root: string): Promise<void>;
     chooseCdlFilesRoot(): Promise<string | null>;
   };
   /**

@@ -6,7 +6,7 @@ import type { AppInformation, ToolSettings, ToolSettingsUpdate, TecsgenVersionRe
 const current: ToolSettings = {
   revision: 1, tecsgenPath: "/tools/tecsgen", tecspath: "/tecs", effectiveSource: "settings",
   effectiveCommand: "/tools/tecsgen", executable: "/tools/tecsgen", prefixArgs: [], override: false,
-  pluginTypeSource: "external",
+  pluginTypeSource: "external", cdlFilesRoot: "",
 };
 const information: AppInformation = {
   name: "TECSCDE-DT-EL", version: "0.1.0", commit: "a123b45", cdeFormatVersion: "0.1.0.0",

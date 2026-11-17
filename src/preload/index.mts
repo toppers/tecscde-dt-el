@@ -99,8 +99,6 @@ const api: TecscdeApi = {
     chooseTecsgenPath: () => ipcRenderer.invoke("settings:chooseTecsgenPath"),
     chooseCppPath: (currentPath?: string) => ipcRenderer.invoke("settings:chooseCppPath", currentPath),
     getAppInformation: () => ipcRenderer.invoke("settings:getAppInformation"),
-    getCdlFilesRoot: () => ipcRenderer.invoke("settings:getCdlFilesRoot"),
-    setCdlFilesRoot: (root) => ipcRenderer.invoke("settings:setCdlFilesRoot", root),
     chooseCdlFilesRoot: () => ipcRenderer.invoke("settings:chooseCdlFilesRoot"),
   },
   window: {

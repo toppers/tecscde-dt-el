@@ -277,6 +277,7 @@ export class ToolSettingsService {
     cppPath: string,
     cppArgs?: string,
     pluginTypeSource: PluginTypeSource = "external",
+    cdlFilesRoot = "",
   ): ToolSettings {
     return Object.freeze({
       revision: this.revision,
@@ -295,6 +296,7 @@ export class ToolSettingsService {
       cppOrigin: resolvedCpp.origin,
       cppOriginReason: resolvedCpp.originReason,
       pluginTypeSource,
+      cdlFilesRoot,
     });
   }
 
@@ -316,7 +318,8 @@ export class ToolSettingsService {
       this.discovery.platform ?? process.platform,
     );
     const pluginTypeSource: PluginTypeSource = stored.pluginTypeSource ?? "external";
-    this.current = this.settings(path, command, resolvedCpp, cppPath, cppArgs, pluginTypeSource);
+    const cdlFilesRoot = typeof stored.cdlFilesRoot === "string" ? stored.cdlFilesRoot : "";
+    this.current = this.settings(path, command, resolvedCpp, cppPath, cppArgs, pluginTypeSource, cdlFilesRoot);
   }
 
   get(): Promise<ToolSettings> {
@@ -342,7 +345,7 @@ export class ToolSettingsService {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       return Promise.resolve({ ok: false, error: "設定の指定が不正です。" });
     }
-    const allowedKeys = ["tecsgenPath", "cppPath", "cppArgs", "pluginTypeSource"];
+    const allowedKeys = ["tecsgenPath", "cppPath", "cppArgs", "pluginTypeSource", "cdlFilesRoot"];
     const patchKeys = Object.keys(patch);
     if (patchKeys.length === 0 || patchKeys.some((key) => !allowedKeys.includes(key))) {
       return Promise.resolve({ ok: false, error: "指定された設定キーまたは値が不正です。" });
@@ -382,11 +385,16 @@ export class ToolSettingsService {
           ? patch.pluginTypeSource
           : (stored.pluginTypeSource ?? "external");
 
+        const newCdlFilesRoot = patch.cdlFilesRoot !== undefined
+          ? patch.cdlFilesRoot
+          : (typeof stored.cdlFilesRoot === "string" ? stored.cdlFilesRoot : "");
+
         const patchToSave: AppSettingsPatch = {
           ...(patch.tecsgenPath !== undefined ? { tecsgenPath: path } : {}),
           ...(patch.cppPath !== undefined ? { cppPath: patch.cppPath } : {}),
           ...(patch.cppArgs !== undefined ? { cppArgs: patch.cppArgs } : {}),
           ...(patch.pluginTypeSource !== undefined ? { pluginTypeSource: patch.pluginTypeSource } : {}),
+          ...(patch.cdlFilesRoot !== undefined ? { cdlFilesRoot: patch.cdlFilesRoot } : {}),
         };
 
         await this.save(patchToSave);
@@ -399,7 +407,7 @@ export class ToolSettingsService {
           this.discovery.platform ?? process.platform,
         );
 
-        this.current = this.settings(path, command, resolvedCpp, newCppPath, newCppArgs, newPluginTypeSource);
+        this.current = this.settings(path, command, resolvedCpp, newCppPath, newCppArgs, newPluginTypeSource, newCdlFilesRoot);
         return { ok: true, settings: this.current };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };

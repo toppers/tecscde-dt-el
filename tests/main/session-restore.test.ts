@@ -29,6 +29,14 @@ describe("restoreSession", () => {
     expect(result.optionsFilePath).toBe(session.optionsFilePath);
   });
 
+  it("carries the cpp of the options file (8-4), and none when the file has none", async () => {
+    const file = setup();
+    file.parseTecsgenOptionsFile.mockResolvedValue({ cdlFiles: [], importPaths: [], systemDirs: [], defineMacros: [], cpp: "clang -E" });
+    expect((await restoreSession(file, session)).cpp).toBe("clang -E");
+    file.parseTecsgenOptionsFile.mockResolvedValue({ cdlFiles: [], importPaths: [], systemDirs: [], defineMacros: [] });
+    expect((await restoreSession(file, session)).cpp).toBeUndefined();
+  });
+
   it("adopts empty successful options arrays instead of reverting to saved values", async () => {
     const file = setup();
     file.parseTecsgenOptionsFile.mockResolvedValue({ cdlFiles: [], importPaths: [], systemDirs: [], defineMacros: [] });

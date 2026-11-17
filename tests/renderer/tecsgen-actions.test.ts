@@ -158,6 +158,22 @@ describe("tecsgen-opts options are passed to tecsgen (外部仕様8.4.2)", () =>
     expect(args.at(-1)).toBe("/proj/main.cde");
   });
 
+  it("passes the -k value of the options file to tecsgen instead of -k utf8 (外部仕様8.4.2、8-20)", async () => {
+    const store = storeWithOptionsFile();
+    const tecsgen = fakeTecsgenGateway();
+    await generate(store, optionsGateway({ cdlFiles: [], importPaths: [], defineMacros: [], systemDirs: [], kcode: "euc" }), tecsgen.gateway);
+    const args = tecsgen.calls[0]!;
+    expect(args.slice(0, 2)).toEqual(["-k", "euc"]);
+    expect(args).not.toContain("utf8");
+  });
+
+  it("copies the command line with the -k value of the options file", async () => {
+    const store = storeWithOptionsFile();
+    const line = await tecsgenCommandLine(store, optionsGateway({ cdlFiles: [], importPaths: [], defineMacros: [], systemDirs: [], kcode: "sjis" }));
+    expect(line).toContain("-k sjis");
+    expect(line).not.toContain("utf8");
+  });
+
   it("uses the same inputs for the copied command line", async () => {
     const store = storeWithOptionsFile();
     const line = await tecsgenCommandLine(store, optionsGateway({ cdlFiles: [], importPaths: [], cpp: "gcc", defineMacros: ["X=1"] }));

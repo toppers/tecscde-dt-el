@@ -357,6 +357,7 @@ export class FileService {
     const cdlFiles: string[] = [];
     const importPaths: string[] = [];
     let cpp: string | undefined;
+    let kcode: string | undefined;
     const defineMacros: string[] = [];
     const systemDirs: string[] = [];
 
@@ -398,6 +399,17 @@ export class FileService {
         cpp = token.slice("--cpp=".length);
       } else if (token.startsWith("-c") && token.length > 2) {
         cpp = token.slice(2);
+      } else if (token === "-k" || token === "--kcode") {
+        // 文字コード指定。あればtecsgenの実行に引き継ぎ、`-k utf8`は付けない（外部仕様8.4.2）。
+        const value = tokens[i + 1];
+        if (value) {
+          kcode = value;
+          i += 1;
+        }
+      } else if (token.startsWith("--kcode=")) {
+        kcode = token.slice("--kcode=".length);
+      } else if (token.startsWith("-k") && !token.startsWith("--") && token.length > 2) {
+        kcode = token.slice(2);
       } else if (token === "-D" || token === "--define") {
         // マクロ定義。値を消費しないとその値がCDLファイル名としてcdlFilesへ混入するため、
         // 値ごと読み取る（tecsgenの実行へ引き継ぐ。外部仕様8.4.2）。
@@ -426,6 +438,7 @@ export class FileService {
       cdlFiles: cdlFiles.map((f) => resolve(optsDir, f)),
       importPaths,
       cpp,
+      ...(kcode !== undefined ? { kcode } : {}),
       defineMacros,
       systemDirs: systemDirs.map((d) => resolve(optsDir, d)),
     };

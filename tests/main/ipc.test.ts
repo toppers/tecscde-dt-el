@@ -111,8 +111,6 @@ describe("registerIpcHandlers", () => {
         "file:saveSession",
         "log:append",
         "settings:get",
-        "settings:getCdlFilesRoot",
-        "settings:setCdlFilesRoot",
         "settings:chooseCdlFilesRoot",
         "settings:getToolSettings",
         "settings:updateToolSettings",

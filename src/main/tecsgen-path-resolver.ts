@@ -73,7 +73,8 @@ export async function resolveTecsgenCommand(
   if (override) return override;
   if (savedPath !== "") return { executable: savedPath, args: [], source: "settings" };
   const exists = options.exists ?? pathExists;
-  if (env.TECSPATH !== undefined && env.TECSPATH !== "" && await exists(env.TECSPATH)) {
+  // 三者相違一覧 1-5: TECSPATH は実行できるファイルのときだけ採用する。ディレクトリは採用・保存せず PATH 探索へ進む。
+  if (env.TECSPATH !== undefined && env.TECSPATH !== "" && await exists(env.TECSPATH, true)) {
     return { executable: env.TECSPATH, args: [], source: "tecspath" };
   }
   const windows = (options.platform ?? process.platform) === "win32";

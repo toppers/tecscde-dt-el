@@ -28,11 +28,13 @@ function setup(initial: Record<string, unknown> = {}, env: NodeJS.ProcessEnv = {
   let saved = { ...initial };
   const save = vi.fn(async (patch: Record<string, unknown>) => { saved = { ...saved, ...patch }; });
   const existing = new Set<string>();
-  const exists = vi.fn(async (path: string) => existing.has(path));
+  const directories = new Set<string>();
+  // 実装の pathExists と同じく、実行ファイル判定（第2引数）ではディレクトリを除く。
+  const exists = vi.fn(async (path: string, executableFile = false) => existing.has(path) && !(executableFile && directories.has(path)));
   const service = new ToolSettingsService({
     env, platform: "linux", load: async () => saved, save, exists, pathCandidates: ["tecsgen"],
   });
-  return { service, save, exists, existing, saved: () => saved };
+  return { service, save, exists, existing, directories, saved: () => saved };
 }
 
 describe("ToolSettingsService", () => {
@@ -57,11 +59,26 @@ describe("ToolSettingsService", () => {
     expect(exists).not.toHaveBeenCalled();
   });
 
-  it("auto-saves an existing TECSPATH literal without deriving a command inside the directory", async () => {
-    const { service, save, existing } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
-    existing.add("/tecs-directory");
-    expect(await service.get()).toMatchObject({ tecsgenPath: "/tecs-directory", effectiveSource: "tecspath", executable: "/tecs-directory" });
-    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/tecs-directory" });
+  it("auto-saves an existing TECSPATH executable file without deriving a command", async () => {
+    const { service, save, existing } = setup({}, { TECSPATH: "/tecs/tecsgen", PATH: "/bin" });
+    existing.add("/tecs/tecsgen");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "/tecs/tecsgen", effectiveSource: "tecspath", executable: "/tecs/tecsgen" });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/tecs/tecsgen" });
+  });
+
+  // 三者相違一覧 1-5（2026-11-17 決定）: TECSPATH がディレクトリのときは採用・保存せず、PATH 探索へ進む。
+  it("ignores a TECSPATH that is a directory and falls through to the PATH search", async () => {
+    const { service, save, existing, directories } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
+    existing.add("/tecs-directory"); directories.add("/tecs-directory"); existing.add("/bin/tecsgen");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "/bin/tecsgen", effectiveSource: "path", executable: "/bin/tecsgen" });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ tecsgenPath: "/bin/tecsgen" });
+  });
+
+  it("keeps the command unset when TECSPATH is a directory and PATH has no tecsgen", async () => {
+    const { service, save, existing, directories } = setup({}, { TECSPATH: "/tecs-directory", PATH: "/bin" });
+    existing.add("/tecs-directory"); directories.add("/tecs-directory");
+    expect(await service.get()).toMatchObject({ tecsgenPath: "", effectiveSource: "missing", executable: "" });
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("searches PATH from the first directory and persists the found path", async () => {
@@ -110,6 +127,41 @@ describe("ToolSettingsService", () => {
     expect(save).toHaveBeenCalledTimes(1);
     complete(); await Promise.all([first, second]);
     expect(await service.get()).toMatchObject({ tecsgenPath: "/second", revision: 2 });
+  });
+
+  // 三者相違一覧 1-6（2026-11-17 決定）: CDL一覧の対象ディレクトリを getToolSettings・updateToolSettings に統合する。
+  it("returns the CDL list root from the stored settings, empty when unset", async () => {
+    expect(await setup({ cdlFilesRoot: "/projects/cdl" }).service.get()).toMatchObject({ cdlFilesRoot: "/projects/cdl" });
+    expect(await setup({}).service.get()).toMatchObject({ cdlFilesRoot: "" });
+  });
+
+  it("updates only the CDL list root, saves it, and returns the new revision and settings", async () => {
+    const { service, save } = setup({ tecsgenPath: "/old/tool", cdlFilesRoot: "/before" });
+    const initial = await service.get();
+    expect(await service.update({ cdlFilesRoot: "/after" })).toMatchObject({
+      ok: true, settings: { cdlFilesRoot: "/after", tecsgenPath: "/old/tool", revision: initial.revision + 1 },
+    });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ cdlFilesRoot: "/after" });
+    expect(await service.get()).toMatchObject({ cdlFilesRoot: "/after" });
+  });
+
+  it("reports a failed save of the CDL list root without changing the effective settings", async () => {
+    const { service, save } = setup({ cdlFilesRoot: "/before" });
+    const initial = await service.get();
+    save.mockRejectedValueOnce(Error("disk full"));
+    expect(await service.update({ cdlFilesRoot: "/after" })).toEqual({ ok: false, error: "disk full" });
+    expect(await service.get()).toEqual(initial);
+  });
+
+  it("keeps the CDL list root when other settings are updated", async () => {
+    const { service } = setup({ cdlFilesRoot: "/keep" });
+    expect(await service.update({ cppArgs: "-E" })).toMatchObject({ ok: true, settings: { cdlFilesRoot: "/keep" } });
+  });
+
+  it("rejects a non-string CDL list root", async () => {
+    const { service, save } = setup({});
+    expect(await service.update({ cdlFilesRoot: 3 } as never)).toMatchObject({ ok: false });
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported patch keys and non-string paths", async () => {

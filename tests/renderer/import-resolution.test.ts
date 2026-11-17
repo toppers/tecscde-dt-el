@@ -18,7 +18,7 @@ import { asCellId, asJoinId } from "../../src/renderer/model/ids";
 import { FileService } from "../../src/main/file-service.js";
 import { FileGateway } from "../../src/renderer/gateways/file-gateway.js";
 import { AppStore } from "../../src/renderer/app/store.js";
-import { applyOpenResult } from "../../src/renderer/app/file-actions.js";
+import { addAsReference, applyOpenResult } from "../../src/renderer/app/file-actions.js";
 import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
 import type { CppResult, ImportResolutionOptions } from "../../src/shared/ipc-types.js";
 import type { ImportRequest } from "../../src/shared/ipc-types.js";
@@ -283,6 +283,95 @@ describe("resolveAllImports", () => {
   });
 });
 
+// 三者相違一覧 8-4（2026-11-17 決定）: .tecsgen-opts の -c／--cpp を import_C のプリプロセスにも使う。
+// opts と CDL の __tool_info__ の cpp が両方あるときは opts を優先し、値は引数込みの完全なコマンドとして
+// 渡す（cppArgs は付けない）。外部「Cプリプロセッサ設定と失敗詳細(V0.2.1用)」2.3、内部 09E 9E.3。
+describe(".tecsgen-opts の cpp を import_C に使う (8-4)", () => {
+  const preprocessOf = (tecsgen: TecsgenGateway) => (tecsgen as unknown as { preprocess: ReturnType<typeof vi.fn> }).preprocess;
+  const headerFiles = { "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int INT;" } };
+
+  it("prefers the options-file cpp over the cpp of __tool_info__ when resolving import_C", async () => {
+    const { gateway } = fakeGateway(headerFiles);
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+
+    await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("foo.h");', { ...toolInfo, cpp: "gcc" }, [], [], [], false, "clang -E -DX");
+
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("clang -E -DX");
+  });
+
+  it("uses the options-file cpp even when __tool_info__ has none", async () => {
+    const { gateway } = fakeGateway(headerFiles);
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+
+    await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("foo.h");', toolInfo, [], [], [], false, "clang -E");
+
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("clang -E");
+  });
+
+  it("keeps the cpp of __tool_info__ when the options file has none", async () => {
+    const { gateway } = fakeGateway(headerFiles);
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+
+    await resolveAllImports(gateway, tecsgen, "/root/A.cdl", 'import_C("foo.h");', { ...toolInfo, cpp: "gcc" });
+
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("gcc");
+  });
+
+  it("applies the options-file cpp to import_C inside a CDL added with Ctrl+click, even when that CDL has its own cpp", async () => {
+    const { gateway } = fakeGateway({
+      "/root/extra.cdl": {
+        canonicalPath: "/root/extra.cdl",
+        content: '__tool_info__("tecsgen") {\n  "cpp": "gcc-own"\n}\nimport_C("foo.h");\n',
+      },
+      ...headerFiles,
+    });
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+
+    await resolveAddedReference(gateway, tecsgen, "/root/A.cdl", toolInfo, "/root/extra.cdl", [], [], "clang -E");
+
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("clang -E");
+  });
+});
+
+describe(".tecsgen-opts の cpp を読み込み経路に配線する (8-4)", () => {
+  const preprocessOf = (tecsgen: TecsgenGateway) => (tecsgen as unknown as { preprocess: ReturnType<typeof vi.fn> }).preprocess;
+  const sources = { "foo.h": { canonicalPath: "/root/foo.h", content: "typedef int INT;" } };
+
+  it("applyOpenResult passes OpenResult.cpp to the import_C preprocessing", async () => {
+    const { gateway } = fakeGateway(sources);
+    const file = { ...gateway, saveSession: vi.fn(async () => {}) } as unknown as FileGateway;
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+
+    await applyOpenResult(new AppStore(), file, tecsgen, {
+      editable: { path: "/root/A.cdl", content: 'import_C("foo.h");\n__tool_info__("tecsgen") {\n  "cpp": "gcc-from-cdl"\n}\n' },
+      references: [],
+      cpp: "clang -E -DOPTS",
+    });
+
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("clang -E -DOPTS");
+  });
+
+  it("addAsReference reads the cpp of the current .tecsgen-opts for the CDL added with Ctrl+click", async () => {
+    const { gateway } = fakeGateway({
+      "/added/extra.cdl": { canonicalPath: "/added/extra.cdl", content: 'import_C("foo.h");\n' },
+      ...sources,
+    });
+    const parse = vi.fn(async () => ({ cdlFiles: [], importPaths: [], defineMacros: [], systemDirs: [], cpp: "clang -E -DOPTS" }));
+    const file = { ...gateway, saveSession: vi.fn(async () => {}), parseTecsgenOptionsFile: parse } as unknown as FileGateway;
+    const tecsgen = fakeTecsgenGateway({ executableFound: true, exitCode: 0, stdout: "typedef int INT;" });
+    const store = new AppStore();
+    await applyOpenResult(store, file, tecsgen, {
+      editable: { path: "/root/A.cdl", content: "signature sMain { void run(void); }; celltype tMain { entry sMain e; }; cell tMain Main {};" }, references: [], optionsFilePath: "/root/build.tecsgen-opts",
+    });
+    preprocessOf(tecsgen).mockClear();
+
+    await addAsReference(store, file, tecsgen, "/added/extra.cdl");
+
+    expect(parse).toHaveBeenCalledWith("/root/build.tecsgen-opts");
+    expect(preprocessOf(tecsgen).mock.calls[0]![1]).toBe("clang -E -DOPTS");
+  });
+});
+
 describe("V0.2.1 Cプリプロセッサ設定と失敗詳細 (Unit C)", () => {
   it("reports command not found with origin reason and fallback full path when executable is not found", async () => {
     const { gateway } = fakeGateway({
@@ -400,6 +489,23 @@ describe("V0.2.1 Cプリプロセッサ設定と失敗詳細 (Unit C)", () => {
     expect(timeoutDiag?.message).toBe(
       "Cプリプロセッサ 'gcc'（フルパス: C:\\tools\\gcc.exe、決定理由: フォールバック）を起動・実行できなかったため（30秒以内に完了しなかったためタイムアウトしました）、'/root/target.h' は未展開のまま型を抽出しました",
     );
+
+    // 3. 起動失敗（failureKind: "launch-failed"）。終了コードは無く、「終了コード 1」を作らない（三者相違一覧8-3）。
+    const launchTecsgen = fakeTecsgenGateway({
+      executableFound: true,
+      exitCode: null,
+      command: "gcc",
+      fullPath: "C:\tools\gcc.exe",
+      originReason: "フォールバック",
+      failureKind: "launch-failed",
+      failureDetail: "EACCES: spawn EACCES",
+    });
+    const { diagnostics: launchDiags } = await resolveAllImports(gateway, launchTecsgen, "/root/A.cdl", 'import_C("target.h");', toolInfo);
+    const launchDiag = launchDiags.find((d) => d.code === W_CODES.CPP_FALLBACK);
+    expect(launchDiag?.message).toBe(
+      "Cプリプロセッサ 'gcc'（フルパス: C:\tools\gcc.exe、決定理由: フォールバック）を起動・実行できなかったため（EACCES: spawn EACCES）、'/root/target.h' は未展開のまま型を抽出しました",
+    );
+    expect(launchDiag?.message).not.toContain("終了コード");
   });
 
   it("escapes multiline failureDetail into a single line when formatted via formatDiagnostic (audit #68)", async () => {
