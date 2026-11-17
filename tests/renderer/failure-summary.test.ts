@@ -44,6 +44,22 @@ describe("describeTecsgenFailure", () => {
     expect(message).toContain("ほか 4 件");
   });
 
+  // 診断の改善（2026-11-18）: tecsgen 内部の C プリプロセッサの失敗など、`error` を含まない原因の行は、構文エラーの前に示す。
+  it("shows lines that point at the cause (cpp/gcc/preprocessor) before the syntax errors they lead to", () => {
+    const stdout = [
+      "tecsgen  version 1.9.1",
+      "warning: cpp 'gcc -E -DTECSGEN' failed (status 1) for tecs_kernel.h",
+      "../../include/kernel.cdl:63:17: error: G1016 syntax error near 'TEXPTN'",
+      "../../tecs/sMalloc.cdl:42:25: error: G1016 syntax error near 'size_t'",
+    ].join("\n");
+    const lines = describeTecsgenFailure({ stdout, stderr: "", exitCode: 1 }).split("\n");
+    const cause = lines.findIndex((line) => line.includes("gcc -E -DTECSGEN"));
+    const firstSyntax = lines.findIndex((line) => line.includes("G1016"));
+    expect(cause).toBeGreaterThan(0);
+    expect(cause).toBeLessThan(firstSyntax);
+    expect(lines.filter((line) => line.includes("gcc -E -DTECSGEN"))).toHaveLength(1);
+  });
+
   it("returns only the header when there is no output at all", () => {
     expect(describeTecsgenFailure({ stdout: "", stderr: "", exitCode: null })).toBe(
       "tecsgen が失敗しました（終了コード 不明）",

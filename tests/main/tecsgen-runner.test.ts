@@ -376,6 +376,19 @@ describe("TecsgenRunner", () => {
     expect(result.failureDetail).not.toContain("終了コード");
   });
 
+  // 診断の改善（2026-11-18）: 終了コードの失敗では、渡した -I の件数と先頭を添える（-I の欠落を画面から確かめられるように）。
+  it("preprocess() adds the number and the head of the include dirs to the detail of a failed run", async () => {
+    execFileMock.mockRejectedValue(Object.assign(new Error("failed"), { code: 1, stderr: "t_stddef.h:68:10: fatal error: target_stddef.h: No such file or directory" }));
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "clang -E", ["inc", "other/../third", "inc"]);
+
+    expect(result.failureKind).toBe("failed");
+    expect(result.failureDetail).toContain("fatal error: target_stddef.h");
+    expect(result.failureDetail).toContain("-I 2 件");
+    expect(result.failureDetail).toContain(resolve("inc"));
+  });
+
   it("preprocess() still reports a numeric exit code as a failed run", async () => {
     execFileMock.mockRejectedValue(Object.assign(new Error("failed"), { code: 2, stderr: "error: boom" }));
     const runner = new TecsgenRunner();
@@ -435,7 +448,8 @@ describe("TecsgenRunner", () => {
       command: "gcc -E",
       originReason: "ユーザ直接指定",
       failureKind: "failed",
-      failureDetail: "終了コード 1: In file included from header.h:1: fatal error: sub.h: No such file or directory compilation terminated.",
+      // `error` を含む最初の行が先頭（2026-11-18）。-I が1件も渡っていないことも示す。
+      failureDetail: "終了コード 1: fatal error: sub.h: No such file or directory In file included from header.h:1: compilation terminated.（-I 0 件）",
     });
 
     // 200文字上限の切り詰め検証
@@ -446,7 +460,7 @@ describe("TecsgenRunner", () => {
     }));
     const longResult = await runner.preprocess("header.h", "gcc -E");
     expect(longResult.failureKind).toBe("failed");
-    expect(longResult.failureDetail).toBe(`終了コード 2: ${"x".repeat(200)}`);
+    expect(longResult.failureDetail).toBe(`終了コード 2: ${"x".repeat(200)}（-I 0 件）`);
   });
 
   it("preprocess() returns structured timeout failure on process timeout", async () => {
@@ -592,6 +606,25 @@ describe("TecsgenRunner", () => {
 
     it("truncates at maxLen", () => {
       expect(summarizeStderr("abcdefghij", 5)).toBe("abcde");
+    });
+
+    // 診断の改善（2026-11-18）: gcc は「In file included from …」の行を先に出し、本当の原因（`fatal error: …`）は後ろに出す。
+    // 先頭から切ると原因が消えるので、`error` を含む最初の行を先頭に置く。
+    it("puts the first error line first so that truncation keeps the cause (gcc include chains)", () => {
+      const stderr = [
+        "In file included from E:/proj/include/kernel.h:67,",
+        "                 from E:/proj/include/tecs_kernel.h:12:",
+        "E:/proj/include/t_stddef.h:68:10: fatal error: target_stddef.h: No such file or directory",
+        "   68 | #include \"target_stddef.h\"",
+        "compilation terminated.",
+      ].join("\n");
+      const summary = summarizeStderr(stderr, 120);
+      expect(summary.startsWith("E:/proj/include/t_stddef.h:68:10: fatal error: target_stddef.h")).toBe(true);
+      expect(summary.length).toBeLessThanOrEqual(120);
+    });
+
+    it("keeps the previous behavior when no line contains error", () => {
+      expect(summarizeStderr("note: a\nnote: b")).toBe("note: a note: b");
     });
   });
 

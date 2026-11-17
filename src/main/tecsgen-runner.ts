@@ -142,7 +142,11 @@ export function summarizeStderr(stderr: string, maxLen = 200): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   if (lines.length === 0) return "";
-  const joined = lines.join(" ");
+  // gcc は「In file included from …」の行を先に出し、本当の原因（`fatal error: …`）を後ろに出す。先頭から切ると
+  // 原因が消えるので、`error` を含む最初の行を先頭に置く（2026-11-18）。無ければ従来どおり先頭から。
+  const errorIndex = lines.findIndex((line) => /\berror\b/i.test(line));
+  const ordered = errorIndex > 0 ? [lines[errorIndex]!, ...lines.filter((_, index) => index !== errorIndex)] : lines;
+  const joined = ordered.join(" ");
   return joined.length <= maxLen ? joined : joined.slice(0, maxLen);
 }
 
@@ -423,7 +427,10 @@ export class TecsgenRunner {
       const exitCode = e.code;
       const rawStderr = e.stderr ?? "";
       const stderrExcerpt = summarizeStderr(rawStderr);
-      const failureDetail = stderrExcerpt ? `終了コード ${exitCode}: ${stderrExcerpt}` : `終了コード ${exitCode}`;
+      // 渡した -I の件数と先頭を添える。-I の欠落（基点のずれなど）が、原因として画面から確かめられる（2026-11-18）。
+      const passedDirs = [...new Set(includeDirs.map((dir) => resolve(dir)))];
+      const includeNote = `（-I ${passedDirs.length} 件${passedDirs.length > 0 ? `。先頭: ${passedDirs.slice(0, 2).join("、")}` : ""}）`;
+      const failureDetail = `${stderrExcerpt ? `終了コード ${exitCode}: ${stderrExcerpt}` : `終了コード ${exitCode}`}${includeNote}`;
 
       return {
         stdout: e.stdout ?? "",
