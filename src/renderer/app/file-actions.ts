@@ -9,7 +9,7 @@ import { CdlSerializer } from "../cdl/serializer";
 import { W_CODES } from "../cdl/messages";
 import { TecsgenCommandBuilder } from "../tecsgen/command-builder";
 import { describeLaunchFailure, describeTecsgenFailure } from "../tecsgen/failure-summary";
-import type { GeneratedCdlFile, OpenFileEntry, OpenResult, PluginTypeSource, ToolSettings } from "../../shared/ipc-types.js";
+import type { GeneratedCdlFile, LogAppendResult, OpenFileEntry, OpenResult, PluginTypeSource, ToolSettings } from "../../shared/ipc-types.js";
 import type { FileGateway } from "../gateways/file-gateway";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
 import {
@@ -24,6 +24,8 @@ import { Cell } from "../model/cell";
 import { ViewState } from "../view-state/view-state";
 import { extractToolInfoTecsgen, resolveAddedReference, resolveAllImports, type ImportResolutionResult } from "./import-resolution";
 import type { AppStore, LoadGuard } from "./store";
+import { SaveFailure, describeFailure, optionsNoCdlDiagnostic, saveReadOnlyDiagnostic } from "./action-failure";
+import { logWriteFailedDiagnostic } from "./log-warning";
 
 export interface ApplyOpenResultOptions {
   readonly extraImportPaths?: readonly string[];
@@ -185,7 +187,9 @@ export async function applyOpenResult(
     const logService = opts?.log ?? (typeof window !== "undefined" ? (window as any).tecscde?.log : undefined);
     if (logService && typeof logService.append === "function") {
       const mode = provider.source === "internal" ? "内部 tecsgen (internal)" : "外部 tecsgen (external)";
-      await logService.append([`Plugin 生成型取り込み方式: ${mode}`]).catch(() => undefined);
+      // 書けなかった最初の一度は、診断一覧へ警告を出す（結果を捨てない。三者相違一覧9-1）。IPC自体の失敗は無視する。
+      const logged = await logService.append([`Plugin 生成型取り込み方式: ${mode}`]).catch(() => undefined) as LogAppendResult | void;
+      if (logged && logged.newFailure !== undefined) store.setLogWriteWarning(logWriteFailedDiagnostic(logged.newFailure));
     }
   }
 
@@ -466,7 +470,11 @@ export async function loadOptionsFile(
     if (store.isClosing && !await store.canApplyLoad(guard)) return;
     const parsed = await gateway.parseTecsgenOptionsFile(path);
     if (!await store.canApplyLoad(guard)) return;
-    if (parsed.cdlFiles.length === 0) return;
+    if (parsed.cdlFiles.length === 0) {
+      // 図とセッションは保持し、何も読み込まなかったことを知らせる（三者相違一覧5-3）。
+      store.setTransientActionDiagnostics([optionsNoCdlDiagnostic(path)]);
+      return;
+    }
     if (store.isDirty() && !await gateway.confirmDiscardChanges()) return;
     if (!await store.canApplyLoad(guard)) return;
     const sourcePaths = [...new Set(parsed.cdlFiles)];
@@ -493,27 +501,43 @@ export async function loadOptionsFile(
 
 /** Capture every source ticket before the first I/O; reflect each success independently. */
 export async function save(store: AppStore, gateway: FileGateway): Promise<void> {
-  if (store.isEditingFileReadOnlySystemDefined()) return Promise.resolve();
-  if (!store.filePath) return saveAs(store, gateway);
+  // 主ファイルが閲覧のみ（システム定義CDL）のときは、主ファイルだけを保存しない。編集した参照CDLは保存し、
+  // 主ファイルを保存しなかったことを知らせる（三者相違一覧4-3、2026-11-17 決定）。
+  const readOnlyPrimary = store.isEditingFileReadOnlySystemDefined();
+  if (!readOnlyPrimary && !store.filePath) return saveAs(store, gateway);
   const document = store.getDocument();
   const path = store.filePath;
   const referenceTickets = store.getReferenceFilePaths().filter((key) =>
     document.sourceTemplates.has(key) && store.isSourceDirty(key)).map((key) =>
     store.createSaveTicket(key, CdlSerializer.serializeSource(document, key)));
-  const primary = store.createSaveTicket(document.editingFileName ?? null, CdlSerializer.serialize(document));
+  if (readOnlyPrimary && referenceTickets.length === 0) {
+    store.setTransientActionDiagnostics([saveReadOnlyDiagnostic(path, [])]);
+    return;
+  }
+  const primary = readOnlyPrimary ? undefined
+    : store.createSaveTicket(document.editingFileName ?? null, CdlSerializer.serialize(document));
   return store.trackSave(async () => {
-    const results = await Promise.allSettled([...referenceTickets, primary].map(async (ticket) => {
-      const destination = ticket === primary ? path : ticket.key!;
+    const targets = [...referenceTickets, ...(primary ? [primary] : [])].map((ticket) => ({
+      ticket, destination: ticket === primary ? path! : ticket.key!,
+    }));
+    const results = await Promise.allSettled(targets.map(async ({ ticket, destination }) => {
       const receipt = await gateway.save(destination, ticket.content);
       store.recordSaved(ticket, destination, false, receipt?.writeSequence);
     }));
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed?.status === "rejected") throw failed.reason;
+    // 一部だけ失敗したときは、失敗したソースと保存できたソースを分けて知らせる（三者相違一覧4-1）。
+    const failed = results.flatMap((result, index) => result.status === "rejected"
+      ? [{ path: targets[index]!.destination, reason: describeFailure(result.reason) }] : []);
+    const saved = results.flatMap((result, index) => result.status === "fulfilled" ? [targets[index]!.destination] : []);
+    if (failed.length > 0) throw new SaveFailure(failed, saved);
+    if (readOnlyPrimary) store.setTransientActionDiagnostics([saveReadOnlyDiagnostic(path, saved)]);
   });
 }
 
 export function saveAs(store: AppStore, gateway: FileGateway): Promise<void> {
-  if (store.isEditingFileReadOnlySystemDefined()) return Promise.resolve();
+  if (store.isEditingFileReadOnlySystemDefined()) {
+    store.setTransientActionDiagnostics([saveReadOnlyDiagnostic(store.filePath, [])]);
+    return Promise.resolve();
+  }
   // Save As changes the primary only. Other unsaved sources retain their own checkpoints.
   return store.enqueueSaveAs(async () => {
     const document = store.getDocument();

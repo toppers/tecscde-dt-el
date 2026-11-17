@@ -3,6 +3,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppStore } from "../../src/renderer/app/store";
 import { LOG_WRITE_FAILED_CODE, createLogAppender, logWriteFailedDiagnostic } from "../../src/renderer/app/log-warning";
+import { applyOpenResult } from "../../src/renderer/app/file-actions";
+import { W_CODES } from "../../src/renderer/cdl/messages";
+import type { FileGateway } from "../../src/renderer/gateways/file-gateway";
+import type { TecsgenGateway } from "../../src/renderer/gateways/tecsgen-gateway";
 
 describe("logWriteFailedDiagnostic", () => {
   it("is a warning with code W-LOG-WRITE-FAILED, and says the reason", () => {
@@ -26,6 +30,33 @@ describe("AppStore log write warning", () => {
 
     store.loadDocument(store.getDocument(), null);
     expect(codes(store).filter((c) => c === "W-LOG-WRITE-FAILED")).toHaveLength(1);
+  });
+});
+
+// 三者相違一覧 9-1・9-13（V0.2.6 段4）: 書込失敗の警告は、単一の経路（W_CODES のコード）で一度だけ出す。
+describe("Plugin取り込み方式の行（9-1）", () => {
+  it("puts the first write failure of that log line into the store instead of dropping the result", async () => {
+    const store = new AppStore();
+    const file = { resolveImports: vi.fn(async () => []), saveSession: vi.fn(async () => {}) } as unknown as FileGateway;
+    const tecsgen = {
+      generatedTypes: vi.fn(async () => ({ result: { stdout: "", stderr: "", exitCode: 0, executableFound: true }, sources: [] })),
+    } as unknown as TecsgenGateway;
+    const log = { append: vi.fn().mockResolvedValue({ newFailure: "EACCES" }) };
+
+    await applyOpenResult(store, file, tecsgen, {
+      editable: { path: "/main.cdl", content: "cell tUndefinedType cFoo {}\n" }, references: [],
+    }, { pluginTypeSource: "external", log });
+
+    expect(log.append).toHaveBeenCalled();
+    const warnings = store.getReport().items.filter((d) => d.code === "W-LOG-WRITE-FAILED");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toContain("EACCES");
+  });
+});
+
+describe("コードの一元化（9-13）", () => {
+  it("uses the code of W_CODES, so the code and the message exist in one place", () => {
+    expect(LOG_WRITE_FAILED_CODE).toBe(W_CODES.LOG_WRITE_FAILED);
   });
 });
 

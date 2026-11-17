@@ -3,10 +3,12 @@
 // DiagnosticsLogger がこのコードを除いて書き出す）。
 
 import type { LogAppendResult } from "../../shared/ipc-types.js";
+import { W_CODES } from "../cdl/messages";
 import type { Diagnostic } from "../diagnostics";
 import type { AppStore } from "./store";
 
-export const LOG_WRITE_FAILED_CODE = "W-LOG-WRITE-FAILED";
+/** コードは `W_CODES` に一元化している（三者相違一覧9-13）。 */
+export const LOG_WRITE_FAILED_CODE = W_CODES.LOG_WRITE_FAILED;
 
 export function logWriteFailedDiagnostic(detail: string): Diagnostic {
   return {

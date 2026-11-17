@@ -11,6 +11,7 @@ import { TecsgenGateway } from "./gateways/tecsgen-gateway";
 import { LogGateway } from "./gateways/log-gateway";
 import { DiagnosticsLogger } from "./app/diagnostics-logger";
 import { createLogAppender } from "./app/log-warning";
+import { actionFailureDiagnostic } from "./app/action-failure";
 import { AppStore } from "./app/store";
 import { WindowGateway } from "./gateways/window-gateway";
 import { SettingsGateway } from "./gateways/settings-gateway";
@@ -89,7 +90,9 @@ function main(): void {
         if (data) return applyOpenResult(store, gateway, tecsgen, data, data.extraImportPaths, bootstrapGuard, { settingsGateway: settings });
       })
       .catch((error: unknown) => {
-        console.error("CDL/cdeclパーサの初期化に失敗しました:", error);
+        // 初期化の失敗と読み込みの失敗を区別して、診断一覧へも出す（三者相違一覧5-21）。
+        console.error("起動時のドキュメントの読み込みに失敗しました:", error);
+        store.setTransientActionDiagnostics([actionFailureDiagnostic("bootstrap", error)]);
       });
   });
 }

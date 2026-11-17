@@ -26,6 +26,8 @@ import { AppGestureHost } from "./gesture-host";
 import { addAsReference, baseName, loadOptionsFile, newDocument, openFromPath, save, saveAs } from "./file-actions";
 import { FileBrowserView } from "./file-browser-panel";
 import { pasteFromClipboard } from "./clipboard-actions";
+import { actionFailureDiagnostic } from "./action-failure";
+import { createLogAppender } from "./log-warning";
 import { generate, tecsgenCommandLine } from "./tecsgen-actions";
 import { panCenterFromScroll, scrollForPanCenter } from "./pan-scroll";
 import { PaletteView } from "./palette";
@@ -165,7 +167,8 @@ export class AppShell {
       settings: opts.settings, tecsgen: opts.tecsgen, clipboard: opts.clipboard,
       cdlFiles: { settings: opts.settings, file: opts.gateway },
       getTecsgenStatus: () => this.store.getTecsgenStatus(),
-      onSaved: (settings) => checkTecsgenVersion(this.store, this.tecsgen, new LogGateway(),
+      // 版の行も、単一のappender（書込失敗の警告を診断一覧へ出す）を通す（三者相違一覧9-1）。
+      onSaved: (settings) => checkTecsgenVersion(this.store, this.tecsgen, { append: createLogAppender(new LogGateway(), this.store) },
         () => this.openDiagnostics(), settings.effectiveCommand, settings.revision),
     }) : undefined;
     this.windowGateway = opts.windowGateway;
@@ -507,6 +510,8 @@ export class AppShell {
    */
   private reportActionError(action: string, err: unknown): void {
     console.error(`[AppShell] action "${action}" failed:`, err);
+    // 画面にも出す（診断一覧と診断ログへ。三者相違一覧4-1・5-14、2026-11-17 決定）。
+    this.store.setTransientActionDiagnostics([actionFailureDiagnostic(action, err)]);
   }
 
   private bindExportDialog(): void {
@@ -783,7 +788,8 @@ export class AppShell {
           break;
         case "s":
           e.preventDefault();
-          void save(this.store, this.gateway);
+          // ツールバーの「保存」と同じく、失敗を握りつぶさず診断一覧へ出す（三者相違一覧2-10）。
+          void save(this.store, this.gateway).catch((err: unknown) => this.reportActionError("save", err));
           break;
         case "c":
           e.preventDefault();
