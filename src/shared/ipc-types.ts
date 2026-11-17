@@ -221,9 +221,12 @@ export interface ToolSettings {
   readonly cppOriginReason?: CppOriginReason;
   /** V0.2.1 Stage 4: Plugin生成型の取り込み方式（既定: "external"） */
   readonly pluginTypeSource: PluginTypeSource;
+  /** CDLファイル一覧の対象ディレクトリ。未設定は空文字（三者相違一覧1-6、内部09D 9D.5）。 */
+  readonly cdlFilesRoot: string;
 }
 export interface ToolSettingsUpdate {
   readonly tecsgenPath?: string;
+  readonly cdlFilesRoot?: string;
   readonly cppPath?: string;
   readonly cppArgs?: string;
   readonly pluginTypeSource?: PluginTypeSource;
@@ -327,8 +330,6 @@ export interface TecscdeApi {
     chooseTecsgenPath(): Promise<string | null>;
     chooseCppPath(currentPath?: string): Promise<string | null>;
     getAppInformation(): Promise<AppInformation>;
-    getCdlFilesRoot(): Promise<string>;
-    setCdlFilesRoot(root: string): Promise<void>;
     chooseCdlFilesRoot(): Promise<string | null>;
   };
   /**

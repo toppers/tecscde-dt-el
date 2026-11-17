@@ -47,7 +47,7 @@ function stubApi(): TecscdeApi {
       readText: vi.fn().mockReturnValue(""),
     },
     settings: {
-      getCdlFilesRoot: vi.fn(), setCdlFilesRoot: vi.fn(), chooseCdlFilesRoot: vi.fn(),
+      chooseCdlFilesRoot: vi.fn(),
       get: vi.fn().mockResolvedValue({ allowEditSystemDefined: false }),
       getToolSettings: vi.fn(),
       updateToolSettings: vi.fn(),

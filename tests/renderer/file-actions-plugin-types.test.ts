@@ -237,6 +237,7 @@ cell tDummy DummyCell {};
     const mockSettingsGateway = {
       getToolSettings: async () => ({
         revision: 1,
+        cdlFilesRoot: "",
         pluginTypeSource: currentSource,
         tecsgenPath: "",
         tecspath: "",

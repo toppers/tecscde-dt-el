@@ -119,11 +119,6 @@ export function registerIpcHandlers(
   ipcMain.handle("settings:getToolSettings", () => toolSettings.get());
   ipcMain.handle("settings:updateToolSettings", (_event, patch: ToolSettingsUpdate) => toolSettings.update(patch));
   ipcMain.handle("settings:getAppInformation", () => getAppInformation());
-  ipcMain.handle("settings:getCdlFilesRoot", async () => (await loadAppSettings()).cdlFilesRoot ?? "");
-  ipcMain.handle("settings:setCdlFilesRoot", (_e, root: unknown) => {
-    if (typeof root !== "string") throw new Error("対象ディレクトリが不正です。");
-    return saveAppSettings({ cdlFilesRoot: root });
-  });
   ipcMain.handle("settings:chooseCdlFilesRoot", async () => {
     const options = { title: "CDL一覧の対象フォルダ", properties: ["openDirectory" as const] };
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);

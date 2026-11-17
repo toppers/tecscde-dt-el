@@ -15,7 +15,5 @@ export class SettingsGateway {
   chooseTecsgenPath(): Promise<string | null> { return window.tecscde.settings.chooseTecsgenPath(); }
   chooseCppPath(currentPath?: string): Promise<string | null> { return window.tecscde.settings.chooseCppPath(currentPath); }
   getAppInformation(): Promise<AppInformation> { return window.tecscde.settings.getAppInformation(); }
-  getCdlFilesRoot(): Promise<string> { return window.tecscde.settings.getCdlFilesRoot(); }
-  setCdlFilesRoot(root: string): Promise<void> { return window.tecscde.settings.setCdlFilesRoot(root); }
   chooseCdlFilesRoot(): Promise<string | null> { return window.tecscde.settings.chooseCdlFilesRoot(); }
 }

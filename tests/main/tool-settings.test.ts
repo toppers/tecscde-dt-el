@@ -129,6 +129,41 @@ describe("ToolSettingsService", () => {
     expect(await service.get()).toMatchObject({ tecsgenPath: "/second", revision: 2 });
   });
 
+  // 三者相違一覧 1-6（2026-11-17 決定）: CDL一覧の対象ディレクトリを getToolSettings・updateToolSettings に統合する。
+  it("returns the CDL list root from the stored settings, empty when unset", async () => {
+    expect(await setup({ cdlFilesRoot: "/projects/cdl" }).service.get()).toMatchObject({ cdlFilesRoot: "/projects/cdl" });
+    expect(await setup({}).service.get()).toMatchObject({ cdlFilesRoot: "" });
+  });
+
+  it("updates only the CDL list root, saves it, and returns the new revision and settings", async () => {
+    const { service, save } = setup({ tecsgenPath: "/old/tool", cdlFilesRoot: "/before" });
+    const initial = await service.get();
+    expect(await service.update({ cdlFilesRoot: "/after" })).toMatchObject({
+      ok: true, settings: { cdlFilesRoot: "/after", tecsgenPath: "/old/tool", revision: initial.revision + 1 },
+    });
+    expect(save).toHaveBeenCalledExactlyOnceWith({ cdlFilesRoot: "/after" });
+    expect(await service.get()).toMatchObject({ cdlFilesRoot: "/after" });
+  });
+
+  it("reports a failed save of the CDL list root without changing the effective settings", async () => {
+    const { service, save } = setup({ cdlFilesRoot: "/before" });
+    const initial = await service.get();
+    save.mockRejectedValueOnce(Error("disk full"));
+    expect(await service.update({ cdlFilesRoot: "/after" })).toEqual({ ok: false, error: "disk full" });
+    expect(await service.get()).toEqual(initial);
+  });
+
+  it("keeps the CDL list root when other settings are updated", async () => {
+    const { service } = setup({ cdlFilesRoot: "/keep" });
+    expect(await service.update({ cppArgs: "-E" })).toMatchObject({ ok: true, settings: { cdlFilesRoot: "/keep" } });
+  });
+
+  it("rejects a non-string CDL list root", async () => {
+    const { service, save } = setup({});
+    expect(await service.update({ cdlFilesRoot: 3 } as never)).toMatchObject({ ok: false });
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it("rejects unsupported patch keys and non-string paths", async () => {
     const { service, save } = setup({ tecsgenPath: "/old/tool" });
     expect(await service.update({ tecsgenPath: 3 } as never)).toMatchObject({ ok: false });
