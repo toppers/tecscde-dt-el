@@ -41,11 +41,14 @@ export function describeLaunchFailure(failure: TecsgenLaunchFailure): string {
  */
 const CAUSE_LINE = /\b(?:cpp|gcc|g\+\+|clang|cc1|preprocess\w*)\b|プリプロセ|No such file|cannot (?:execute|find|open)|not found|failed/i;
 const MAX_CAUSE_LINES = 4;
+/** 毎回出る注意書き（CDL に tecsgen の `__tool_info__` が無い、など）。原因ではない。 */
+const NOISE_LINE = /^__tool_info__:/;
 
 export function describeTecsgenFailure(result: Pick<TecsgenResult, "stdout" | "stderr" | "exitCode">): string {
   const lines = [...toLines(result.stderr), ...toLines(result.stdout)];
   const errors = [...new Set(lines.filter((line) => ERROR_LINE.test(line)))];
-  const causes = [...new Set(lines.filter((line) => CAUSE_LINE.test(line) && !ERROR_LINE.test(line)))].slice(0, MAX_CAUSE_LINES);
+  const causes = [...new Set(lines.filter((line) => CAUSE_LINE.test(line) && !ERROR_LINE.test(line) && !NOISE_LINE.test(line)))]
+    .slice(0, MAX_CAUSE_LINES);
   const picked = errors.length > 0 ? [...causes, ...errors.slice(0, MAX_LINES)] : lines.slice(-MAX_LINES);
   const header = `tecsgen が失敗しました（終了コード ${result.exitCode ?? "不明"}）`;
   if (picked.length === 0) return header;

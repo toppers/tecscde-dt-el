@@ -175,7 +175,16 @@ describe("ToolSettingsService", () => {
     const { service, save } = setup({ tecsgenPath: "/saved/tool" }, { TECSGEN_COMMAND: "overriding-tool --flag" });
     const before = await service.get();
     execFileMock.mockReset().mockResolvedValue({ stdout: "", stderr: " tecsgen 1.9.1 " });
-    expect(await service.checkPath('/candidate with spaces/"literal"')).toMatchObject({ kind: "ok", text: "tecsgen 1.9.1" });
+    // Windows では、子プロセスの PATH 上の gcc のディレクトリを先頭へ足す（2026-11-18）。このテストは環境を変えないことを
+    // 見るので、PATH に gcc が無い状態にそろえる。
+    const pathKey = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+    const savedPath = process.env[pathKey];
+    if (process.platform === "win32") process.env[pathKey] = "C:\\no-compiler-here";
+    try {
+      expect(await service.checkPath('/candidate with spaces/"literal"')).toMatchObject({ kind: "ok", text: "tecsgen 1.9.1" });
+    } finally {
+      if (savedPath === undefined) delete process.env[pathKey]; else process.env[pathKey] = savedPath;
+    }
     expect(execFileMock).toHaveBeenCalledExactlyOnceWith('/candidate with spaces/"literal"', ["--version"], { timeout: 30_000, shell: false });
     expect(await service.get()).toEqual(before);
     expect(save).not.toHaveBeenCalled();

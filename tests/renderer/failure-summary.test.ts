@@ -48,6 +48,7 @@ describe("describeTecsgenFailure", () => {
   it("shows lines that point at the cause (cpp/gcc/preprocessor) before the syntax errors they lead to", () => {
     const stdout = [
       "tecsgen  version 1.9.1",
+      "__tool_info__: tecsgen: required property not found 'base_dir'",
       "warning: cpp 'gcc -E -DTECSGEN' failed (status 1) for tecs_kernel.h",
       "../../include/kernel.cdl:63:17: error: G1016 syntax error near 'TEXPTN'",
       "../../tecs/sMalloc.cdl:42:25: error: G1016 syntax error near 'size_t'",
@@ -58,6 +59,8 @@ describe("describeTecsgenFailure", () => {
     expect(cause).toBeGreaterThan(0);
     expect(cause).toBeLessThan(firstSyntax);
     expect(lines.filter((line) => line.includes("gcc -E -DTECSGEN"))).toHaveLength(1);
+    // CDL に tecsgen の `__tool_info__` が無いときの、毎回出る注意書きは、原因ではない。
+    expect(lines.some((line) => line.includes("required property not found"))).toBe(false);
   });
 
   it("returns only the header when there is no output at all", () => {
