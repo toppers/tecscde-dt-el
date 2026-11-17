@@ -425,6 +425,31 @@ describe("FileService", () => {
       expect(result).toEqual({ cdlFiles: [join(dir, "main.cdl")], importPaths: ["./inc"], cpp: "clang", defineMacros: [], systemDirs: [] });
     });
 
+    it.each([
+      ["-k euc", "euc"],
+      ["-keuc", "euc"],
+      ["--kcode sjis", "sjis"],
+      ["--kcode=utf8", "utf8"],
+    ])("reads the kcode from %j (8-20)", async (text, kcode) => {
+      const path = join(dir, `kcode-${kcode}.tecsgen-opts`);
+      writeFileSync(path, `${text} -I ./inc main.cdl`);
+      const service = new FileService({} as never);
+
+      const result = await service.parseTecsgenOptionsFile(path);
+
+      expect(result.kcode).toBe(kcode);
+      expect(result.cdlFiles).toEqual([join(dir, "main.cdl")]);
+      expect(result.importPaths).toEqual(["./inc"]);
+    });
+
+    it("has no kcode when the file does not specify -k", async () => {
+      const path = join(dir, "no-kcode.tecsgen-opts");
+      writeFileSync(path, "-I ./inc main.cdl");
+      const service = new FileService({} as never);
+
+      expect((await service.parseTecsgenOptionsFile(path)).kcode).toBeUndefined();
+    });
+
     it("returns no cpp when the file has none", async () => {
       const path = join(dir, "build3.tecsgen-opts");
       writeFileSync(path, "-I ./include main.cdl");

@@ -14,7 +14,8 @@
 // `buildCommandLine`は8.4.2が「実行に加えて残す」と定めるコピー用の表示文字列で、
 // 空白を含む引数のみダブルクォートで囲む。
 //
-// 2026-09-24追加: `-k utf8`（文字コード指定）を常に付与する。CDLファイルはUTF-8前提
+// 2026-09-24追加: `-k utf8`（文字コード指定）を付与する。2026-11-17: `.tecsgen-opts`に`-k`/`--kcode`が
+// あればその値を優先し、無いときだけ`utf8`にする（三者相違一覧8-20）。CDLファイルはUTF-8前提
 // （[[TECSCDE外部仕様]]5.1.2節）だが、tecsgen外部仕様第5章の`-k, --kcode`は既定`euc`のため、
 // 明示しないとtecsgenが文字コードを取り違える可能性がある（内部仕様11.2節#6）。
 
@@ -24,6 +25,8 @@ export interface TecsgenCommandInput {
   readonly importPath?: readonly string[];
   readonly defineMacro?: readonly string[];
   readonly cpp?: string;
+  /** `.tecsgen-opts`の`-k`/`--kcode`の値。あればそれを渡し、無いときだけ`utf8`にする（外部仕様8.4.2、三者相違一覧8-20）。 */
+  readonly kcode?: string;
   /** 今回のセッションで参照専用として読み込んだファイルの実パス（8.1.2の`direct_import`相当）。 */
   readonly referenceFilePaths: readonly string[];
   /** 編集対象ファイルの実パス。 */
@@ -37,7 +40,7 @@ function quoteIfNeeded(arg: string): string {
 export class TecsgenCommandBuilder {
   /** サブプロセス起動の実引数（`execFile("tecsgen", args)`にそのまま渡す）。 */
   static buildArgs(input: TecsgenCommandInput): string[] {
-    const args: string[] = ["-k", "utf8"];
+    const args: string[] = ["-k", input.kcode ?? "utf8"];
     for (const path of input.importPath ?? []) args.push("-I", path);
     for (const macro of input.defineMacro ?? []) args.push("-D", macro);
     if (input.cpp) args.push("-c", input.cpp);

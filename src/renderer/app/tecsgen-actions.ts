@@ -45,6 +45,7 @@ async function resolveCommandInput(
       importPath: [...(info.importPath ?? []), ...(options?.importPaths ?? [])],
       defineMacro: [...(info.defineMacro ?? []), ...(options?.defineMacros ?? [])],
       cpp: options?.cpp ?? info.cpp,
+      ...(options?.kcode !== undefined ? { kcode: options.kcode } : {}),
       referenceFilePaths: store.getReferenceFilePaths(),
       editingFilePath,
     },

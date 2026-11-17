@@ -174,6 +174,8 @@ export interface TecsgenOptionsFile {
   readonly cdlFiles: readonly string[]; // 列挙順。最後の要素が編集対象候補
   readonly importPaths: readonly string[]; // -I/--import-path の値
   readonly cpp?: string;
+  /** `-k`/`--kcode`の値（最後に書かれたもの）。あればtecsgenの実行に引き継ぎ、`-k utf8`は付けない（外部仕様8.4.2、三者相違一覧8-20）。 */
+  readonly kcode?: string;
   /** `-D`/`--define`の値（記述順）。tecsgenの実行に引き継ぐ（外部仕様8.4.2）。 */
   readonly defineMacros: readonly string[];
   /** `-S`/`--system-dir`の値。オプションファイルのあるディレクトリ基点で絶対パスに解決済み。`importPaths`にも書かれた値のまま入る。 */

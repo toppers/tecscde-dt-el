@@ -32,6 +32,13 @@ describe("TecsgenCommandBuilder.buildArgs", () => {
     ]);
   });
 
+  // 三者相違一覧 8-20（2026-11-17 決定）: .tecsgen-opts の -k／--kcode があればそれを使い、無いときだけ -k utf8。
+  it("uses the kcode taken from .tecsgen-opts instead of -k utf8", () => {
+    const args = TecsgenCommandBuilder.buildArgs({ kcode: "euc", referenceFilePaths: [], editingFilePath: "/proj/main.cde" });
+    expect(args).toEqual(["-k", "euc", "/proj/main.cde"]);
+    expect(args.filter((arg) => arg === "-k")).toHaveLength(1);
+  });
+
   it("never puts baseDir on the command line, even when present", () => {
     const args = TecsgenCommandBuilder.buildArgs({
       baseDir: "/proj",
