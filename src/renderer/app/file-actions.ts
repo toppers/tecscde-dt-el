@@ -74,9 +74,7 @@ export async function applyOpenResult(
     : (opts?.extraImportPaths ?? result.extraImportPaths ?? []);
 
   if (!await store.canApplyLoad(guard) || !store.isLoadCurrent(guard)) return false;
-  const contextPaths = extraImportPaths.map((path) =>
-    result.optionsFilePath && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
-      ? `${result.optionsFilePath.replace(/[\\/][^\\/]*$/, "")}/${path}` : path);
+  const contextPaths = contextImportPaths(extraImportPaths, result.optionsFilePath);
   const toolInfo = extractToolInfoTecsgen(result.editable.content);
   const { references: autoReferences, diagnostics: importDiagnostics, cdeclResults, cTypes } = await resolveAllImports(
     gateway,
@@ -317,6 +315,16 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
   }
 }
 
+/**
+ * `.tecsgen-opts`の相対`-I`・`-S`を、optsのあるディレクトリを基点にした探索パスへ直す（外部仕様5.3節、内部7I.1）。
+ * 開いた直後の解決とCtrl+クリックの追加の解決で同じ基点を使う（三者相違一覧5-5）。絶対パスはそのまま。
+ */
+function contextImportPaths(extraImportPaths: readonly string[], optionsFilePath: string | undefined | null): string[] {
+  return extraImportPaths.map((path) =>
+    optionsFilePath && !/^(?:[A-Za-z]:[\/]|[\/])/.test(path)
+      ? `${optionsFilePath.replace(/[\/][^\/]*$/, "")}/${path}` : path);
+}
+
 /** 今開いている`.tecsgen-opts`の`cpp`。無い・読めないときは`undefined`（`import_C`はCDLの`cpp`・設定に従う）。 */
 async function optionsCppOf(gateway: FileGateway, optionsFilePath: string): Promise<string | undefined> {
   if (typeof gateway.parseTecsgenOptionsFile !== "function") return undefined;
@@ -343,7 +351,8 @@ export async function addAsReference(
 
     const toolInfo = store.getDocument().toolInfoTecsgen;
     const extraImportPaths = store.getExtraImportPaths();
-    const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...extraImportPaths] };
+    const contextPaths = contextImportPaths(extraImportPaths, store.getOptionsFilePath());
+    const mergedToolInfo = { ...toolInfo, importPath: [...(toolInfo.importPath ?? ["."]), ...contextPaths] };
     // 追加のたびに、今開いている.tecsgen-optsのcppを読み直す（Generateと同じく呼ぶたびに再解析する）。
     // opts を開いていないときは待たない（解決の呼び出しを非同期にずらさない）。
     const optionsFilePath = store.getOptionsFilePath();
@@ -359,7 +368,14 @@ export async function addAsReference(
       optionsCpp,
     );
     if (!await store.canApplyLoad(guard)) return;
-    if (discovered.length === 0 || importDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
+    if (discovered.length === 0) {
+      // 追加したCDL自身が見つからないときだけ、旧状態を保って利用者へ知らせる。
+      // 既に読み込み済み（診断なし）は何もしない。追加したCDLのimport未解決は、下で警告にして続ける（5-4）。
+      if (importDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) {
+        store.setTransientActionDiagnostics(importDiagnostics);
+      }
+      return;
+    }
 
     const mergedSources = new Map(store.getReferenceSources());
     for (const referencePath of store.getReferenceFilePaths()) {
@@ -372,9 +388,9 @@ export async function addAsReference(
     const editableText = CdlSerializer.serialize(store.getDocument()); // 未保存の変更を含む現在の内容
     const allReferences = [...mergedSources.entries()].map(([referencePath, content]) => ({ path: referencePath, content }));
     const { diagnostics: allImportDiagnostics, cdeclResults } = await resolveAllImports(
-      gateway, tecsgenGateway, editablePath, editableText, toolInfo, extraImportPaths, allReferences, store.getSystemDirs(), true, optionsCpp,
+      gateway, tecsgenGateway, editablePath, editableText, toolInfo, contextPaths, allReferences, store.getSystemDirs(), true, optionsCpp,
     );
-    if (!await store.canApplyLoad(guard) || allImportDiagnostics.some((entry) => entry.code === W_CODES.UNRESOLVED_REF_FILE)) return;
+    if (!await store.canApplyLoad(guard)) return;
     // An empty key is only a transient loader input for the in-memory primary;
     // it never enters the session or ordinary reference paths.
     const primaryKey = editablePath ?? "";
