@@ -19,6 +19,15 @@ module.exports = {
       to: { path: "^node_modules/electron($|/)" },
     },
     {
+      name: "renderer-must-not-import-node-builtins",
+      comment:
+        "renderer/ からNode組込みモジュール（node:fs・path・child_process等、`node:` 接頭辞の有無を問わない）を" +
+        "importしない。Node APIが要る処理は main/ に置き、gateways/ 経由で呼ぶ（第10章10.3節、2026-11-17、三者相違一覧 1-16）。",
+      severity: "error",
+      from: { path: "^src/renderer" },
+      to: { dependencyTypes: ["core"] },
+    },
+    {
       name: "main-must-not-import-dom-facing-renderer-code",
       comment:
         "main/ はDOM/SVGへアクセスできない（そもそもmainプロセスにDOMが存在しないため実行時エラーとして" +
