@@ -115,15 +115,55 @@ describe("stage1 source actions", () => {
     }
   });
 
-  it("leaves the diagram and session unchanged when recursive addition cannot resolve an import", async () => {
-    const { store, gateway, file } = setup();
+  // 三者相違一覧 5-4（2026-11-17 決定）: 追加したCDLのimportが解決できなくても、通常の開く経路と同じく
+  // 警告にして追加を続ける。追加したCDL自身が見つからないときだけ、旧状態を保って通知する。
+  it("adds the file and warns when an import inside the added file cannot be resolved", async () => {
+    const { store, gateway, file } = setup(); await load(store, file);
     gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) =>
-      request.kind === "manual" ? { request, canonicalPath: "/added/extra.cdl", content: 'import("missing.cdl");' }
-        : { request, error: "not-found" }));
-    const before = store.getDocument(); const session = store.getSessionSnapshot();
+      request.kind === "manual" ? { request, canonicalPath: "/added/extra.cdl", content: 'import("missing.cdl"); celltype tExtra {};' }
+        : { request, error: "not-found" as const }));
     await addAsReference(store, file, tool, "/added/extra.cdl");
+    expect(store.getReferenceFilePaths()).toContain("/added/extra.cdl");
+    expect(store.getReport().items.some((item) => item.code === "W-UNRESOLVED-REF-FILE")).toBe(true);
+    expect(gateway.saveSession).toHaveBeenCalled();
+  });
+
+  it("is not blocked by an unresolved import that the primary already has", async () => {
+    const { store, gateway, file } = setup();
+    await applyOpenResult(store, file, tool, { editable: { path: "/main.cdl", content: `import("gone.cdl"); ${main}` }, references: [] });
+    expect(store.getReport().items.some((item) => item.code === "W-UNRESOLVED-REF-FILE")).toBe(true);
+    gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) =>
+      request.kind === "manual" ? { request, canonicalPath: "/added/extra.cdl", content: "celltype tExtra {};" }
+        : { request, error: "not-found" as const }));
+    await addAsReference(store, file, tool, "/added/extra.cdl");
+    expect(store.getReferenceFilePaths()).toContain("/added/extra.cdl");
+    expect(store.getReport().items.filter((item) => item.code === "W-UNRESOLVED-REF-FILE")).toHaveLength(1); // 重複しない
+  });
+
+  it("keeps the diagram and session and tells the user when the added file itself cannot be found", async () => {
+    const { store, gateway, file } = setup(); await load(store, file);
+    gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) => ({ request, error: "not-found" as const })));
+    const before = store.getDocument(); const session = store.getSessionSnapshot();
+    gateway.saveSession.mockClear();
+    await addAsReference(store, file, tool, "/added/gone.cdl");
     expect(store.getDocument()).toEqual(before); expect(store.getSessionSnapshot()).toEqual(session);
     expect(gateway.saveSession).not.toHaveBeenCalled();
+    expect(store.getReport().items.some((item) => item.code === "W-UNRESOLVED-REF-FILE" && item.message.includes("gone.cdl"))).toBe(true);
+  });
+
+  // 三者相違一覧 5-5（2026-11-17 決定）: optsの相対 -I・-S は、開いた直後と同じく optsのあるディレクトリを基点にする。
+  it("resolves the relative import paths of the options file against its directory when adding", async () => {
+    const { store, gateway, file } = setup();
+    await applyOpenResult(store, file, tool, { editable: { path: "/proj/src/main.cdl", content: main }, references: [],
+      extraImportPaths: ["../inc", "/abs/inc"], optionsFilePath: "/proj/build/opts.tecsgen-opts" });
+    gateway.resolveImports.mockClear();
+    gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) => ({ request,
+      canonicalPath: "/added/extra.cdl", content: "celltype tExtra {};" })));
+    await addAsReference(store, file, tool, "/added/extra.cdl");
+    const options = gateway.resolveImports.mock.calls[0]![2];
+    expect(options.importPaths).toEqual(expect.arrayContaining(["/proj/build/../inc", "/abs/inc"]));
+    expect(options.importPaths).not.toContain("../inc");
+    expect(store.getExtraImportPaths()).toEqual(["../inc", "/abs/inc"]); // ストアの原文は変えない
   });
 
   it("uses the added file's own tool_info and parent to resolve its imports without a primary", async () => {
@@ -168,7 +208,8 @@ describe("stage1 source actions", () => {
       .every(([source, , options]) => source === "/added/nested.cdl" && options.importPaths.includes("root-includes"))).toBe(true);
   });
 
-  it("does not apply an add when whole-document validation loses an import after successful discovery", async () => {
+  // 三者相違一覧 5-4: 全体の再解決で未解決になったimportも、追加を止めず警告にする（通常の開く経路と同じ）。
+  it("applies the add with a warning when whole-document validation loses an import after successful discovery", async () => {
     const { store, gateway, file } = setup();
     let imports = 0;
     gateway.resolveImports.mockImplementation(async (_source, requests) => requests.map((request) => {
@@ -178,10 +219,10 @@ describe("stage1 source actions", () => {
       }
       return ++imports === 1 ? { request, canonicalPath: "/added/leaf.cdl", content: "" } : { request, error: "not-found" };
     }));
-    const before = store.getDocument(); const session = store.getSessionSnapshot();
     await addAsReference(store, file, tool, "/added/extra.cdl");
-    expect(store.getDocument()).toEqual(before); expect(store.getSessionSnapshot()).toEqual(session);
-    expect(gateway.saveSession).not.toHaveBeenCalled();
+    expect(store.getReferenceFilePaths()).toContain("/added/extra.cdl");
+    expect(store.getReport().items.some((item) => item.code === "W-UNRESOLVED-REF-FILE")).toBe(true);
+    expect(gateway.saveSession).toHaveBeenCalled();
   });
 
   it("ignores a delayed add when a newer edit changes the current anonymous primary", async () => {
