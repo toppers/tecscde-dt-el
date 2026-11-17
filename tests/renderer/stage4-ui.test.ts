@@ -179,8 +179,15 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     return { store, shell, root: document.body };
   }
 
+  /** 全セルを最上段から離す（「すでに最上段」で何も動かない状態を避ける）。 */
+  function offTop(doc: TecscdeDocument): TecscdeDocument {
+    let moved = doc;
+    for (const cell of doc.cellValues()) moved = moved.withCell(cell.moveTo(cell.x, 100));
+    return moved;
+  }
+
   it("アクティブを最上段へ: ボタン有効化と実行、移動完了ステータス (監査58, 6C.4)", () => {
-    const doc = buildTestDoc();
+    const doc = offTop(buildTestDoc());
     const { store, root } = setup(doc);
 
     const btn = root.querySelector<HTMLButtonElement>("[data-action='moveActiveToTop']")!;
@@ -192,8 +199,22 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     expect(updatedCell.y).toBe(10);
     expect(updatedCell.x).toBe(10);
 
-    const statusRegion = root.querySelector<HTMLElement>("#status-region")!;
-    expect(statusRegion.textContent).toContain("アクティブセル 1 個を最上段へ配置しました");
+    // 三者相違一覧 6-13・2-11（2026-11-17）: 文言は外部仕様7.3.y項目6どおり、出し先は一過性の案内欄 #status-message。
+    expect(root.querySelector<HTMLElement>("#status-message")!.textContent).toBe("アクティブなセル 1 個を最上段へ移動しました");
+    expect(root.querySelector<HTMLElement>("#status-region")!.textContent).not.toContain("最上段");
+  });
+
+  it("アクティブを最上段へ: すでに最上段で何も動かないときは、履歴を増やさず、その旨を案内する (6-13)", () => {
+    const { store, root } = setup(offTop(buildTestDoc()));
+    const btn = root.querySelector<HTMLButtonElement>("[data-action='moveActiveToTop']")!;
+    btn.click(); // 1回目で動く
+    const nodeId = store.history.nodeId;
+
+    btn.click(); // 2回目は、すでに最上段にある
+    expect(store.history.nodeId).toBe(nodeId);
+    const message = root.querySelector<HTMLElement>("#status-message")!.textContent!;
+    expect(message).toContain("すでに最上段");
+    expect(message).not.toContain("移動しました");
   });
 
   it("アクティブセルがない場合は最上段ボタンが無効になる (監査58)", () => {

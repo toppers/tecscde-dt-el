@@ -27,12 +27,22 @@ import { regionColorMap } from "./region-colors";
 export const ZOOM_MIN = 0.05;
 /** ズーム上限（外部仕様3.2.1: 200%）。 */
 export const ZOOM_MAX = 2.0;
-/** キーボード（Ctrl+ / Ctrl−、外部仕様7.1.2）1段あたりの倍率。 */
-export const ZOOM_STEP = 1.1;
+/**
+ * 表示倍率の刻み（%）。倍率は 5% 刻みの整数値にする。Ctrl+／Ctrl−／Ctrl+ホイールの1回の操作で
+ * この刻みだけ増減する（三者相違一覧7-10、2026-11-17 決定。×1.1 の後に丸める方式は、5% のとき
+ * 5.5→5 に戻って進まなくなるため採らない）。
+ */
+export const ZOOM_STEP_PERCENT = 5;
 
 export function clampZoom(zoom: number): number {
   if (!Number.isFinite(zoom)) return 1;
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+}
+
+/** 倍率を、最も近い 5% の倍数（整数%）に丸め、5%〜200% に収める。 */
+export function snapZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return clampZoom(Math.round((zoom * 100) / ZOOM_STEP_PERCENT) * ZOOM_STEP_PERCENT / 100);
 }
 
 /** 色表は `RegionTree` が変わらない限り使い回す（描画層の変更検出を参照比較で済ませるため）。 */
@@ -77,7 +87,26 @@ export class ViewState {
    * 倍率がクランプで頭打ちのときは `zoom' == zoom` となり `panCenter` は変わらない。
    */
   zoomAt(anchor: Point, factor: number): ViewState {
-    const nextZoom = clampZoom(this.zoom * factor);
+    return this.zoomToAt(anchor, this.zoom * factor);
+  }
+
+  /**
+   * 倍率を `ZOOM_STEP_PERCENT`（5%）だけ増やす（`direction` が正）／減らす（負）。5% の倍数でない値からは、
+   * 進む向きの次の倍数へ揃える（例: 103% から上へ 105%、下へ 100%）。範囲は 5%〜200%。
+   * 固定点の扱いは `zoomAt` と同じ（Ctrl+ホイールはポインタ位置、キーボードは表示中心を渡す）。
+   */
+  stepZoom(anchor: Point, direction: 1 | -1): ViewState {
+    // 浮動小数の誤差を避け、%の整数で計算してから比率へ戻す。
+    const percent = Math.round(this.zoom * 10000) / 100;
+    const next = direction > 0
+      ? (Math.floor(percent / ZOOM_STEP_PERCENT + 1e-9) + 1) * ZOOM_STEP_PERCENT
+      : (Math.ceil(percent / ZOOM_STEP_PERCENT - 1e-9) - 1) * ZOOM_STEP_PERCENT;
+    return this.zoomToAt(anchor, clampZoom(next / 100));
+  }
+
+  /** 倍率を `nextZoomRaw`（クランプする）へ変え、`anchor` の画面位置を保つ。 */
+  zoomToAt(anchor: Point, nextZoomRaw: number): ViewState {
+    const nextZoom = clampZoom(nextZoomRaw);
     const ratio = this.zoom / nextZoom;
     const panCenter: Point = {
       x: anchor.x - (anchor.x - this.panCenter.x) * ratio,
@@ -142,6 +171,8 @@ export class ViewState {
       emphasizeCellName: this.filters.emphasizeCellName,
       hiddenRegionIds,
       regionColors: this.filters.colorByRegion || this.regionOutlineMode ? cachedColorMap(regions) : null,
+      // 矩形モードの色は矩形の輪郭にだけ使い、セルの色帯は色分け表示がオンのときだけ描く（三者相違一覧3-2）。
+      ...(this.regionOutlineMode && !this.filters.colorByRegion ? { regionBands: false } : {}),
       activeOnly: this.filters.activeOnly,
       regionOutlineMode: this.regionOutlineMode,
       focusedJoinIds,

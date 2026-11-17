@@ -36,6 +36,12 @@ export interface CanvasView {
   readonly focusedJoinIds?: ReadonlySet<JoinId>;
   /** リージョン矩形表示モード（内部仕様6C.5・監査#47）。 */
   readonly regionOutlineMode?: boolean;
+  /**
+   * セル左端のリージョン色の帯を描くか（色分け表示がオンのとき`true`）。`false`なら、`regionColors`があっても
+   * 帯を描かない（矩形モードだけがオンのとき、色分け表示を変えない。三者相違一覧3-2、外部仕様4.9.x）。
+   * 省略は`true`（`regionColors`があれば描く従来の動作）。
+   */
+  readonly regionBands?: boolean;
 }
 
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。

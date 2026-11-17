@@ -2,7 +2,7 @@
 // 第2章2.3節のとおり renderer プロセスで完結する。モデル（C）・パーサ（B）への
 // 参照は持たない（[[TECSCDE内部仕様]] 7章冒頭）。
 
-export { ViewState, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, clampZoom } from "./view-state";
+export { ViewState, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP_PERCENT, clampZoom, snapZoom } from "./view-state";
 export { DisplayFilters, resolveHiddenRegionIds } from "./display-filters";
 export {
   computeNavigator,
