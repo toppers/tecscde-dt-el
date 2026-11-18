@@ -325,8 +325,9 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
  */
 function contextImportPaths(extraImportPaths: readonly string[], optionsFilePath: string | undefined | null): string[] {
   return extraImportPaths.map((path) =>
-    optionsFilePath && !/^(?:[A-Za-z]:[\/]|[\/])/.test(path)
-      ? `${optionsFilePath.replace(/[\/][^\/]*$/, "")}/${path}` : path);
+    // 区切り文字は `\` と `/` の両方（Windows のパス）。`[\/]` と書くと `\` を取り除けず、optsのファイル名が基点に残る。
+    optionsFilePath && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
+      ? `${optionsFilePath.replace(/[\\/][^\\/]*$/, "")}/${path}` : path);
 }
 
 /** 今開いている`.tecsgen-opts`の`cpp`。無い・読めないときは`undefined`（`import_C`はCDLの`cpp`・設定に従う）。 */

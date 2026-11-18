@@ -436,17 +436,22 @@ export class AppShell {
       case "moveActiveToTop": {
         const doc = this.store.getDocument();
         const plan = prepareMoveActiveToTop(doc);
+        // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
+        const movedIds: string[] = [];
+        for (const [id, pos] of plan.moves) {
+          const cell = doc.getCell(id);
+          if (cell && (cell.x !== pos.x || cell.y !== pos.y)) movedIds.push(id);
+        }
         if (!plan.success) {
           this.store.setTransientActionDiagnostics([activeTopFailed()]);
         } else {
-          // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
-          let moved = 0;
-          for (const [id, pos] of plan.moves) {
-            const cell = doc.getCell(id);
-            if (cell && (cell.x !== pos.x || cell.y !== pos.y)) moved += 1;
-          }
+          const moved = movedIds.length;
           if (moved === 0) {
-            this.showMessage("アクティブなセルは、すでに最上段にあります");
+            // 置き場所は「他のセルに重ならない、いちばん上の空き位置」。上の行が他のセルで埋まっていると、すでにその位置に
+            // あっても、最上段には無い。実機の調査で、この場合に「すでに最上段」と案内して紛らわしかった（2026-11-18）。
+            this.showMessage(plan.spilledCellIds.length === 0
+              ? "アクティブなセルは、すでに最上段にあります"
+              : `アクティブなセルは、他のセルを避けて置ける最も上の位置に、すでに並んでいます（最上段 ${plan.topRowCellIds.length} 個、次の行以降 ${plan.spilledCellIds.length} 個）`);
             break;
           }
           this.store.dispatch(new MoveActiveCellsToTopCommand(plan));

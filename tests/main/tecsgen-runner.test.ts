@@ -2,7 +2,7 @@
 // child_process.execFile をモックし、成功・非0終了・実行ファイル未検出(ENOENT)の
 // 3パターンを検証する。
 
-import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { access, mkdir, mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,10 +24,20 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
+// Windows では、tecsgen の子プロセスの PATH 上の gcc のディレクトリを先頭へ足す（2026-11-18）。このファイルの既存のテストは
+// 「子プロセスの環境を変えない」ことを前提にするので、PATH に gcc が無い状態にそろえる（gcc を使うテストは自分で PATH を決める）。
+const pathKey = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+const originalPath = process.env[pathKey];
+
 describe("TecsgenRunner", () => {
   beforeEach(() => {
     execFileMock.mockReset();
     delete process.env.TECSGEN_COMMAND;
+    if (onWindows) process.env[pathKey] = String.raw`C:\no-compiler-here`;
+  });
+
+  afterEach(() => {
+    if (originalPath === undefined) delete process.env[pathKey]; else process.env[pathKey] = originalPath;
   });
 
   afterAll(() => {
@@ -376,6 +386,19 @@ describe("TecsgenRunner", () => {
     expect(result.failureDetail).not.toContain("終了コード");
   });
 
+  // 診断の改善（2026-11-18）: 終了コードの失敗では、渡した -I の件数と先頭を添える（-I の欠落を画面から確かめられるように）。
+  it("preprocess() adds the number and the head of the include dirs to the detail of a failed run", async () => {
+    execFileMock.mockRejectedValue(Object.assign(new Error("failed"), { code: 1, stderr: "t_stddef.h:68:10: fatal error: target_stddef.h: No such file or directory" }));
+    const runner = new TecsgenRunner();
+
+    const result = await runner.preprocess("header.h", "clang -E", ["inc", "other/../third", "inc"]);
+
+    expect(result.failureKind).toBe("failed");
+    expect(result.failureDetail).toContain("fatal error: target_stddef.h");
+    expect(result.failureDetail).toContain("-I 2 件");
+    expect(result.failureDetail).toContain(resolve("inc"));
+  });
+
   it("preprocess() still reports a numeric exit code as a failed run", async () => {
     execFileMock.mockRejectedValue(Object.assign(new Error("failed"), { code: 2, stderr: "error: boom" }));
     const runner = new TecsgenRunner();
@@ -435,7 +458,8 @@ describe("TecsgenRunner", () => {
       command: "gcc -E",
       originReason: "ユーザ直接指定",
       failureKind: "failed",
-      failureDetail: "終了コード 1: In file included from header.h:1: fatal error: sub.h: No such file or directory compilation terminated.",
+      // `error` を含む最初の行が先頭（2026-11-18）。-I が1件も渡っていないことも示す。
+      failureDetail: "終了コード 1: fatal error: sub.h: No such file or directory In file included from header.h:1: compilation terminated.（-I 0 件）",
     });
 
     // 200文字上限の切り詰め検証
@@ -446,7 +470,7 @@ describe("TecsgenRunner", () => {
     }));
     const longResult = await runner.preprocess("header.h", "gcc -E");
     expect(longResult.failureKind).toBe("failed");
-    expect(longResult.failureDetail).toBe(`終了コード 2: ${"x".repeat(200)}`);
+    expect(longResult.failureDetail).toBe(`終了コード 2: ${"x".repeat(200)}（-I 0 件）`);
   });
 
   it("preprocess() returns structured timeout failure on process timeout", async () => {
@@ -564,11 +588,56 @@ describe("TecsgenRunner", () => {
       expect(pathOf(options).startsWith(String.raw`C:\msys64\ucrt64\bin;`)).toBe(true);
     });
 
-    it("leaves the environment alone when no C preprocessor path is known", async () => {
-      execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
-      const runner = new TecsgenRunner(tecsgen as never, async () => undefined);
-      await runner.run(["main.cdl"]);
-      expect((execFileMock.mock.calls[0]![2] as { env?: unknown }).env).toBeUndefined();
+    // 2026-11-18（実機の不具合）: 設定の「Cプリプロセッサ」が Arm の gcc などでも、tecsgen が使う gcc は PATH 上で最初の
+    // `gcc`（MSYS2 の ucrt64 など）。その gcc のディレクトリも先頭へ足さないと、Meld などの DLL と衝突して
+    // tecsgen の import_C が静かに失敗する（構文エラー G1016、W-PLUGIN-TYPE-LOAD）。
+    it("also prepends the directory of the gcc that tecsgen finds on PATH, even when the configured preprocessor is elsewhere", async () => {
+      const gccDir = await mkdtemp(join(tmpdir(), "tecscde-gcc-"));
+      await writeFile(join(gccDir, "gcc.exe"), "");
+      const key = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+      const savedPath = process.env[key];
+      process.env[key] = [String.raw`C:\other\bin`, gccDir].join(";");
+      try {
+        execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+        const runner = new TecsgenRunner(tecsgen as never, async () => String.raw`C:\arm\bin\arm-none-eabi-gcc.exe`);
+        await runner.run(["main.cdl"]);
+        const options = execFileMock.mock.calls[0]![2] as { env?: NodeJS.ProcessEnv };
+        expect(pathOf(options).startsWith(`C:\\arm\\bin;${gccDir};`)).toBe(true);
+      } finally {
+        if (savedPath === undefined) delete process.env[key]; else process.env[key] = savedPath;
+        await rm(gccDir, { recursive: true, force: true });
+      }
+    });
+
+    it("adds the gcc directory even when no C preprocessor path is configured", async () => {
+      const gccDir = await mkdtemp(join(tmpdir(), "tecscde-gcc-"));
+      await writeFile(join(gccDir, "gcc.exe"), "");
+      const key = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+      const savedPath = process.env[key];
+      process.env[key] = [String.raw`C:\other\bin`, gccDir].join(";");
+      try {
+        execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+        await new TecsgenRunner(tecsgen as never, async () => undefined).run(["main.cdl"]);
+        const options = execFileMock.mock.calls[0]![2] as { env?: NodeJS.ProcessEnv };
+        expect(pathOf(options).startsWith(`${gccDir};`)).toBe(true);
+      } finally {
+        if (savedPath === undefined) delete process.env[key]; else process.env[key] = savedPath;
+        await rm(gccDir, { recursive: true, force: true });
+      }
+    });
+
+    it("leaves the environment alone when no C preprocessor path is known and PATH has no gcc", async () => {
+      const key = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+      const savedPath = process.env[key];
+      process.env[key] = String.raw`C:\no-compiler-here`;
+      try {
+        execFileMock.mockResolvedValue({ stdout: "ok", stderr: "" });
+        const runner = new TecsgenRunner(tecsgen as never, async () => undefined);
+        await runner.run(["main.cdl"]);
+        expect((execFileMock.mock.calls[0]![2] as { env?: unknown }).env).toBeUndefined();
+      } finally {
+        if (savedPath === undefined) delete process.env[key]; else process.env[key] = savedPath;
+      }
     });
 
     it("still runs tecsgen when the provider throws", async () => {
@@ -592,6 +661,25 @@ describe("TecsgenRunner", () => {
 
     it("truncates at maxLen", () => {
       expect(summarizeStderr("abcdefghij", 5)).toBe("abcde");
+    });
+
+    // 診断の改善（2026-11-18）: gcc は「In file included from …」の行を先に出し、本当の原因（`fatal error: …`）は後ろに出す。
+    // 先頭から切ると原因が消えるので、`error` を含む最初の行を先頭に置く。
+    it("puts the first error line first so that truncation keeps the cause (gcc include chains)", () => {
+      const stderr = [
+        "In file included from E:/proj/include/kernel.h:67,",
+        "                 from E:/proj/include/tecs_kernel.h:12:",
+        "E:/proj/include/t_stddef.h:68:10: fatal error: target_stddef.h: No such file or directory",
+        "   68 | #include \"target_stddef.h\"",
+        "compilation terminated.",
+      ].join("\n");
+      const summary = summarizeStderr(stderr, 120);
+      expect(summary.startsWith("E:/proj/include/t_stddef.h:68:10: fatal error: target_stddef.h")).toBe(true);
+      expect(summary.length).toBeLessThanOrEqual(120);
+    });
+
+    it("keeps the previous behavior when no line contains error", () => {
+      expect(summarizeStderr("note: a\nnote: b")).toBe("note: a note: b");
     });
   });
 

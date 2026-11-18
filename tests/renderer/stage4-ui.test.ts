@@ -215,6 +215,33 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     const message = root.querySelector<HTMLElement>("#status-message")!.textContent!;
     expect(message).toContain("すでに最上段");
     expect(message).not.toContain("移動しました");
+    expect(message).not.toContain("次の行以降"); // 最上段に置けているので、溢れの案内ではない
+  });
+
+  // 実機（tEV3Sample）で、上の行がアクティブでないセルで埋まっていると、アクティブなセルが「他のセルを避けて置ける最も上の位置」
+  // にすでに並んでいても、最上段には無い。その場合に「すでに最上段」と案内すると紛らわしい（2026-11-18）。
+  it("アクティブを最上段へ: 上の行が他のセルで埋まっていて、すでに置ける最も上の位置にあるときは、そのとおり案内する", () => {
+    let cdl = `signature sSig { void f(); }; [active] celltype tAct { call sSig c; }; celltype tPassive { entry sSig e; };\n`;
+    for (let i = 0; i < 6; i++) cdl += `cell tAct act_${i} {};\n`;
+    for (let i = 0; i < 12; i++) cdl += `cell tPassive pas_${i} {};\n`;
+    let doc = buildTestDoc(cdl);
+    // アクティブでないセルを、最上段（y=10）の左側へ並べて、アクティブなセルが最上段に入りきらない状態にする。
+    let col = 0;
+    for (const cell of doc.cellValues()) {
+      if (cell.name.startsWith("pas_")) doc = doc.withCell(cell.moveTo(10 + (col++ % 10) * 55, 10));
+      else doc = doc.withCell(cell.moveTo(10, 200));
+    }
+    const { store, root } = setup(doc);
+    const btn = root.querySelector<HTMLButtonElement>("[data-action='moveActiveToTop']")!;
+    btn.click(); // 1回目で、置ける最も上の位置へ動く
+    const nodeId = store.history.nodeId;
+
+    btn.click(); // 2回目は、すでにその位置にある
+    expect(store.history.nodeId).toBe(nodeId);
+    const message = root.querySelector<HTMLElement>("#status-message")!.textContent!;
+    expect(message).toContain("他のセルを避けて置ける最も上の位置");
+    expect(message).toContain("次の行以降");
+    expect(message).not.toContain("すでに最上段にあります");
   });
 
   it("アクティブセルがない場合は最上段ボタンが無効になる (監査58)", () => {
