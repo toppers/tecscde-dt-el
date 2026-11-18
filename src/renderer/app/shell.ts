@@ -61,7 +61,6 @@ import { DefinitionFileView } from "./definition-file-view";
 import { CelltypeDetailsView } from "./celltype-details-view";
 import { resolveHighlightedJoinIds } from "../render/connection-focus";
 import { canMoveActiveToTop, prepareMoveActiveToTop, MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
-import { isActiveCell } from "../model/active-cell";
 import { activeTopFailed, activeTopOverflow } from "../cdl/messages";
 
 /** 案内・拒否理由をステータスバーに残す時間（ms）。 */
@@ -443,21 +442,16 @@ export class AppShell {
           const cell = doc.getCell(id);
           if (cell && (cell.x !== pos.x || cell.y !== pos.y)) movedIds.push(id);
         }
-        this.logActiveTopDetail(doc, plan, movedIds.length);
         if (!plan.success) {
           this.store.setTransientActionDiagnostics([activeTopFailed()]);
         } else {
           const moved = movedIds.length;
-          // 案内には、対象のセル名（と、動かないときは現在の位置）を添える。どのセルが対象か、画面から分かるようにする。
-          const describe = (ids: readonly string[], withPosition: boolean): string => {
-            const shown = ids.slice(0, 5).map((id) => {
-              const cell = doc.getCell(id as never);
-              return withPosition && cell ? `${id}(${cell.x},${cell.y})` : id;
-            });
-            return shown.join("、") + (ids.length > 5 ? `、ほか ${ids.length - 5} 個` : "");
-          };
           if (moved === 0) {
-            this.showMessage(`アクティブなセルは、すでに最上段にあります（対象 ${plan.moves.size} 個: ${describe([...plan.moves.keys()], true)}）`);
+            // 置き場所は「他のセルに重ならない、いちばん上の空き位置」。上の行が他のセルで埋まっていると、すでにその位置に
+            // あっても、最上段には無い。実機の調査で、この場合に「すでに最上段」と案内して紛らわしかった（2026-11-18）。
+            this.showMessage(plan.spilledCellIds.length === 0
+              ? "アクティブなセルは、すでに最上段にあります"
+              : `アクティブなセルは、他のセルを避けて置ける最も上の位置に、すでに並んでいます（最上段 ${plan.topRowCellIds.length} 個、次の行以降 ${plan.spilledCellIds.length} 個）`);
             break;
           }
           this.store.dispatch(new MoveActiveCellsToTopCommand(plan));
@@ -465,7 +459,7 @@ export class AppShell {
             this.store.setCommandDiagnostics(this.store.history.nodeId, [activeTopOverflow(plan.spilledCellIds.length)]);
           }
           // 一過性の操作結果は、時間で消える案内欄へ出す（所属リージョン欄は固定情報。三者相違一覧2-11）。
-          this.showMessage(`アクティブなセル ${moved} 個を最上段へ移動しました（${describe(movedIds, false)}）`);
+          this.showMessage(`アクティブなセル ${moved} 個を最上段へ移動しました`);
         }
         break;
       }
@@ -768,29 +762,6 @@ export class AppShell {
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
-  }
-
-  /**
-   * 調査用（2026-11-18）: 「アクティブを最上段へ」が、どのセルを対象にして、どう判断したかを、診断ログへ出す。
-   * 実機で「すでに最上段」と出る原因を、ログから確かめるため。原因が分かったら外す（外部仕様9.5の規定10により、
-   * 恒久的には記録しない）。ログへ書けなくても、操作は続ける。
-   */
-  private logActiveTopDetail(doc: TecscdeDocument, plan: ReturnType<typeof prepareMoveActiveToTop>, moved: number): void {
-    try {
-      const paper = doc.paper.contentSize();
-      const lines = [
-        `[調査] moveActiveToTop success=${plan.success} reason=${plan.failureReason ?? "-"} planned=${plan.moves.size} moved=${moved} ` +
-          `spilled=${plan.spilledCellIds.length} topRow=${plan.topRowCellIds.length} paper=${paper.width}x${paper.height} cells=${doc.cellCount}`,
-        ...doc.cellValues().filter((cell) => isActiveCell(doc, cell)).map((cell) => {
-          const to = plan.moves.get(cell.id);
-          return `[調査]   active ${cell.id} editable=${cell.editable} systemDefined=${cell.systemDefined} at=(${cell.x},${cell.y}) ` +
-            `size=${cell.width}x${cell.height} ${to ? `plan→(${to.x},${to.y})` : "計画に含まれない"}`;
-        }),
-      ];
-      void createLogAppender(new LogGateway(), this.store)(lines).catch(() => undefined);
-    } catch {
-      // ログへ書けなくても、操作は続ける。
-    }
   }
 
   /** 操作の拒否理由や案内をステータスバーに出す。マウス移動では消えず、一定時間後に消える。 */
