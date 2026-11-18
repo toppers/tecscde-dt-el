@@ -200,7 +200,8 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     expect(updatedCell.x).toBe(10);
 
     // 三者相違一覧 6-13・2-11（2026-11-17）: 文言は外部仕様7.3.y項目6どおり、出し先は一過性の案内欄 #status-message。
-    expect(root.querySelector<HTMLElement>("#status-message")!.textContent).toBe("アクティブなセル 1 個を最上段へ移動しました");
+    // 動いたセルの名前を添える（どのセルが対象か、画面から分かるように）。
+    expect(root.querySelector<HTMLElement>("#status-message")!.textContent).toBe("アクティブなセル 1 個を最上段へ移動しました（active1）");
     expect(root.querySelector<HTMLElement>("#status-region")!.textContent).not.toContain("最上段");
   });
 
@@ -215,6 +216,8 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     const message = root.querySelector<HTMLElement>("#status-message")!.textContent!;
     expect(message).toContain("すでに最上段");
     expect(message).not.toContain("移動しました");
+    // 対象のセル名と、現在の位置を示す（最上段 y=10）。
+    expect(message).toContain("対象 1 個: active1(10,10)");
   });
 
   it("アクティブセルがない場合は最上段ボタンが無効になる (監査58)", () => {

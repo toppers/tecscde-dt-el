@@ -440,13 +440,22 @@ export class AppShell {
           this.store.setTransientActionDiagnostics([activeTopFailed()]);
         } else {
           // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
-          let moved = 0;
+          const movedIds: string[] = [];
           for (const [id, pos] of plan.moves) {
             const cell = doc.getCell(id);
-            if (cell && (cell.x !== pos.x || cell.y !== pos.y)) moved += 1;
+            if (cell && (cell.x !== pos.x || cell.y !== pos.y)) movedIds.push(id);
           }
+          const moved = movedIds.length;
+          // 案内には、対象のセル名（と、動かないときは現在の位置）を添える。どのセルが対象か、画面から分かるようにする。
+          const describe = (ids: readonly string[], withPosition: boolean): string => {
+            const shown = ids.slice(0, 5).map((id) => {
+              const cell = doc.getCell(id as never);
+              return withPosition && cell ? `${id}(${cell.x},${cell.y})` : id;
+            });
+            return shown.join("、") + (ids.length > 5 ? `、ほか ${ids.length - 5} 個` : "");
+          };
           if (moved === 0) {
-            this.showMessage("アクティブなセルは、すでに最上段にあります");
+            this.showMessage(`アクティブなセルは、すでに最上段にあります（対象 ${plan.moves.size} 個: ${describe([...plan.moves.keys()], true)}）`);
             break;
           }
           this.store.dispatch(new MoveActiveCellsToTopCommand(plan));
@@ -454,7 +463,7 @@ export class AppShell {
             this.store.setCommandDiagnostics(this.store.history.nodeId, [activeTopOverflow(plan.spilledCellIds.length)]);
           }
           // 一過性の操作結果は、時間で消える案内欄へ出す（所属リージョン欄は固定情報。三者相違一覧2-11）。
-          this.showMessage(`アクティブなセル ${moved} 個を最上段へ移動しました`);
+          this.showMessage(`アクティブなセル ${moved} 個を最上段へ移動しました（${describe(movedIds, false)}）`);
         }
         break;
       }
