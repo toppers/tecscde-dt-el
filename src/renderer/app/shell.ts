@@ -61,6 +61,7 @@ import { DefinitionFileView } from "./definition-file-view";
 import { CelltypeDetailsView } from "./celltype-details-view";
 import { resolveHighlightedJoinIds } from "../render/connection-focus";
 import { canMoveActiveToTop, prepareMoveActiveToTop, MoveActiveCellsToTopCommand } from "../commands/move-active-to-top";
+import { isActiveCell } from "../model/active-cell";
 import { activeTopFailed, activeTopOverflow } from "../cdl/messages";
 
 /** 案内・拒否理由をステータスバーに残す時間（ms）。 */
@@ -436,15 +437,16 @@ export class AppShell {
       case "moveActiveToTop": {
         const doc = this.store.getDocument();
         const plan = prepareMoveActiveToTop(doc);
+        // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
+        const movedIds: string[] = [];
+        for (const [id, pos] of plan.moves) {
+          const cell = doc.getCell(id);
+          if (cell && (cell.x !== pos.x || cell.y !== pos.y)) movedIds.push(id);
+        }
+        this.logActiveTopDetail(doc, plan, movedIds.length);
         if (!plan.success) {
           this.store.setTransientActionDiagnostics([activeTopFailed()]);
         } else {
-          // 実際に位置が変わるセルの数（三者相違一覧6-13）。何も動かないときは、履歴もdirtyも変えない。
-          const movedIds: string[] = [];
-          for (const [id, pos] of plan.moves) {
-            const cell = doc.getCell(id);
-            if (cell && (cell.x !== pos.x || cell.y !== pos.y)) movedIds.push(id);
-          }
           const moved = movedIds.length;
           // 案内には、対象のセル名（と、動かないときは現在の位置）を添える。どのセルが対象か、画面から分かるようにする。
           const describe = (ids: readonly string[], withPosition: boolean): string => {
@@ -766,6 +768,29 @@ export class AppShell {
     // 末尾の記号だけでは見落とされやすい（実機確認で判明）ため、太字/色でも示す。
     this.statusFile.classList.toggle("dirty", dirty);
     // 診断の件数表示・一覧パネル・ジャンプ機構は `DiagnosticsPanelView`（8.4節）が持つ。
+  }
+
+  /**
+   * 調査用（2026-11-18）: 「アクティブを最上段へ」が、どのセルを対象にして、どう判断したかを、診断ログへ出す。
+   * 実機で「すでに最上段」と出る原因を、ログから確かめるため。原因が分かったら外す（外部仕様9.5の規定10により、
+   * 恒久的には記録しない）。ログへ書けなくても、操作は続ける。
+   */
+  private logActiveTopDetail(doc: TecscdeDocument, plan: ReturnType<typeof prepareMoveActiveToTop>, moved: number): void {
+    try {
+      const paper = doc.paper.contentSize();
+      const lines = [
+        `[調査] moveActiveToTop success=${plan.success} reason=${plan.failureReason ?? "-"} planned=${plan.moves.size} moved=${moved} ` +
+          `spilled=${plan.spilledCellIds.length} topRow=${plan.topRowCellIds.length} paper=${paper.width}x${paper.height} cells=${doc.cellCount}`,
+        ...doc.cellValues().filter((cell) => isActiveCell(doc, cell)).map((cell) => {
+          const to = plan.moves.get(cell.id);
+          return `[調査]   active ${cell.id} editable=${cell.editable} systemDefined=${cell.systemDefined} at=(${cell.x},${cell.y}) ` +
+            `size=${cell.width}x${cell.height} ${to ? `plan→(${to.x},${to.y})` : "計画に含まれない"}`;
+        }),
+      ];
+      void createLogAppender(new LogGateway(), this.store)(lines).catch(() => undefined);
+    } catch {
+      // ログへ書けなくても、操作は続ける。
+    }
   }
 
   /** 操作の拒否理由や案内をステータスバーに出す。マウス移動では消えず、一定時間後に消える。 */

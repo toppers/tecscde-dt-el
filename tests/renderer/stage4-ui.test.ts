@@ -4,7 +4,7 @@
 // [[TECSCDE-DT-EL内部仕様]] 第6C章「V0.2.0表示と配置」— 段4 UI配線と機能の統合テスト。
 // 監査44〜48、55、58。
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import type { TecscdeDocument } from "../../src/renderer/model/document";
 import { Cell } from "../../src/renderer/model/cell";
@@ -203,6 +203,25 @@ describe("Stage 4 UI Integration (監査44〜48, 55, 58)", () => {
     // 動いたセルの名前を添える（どのセルが対象か、画面から分かるように）。
     expect(root.querySelector<HTMLElement>("#status-message")!.textContent).toBe("アクティブなセル 1 個を最上段へ移動しました（active1）");
     expect(root.querySelector<HTMLElement>("#status-region")!.textContent).not.toContain("最上段");
+  });
+
+  // 調査用（2026-11-18、実機で「すでに最上段」と出る原因を、ログから確かめるため）: 判断に使った情報を、診断ログへ出す。
+  it("アクティブを最上段へ: 対象のセルと計画（位置・編集可否）を診断ログへ出す", () => {
+    const append = vi.fn(async () => ({}));
+    (window as unknown as { tecscde: unknown }).tecscde = { log: { append } };
+    try {
+      const { root } = setup(offTop(buildTestDoc()));
+      root.querySelector<HTMLButtonElement>("[data-action='moveActiveToTop']")!.click();
+      const lines = (append.mock.calls[0] as unknown as [readonly string[]])[0];
+      const text = lines.join("\n");
+      expect(text).toContain("[調査] moveActiveToTop");
+      expect(text).toContain("success=true");
+      expect(text).toContain("active1");
+      expect(text).toContain("editable=true");
+      expect(text).toMatch(/active1.*→\(10,10\)/);
+    } finally {
+      delete (window as unknown as { tecscde?: unknown }).tecscde;
+    }
   });
 
   it("アクティブを最上段へ: すでに最上段で何も動かないときは、履歴を増やさず、その旨を案内する (6-13)", () => {
