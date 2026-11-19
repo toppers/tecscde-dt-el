@@ -65,7 +65,7 @@ describe("Stage 1 diagnostics layout contract", () => {
     store.setEnvironmentDiagnostics(diagnostics(12));
     expect(panel.querySelectorAll(".diag-item")).toHaveLength(12);
     const row = panel.querySelector<HTMLElement>(".diag-item")!;
-    expect(row.textContent).toBe("[W-0] main.cdl:1:2: warning 0");
+    expect(Array.from(row.querySelectorAll("td")).map((td) => td.textContent)).toEqual(["警告 [W-0]", "main.cdl:1:2", "warning 0", "ジャンプ"]);
     row.click();
     expect(store.selection.hasCell(asCellId("Main"))).toBe(true);
     expect(panel.hidden).toBe(false);

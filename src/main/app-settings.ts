@@ -5,7 +5,7 @@
 import { promises as fs } from "node:fs";
 import { join, posix, win32 } from "node:path";
 import { app } from "electron";
-import type { PluginTypeSource, SessionSnapshot } from "../shared/ipc-types.js";
+import type { PaperOrientationSetting, PaperSizeSetting, PluginTypeSource, SessionSnapshot } from "../shared/ipc-types.js";
 
 export interface AppSettings {
   readonly [key: string]: unknown;
@@ -28,6 +28,9 @@ export interface AppSettings {
   readonly lastSession?: SessionSnapshot;
   /** V0.2.1 Stage 4: Plugin生成型の取り込み方式 */
   readonly pluginTypeSource?: PluginTypeSource;
+  /** V0.3.0 (2-7): 新規作成時のアプリケーション既定用紙サイズ・向き */
+  readonly defaultPaperSize?: PaperSizeSetting;
+  readonly defaultPaperOrientation?: PaperOrientationSetting;
 }
 
 /** Legacy session fields are accepted at the update boundary and normalized before writing. */
@@ -103,6 +106,12 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   if (normalized.pluginTypeSource !== "external" && normalized.pluginTypeSource !== "internal") {
     delete normalized.pluginTypeSource;
   }
+  if (normalized.defaultPaperSize !== "A4" && normalized.defaultPaperSize !== "A3" && normalized.defaultPaperSize !== "A2") {
+    delete normalized.defaultPaperSize;
+  }
+  if (normalized.defaultPaperOrientation !== "LANDSCAPE" && normalized.defaultPaperOrientation !== "PORTRAIT") {
+    delete normalized.defaultPaperOrientation;
+  }
   if (normalized.lastSession !== undefined) {
     const session = normalizeSessionSnapshot(normalized.lastSession);
     if (session) normalized.lastSession = session;
@@ -125,7 +134,7 @@ export function settingsDir(): string {
   return app.getPath("userData");
 }
 
-/** 外部仕様9.5.2の規定2: 診断ログは、設定ファイルと同じフォルダの `logs/` に置く。 */
+/** 外部仕様9.5の規定2: 3種類のログは、設定ファイルと同じフォルダの `logs/` 配下に置く。 */
 export function logsDirectory(): string {
   return join(settingsDir(), "logs");
 }

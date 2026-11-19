@@ -203,7 +203,7 @@ describe("InformationDialog", () => {
     const view = new InformationDialog({ ...services, getTecsgenStatus: undefined, document });
     await view.open();
     expect(document.querySelector("#information-version")!.textContent).toContain("tecsgen: 未確認");
-    expect(document.querySelector("#information-version")!.textContent).toContain("実行コマンド: /tools/tecsgen");
+    expect(document.querySelector("#information-version")!.textContent).toContain("tecsgenのコマンドラインオプション: /tools/tecsgen");
     view.dispose();
   });
 
@@ -276,7 +276,7 @@ describe("InformationDialog", () => {
     const { view, getTecsgenStatus } = setup();
     getTecsgenStatus.mockReturnValue({ version: "未確認", command: "未確認" });
     await view.open(); type("/keep/draft");
-    expect(document.querySelector("#information-version")!.textContent).toContain("実行コマンド: /tools/tecsgen");
+    expect(document.querySelector("#information-version")!.textContent).toContain("tecsgenのコマンドラインオプション: /tools/tecsgen");
     getTecsgenStatus.mockReturnValue({ version: "tecsgen late version", command: "/tools/tecsgen" });
     view.refreshStatus();
     expect(document.querySelector("#information-version")!.textContent).toContain("tecsgen late version");

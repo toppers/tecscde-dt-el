@@ -14,7 +14,7 @@ import { GestureController } from "../render/gesture-controller";
 import { SelectionState } from "../render/view";
 import { SvgRenderer } from "../render/svg-renderer";
 import type { Point } from "../model/geometry";
-import type { PaperOrientation, PaperSize } from "../model/paper";
+import { PaperSpec, type PaperOrientation, type PaperSize } from "../model/paper";
 import { ChangePaperCommand } from "../commands";
 import type { TecscdeDocument } from "../model/document";
 import { snapZoom } from "../view-state/view-state";
@@ -35,7 +35,6 @@ import { APP_COMMIT, APP_VERSION } from "../app-info";
 import { CDE_FORMAT_VERSION } from "../model/tool-info-types";
 import type { RuntimeVersions } from "../../shared/ipc-types.js";
 import { AboutDialogView } from "./about-dialog";
-import { PanelVisibilityView } from "./panel-visibility";
 import { alignSelection, canAlign } from "./align-actions";
 import { autoPlace, canAutoPlace } from "./auto-place-actions";
 import { regionStatusText } from "./status-region";
@@ -50,7 +49,7 @@ import type { ExportFormat, PdfPage } from "../../shared/ipc-types";
 import type { CellId, JoinId } from "../model/ids";
 import { NavigatorView } from "./navigator-panel";
 import { DiagnosticsPanelView } from "./diagnostics-panel";
-import type { AppStore } from "./store";
+import type { AppStore, InputMode } from "./store";
 import { InformationDialog } from "./information-dialog";
 import type { SettingsGateway } from "../gateways/settings-gateway";
 import { LogGateway } from "../gateways/log-gateway";
@@ -65,7 +64,7 @@ import { activeTopFailed, activeTopOverflow } from "../cdl/messages";
 
 /** 案内・拒否理由をステータスバーに残す時間（ms）。 */
 const STATUS_MESSAGE_MS = 5000;
-const TEXT_INPUT_TAGS =new Set(["INPUT", "TEXTAREA", "SELECT"]);
+const TEXT_INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 export interface AppShellOptions {
   /** 要素の探索起点（Electron では document、テストでは差し込んだ DOM）。 */
@@ -132,7 +131,6 @@ export class AppShell {
   private readonly palette: PaletteView;
   private readonly celltypeDetails: CelltypeDetailsView;
   private readonly aboutDialog: AboutDialogView;
-  private readonly panelVisibility: PanelVisibilityView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
   private readonly propertyPanel: PropertyPanelView;
@@ -273,7 +271,6 @@ export class AppShell {
       content: fileContent, initialPosition: { x: 16, y: 110 } });
     this.celltypesDialog = new ModelessDialog({ document: doc, title: "セルタイプ一覧", id: "celltypes-dialog",
       content: paletteRoot, initialPosition: { x: 280, y: 110 } });
-    this.panelVisibility = new PanelVisibilityView(root, () => this.render());
   }
 
   /** 配線を張り、初回描画する。返り値でなく `dispose()` で解除する。 */
@@ -286,7 +283,6 @@ export class AppShell {
     this.bindPaperSelect();
     this.bindDisplayControls();
     this.disposers.push(() => this.regionFilter.dispose());
-    this.disposers.push(() => this.panelVisibility.dispose());
     this.disposers.push(() => this.palette.dispose());
     this.disposers.push(() => this.celltypeDetails.dispose());
     this.bindKeyboard();
@@ -295,6 +291,12 @@ export class AppShell {
     this.bindScroll();
     this.bindCanvasResize();
     this.bindDirtyReport();
+    // 三者相違一覧2-7（監査#41）: 保存済みのアプリケーション既定用紙があれば起動時に復元する。
+    void this.settings?.getToolSettings().then((s) => {
+      if (s.defaultPaperSize) {
+        this.store.setDefaultPaper(PaperSpec.create(s.defaultPaperSize, s.defaultPaperOrientation ?? "LANDSCAPE"));
+      }
+    }).catch(() => undefined);
     // 7.6.6節: 記憶済みのルートフォルダがあれば起動時に一度だけ自動復元する。
     this.gateway.onRestoreFileBrowserRoot((path) =>
       void this.fileBrowser.restoreRoot(path).catch((err: unknown) => this.reportActionError("restoreFileBrowserRoot", err)),
@@ -385,6 +387,12 @@ export class AppShell {
     this.disposers.push(() => selector?.removeEventListener("change", onCopyShellChange));
     const onClick = (e: Event): void => {
       const target = e.target as HTMLElement | null;
+      // 三者相違一覧2-8: ツールバーの「選択」「セル新規作成」ボタンからもモードを切り替えられるようにする。
+      const modeAttr = target?.closest<HTMLElement>("#toolbar-mode [data-mode]")?.dataset["mode"];
+      if (modeAttr === "select" || modeAttr === "newCell") {
+        this.store.setMode(modeAttr as InputMode);
+        return;
+      }
       const action = target?.closest<HTMLElement>("[data-action]")?.dataset["action"];
       if (!action) return;
       this.runAction(action);
@@ -427,6 +435,23 @@ export class AppShell {
       case "clear":
         void newDocument(this.store, this.gateway).catch((err: unknown) => this.reportActionError(action, err));
         break;
+      case "setDefaultPaper": {
+        const paper = this.store.getDocument().paper;
+        this.store.setDefaultPaper(paper);
+        const label = `${paper.size} ${paper.orientation === "LANDSCAPE" ? "横" : "縦"}`;
+        if (this.settings) {
+          void this.settings.updateToolSettings({
+            defaultPaperSize: paper.size,
+            defaultPaperOrientation: paper.orientation,
+          }).then((res) => {
+            if (res.ok) this.showMessage(`新規作成時の既定用紙を ${label} に設定しました`);
+            else this.reportActionError(action, new Error(res.error));
+          }).catch((err: unknown) => this.reportActionError(action, err));
+        } else {
+          this.showMessage(`新規作成時の既定用紙を ${label} に設定しました`);
+        }
+        break;
+      }
       case "alignTop":
         alignSelection(this.store, "top");
         break;
@@ -708,6 +733,13 @@ export class AppShell {
   private refreshToolbarState(): void {
     this.setDisabled("[data-action='undo']", !this.store.canUndo);
     this.setDisabled("[data-action='redo']", !this.store.canRedo);
+    // 三者相違一覧2-8: ツールバーのモード切替ボタンをストアのモードと同期する。
+    const mode = this.store.getMode();
+    for (const btn of Array.from(this.toolbar.querySelectorAll<HTMLButtonElement>("#toolbar-mode [data-mode]"))) {
+      const active = btn.dataset["mode"] === mode;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", String(active));
+    }
     // 外部仕様7.3.2: 整列は複数選択で、実際に動くセルがあるときだけ有効。
     this.setDisabled("[data-action='alignTop']", !canAlign(this.store, "top"));
     this.setDisabled("[data-action='alignLeft']", !canAlign(this.store, "left"));

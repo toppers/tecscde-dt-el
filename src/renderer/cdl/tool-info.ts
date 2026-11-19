@@ -28,12 +28,14 @@ export interface ExtractResult {
 export interface PortLayout {
   readonly edge: "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
   readonly offset: number;
+  readonly [key: string]: unknown;
 }
 
 export interface CellLayout {
   readonly location: readonly [number, number, number, number];
   readonly region?: string;
   readonly ports?: Readonly<Record<string, PortLayout>>;
+  readonly [key: string]: unknown;
 }
 
 export interface BarLayout {
@@ -41,6 +43,7 @@ export interface BarLayout {
   readonly fixed: number;
   readonly from: number;
   readonly to: number;
+  readonly [key: string]: unknown;
 }
 
 export interface JoinLayout {
@@ -49,6 +52,7 @@ export interface JoinLayout {
   readonly targetCell: string;
   readonly eport: string;
   readonly bars: readonly BarLayout[];
+  readonly [key: string]: unknown;
 }
 
 export interface ArrayElementRecord {
@@ -81,6 +85,7 @@ interface ToolInfoTecsgenJson {
 const VALID_PAPER_SIZES: readonly PaperSize[] = ["A4", "A3", "A2"];
 const VALID_ORIENTATIONS: readonly PaperOrientation[] = ["LANDSCAPE", "PORTRAIT"];
 const VALID_EDGES = ["TOP", "BOTTOM", "LEFT", "RIGHT"];
+const BAR_CONNECT_EPS = 1e-3;
 
 function lineColAt(source: string, index: number): { line: number; column: number } {
   let line = 1;
@@ -116,6 +121,34 @@ function isValidCellLayout(value: unknown): value is CellLayout {
       const port = p as Record<string, unknown>;
       if (!VALID_EDGES.includes(port.edge as string)) return false;
       if (typeof port.offset !== "number") return false;
+    }
+  }
+  return true;
+}
+
+function isValidBarLayout(value: unknown): value is BarLayout {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const b = value as Record<string, unknown>;
+  if (b.dir !== "H" && b.dir !== "V") return false;
+  if (typeof b.fixed !== "number" || !Number.isFinite(b.fixed)) return false;
+  if (typeof b.from !== "number" || !Number.isFinite(b.from)) return false;
+  if (typeof b.to !== "number" || !Number.isFinite(b.to)) return false;
+  return true;
+}
+
+/** 三者相違一覧4-7（監査#32）: 保存済み結合経路の bar 型・有限数・向き・端点連続性を保守的に検証する。 */
+function isValidJoinBars(value: unknown): value is readonly BarLayout[] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  if (!value.every(isValidBarLayout)) return false;
+  for (let i = 1; i < value.length; i += 1) {
+    const prev = value[i - 1]!;
+    const next = value[i]!;
+    const prevEndX = prev.dir === "H" ? prev.to : prev.fixed;
+    const prevEndY = prev.dir === "H" ? prev.fixed : prev.to;
+    const nextStartX = next.dir === "H" ? next.from : next.fixed;
+    const nextStartY = next.dir === "H" ? next.fixed : next.from;
+    if (Math.abs(prevEndX - nextStartX) > BAR_CONNECT_EPS || Math.abs(prevEndY - nextStartY) > BAR_CONNECT_EPS) {
+      return false;
     }
   }
   return true;
@@ -366,7 +399,7 @@ export class ToolInfoValidator {
           typeof v.cport === "string" &&
           typeof v.targetCell === "string" &&
           typeof v.eport === "string" &&
-          Array.isArray(v.bars)
+          isValidJoinBars(v.bars)
         ) {
           joinList[key] = v as JoinLayout;
         } else {

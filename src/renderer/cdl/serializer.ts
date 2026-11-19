@@ -3,10 +3,18 @@
 // 新規ドキュメントは既定の3ブロック形式で出力する。
 
 import type { Cell } from "../model/cell";
-import { portLayoutKey, type EdgeSide } from "../model/port";
+import { portLayoutKey } from "../model/port";
 import { CDE_FORMAT_VERSION, TECSCDE_TS_VERSION } from "../model/tool-info-types";
 import type { CdlSourceTemplate, TecscdeDocument } from "../model/document";
-import { ToolInfoValidator, type ArrayElementRecord, type CellLayout, type JoinLayout } from "./tool-info";
+import {
+  ToolInfoValidator,
+  type ArrayElementRecord,
+  type BarLayout,
+  type CellLayout,
+  type JoinLayout,
+  type PortLayout,
+  type ToolInfoTecscdeParsed,
+} from "./tool-info";
 import { CdlDocumentBuilder, type JoinAssignDecl } from "./cst";
 
 function formatToolInfoBlock(toolName: string, json: string): string {
@@ -16,6 +24,72 @@ function formatToolInfoBlock(toolName: string, json: string): string {
 /** 同じ名前空間の同名セルを同一とみなす鍵（異なる名前空間の同名セルは別）。 */
 function cellKey(regionPath: string, name: string): string {
   return `${regionPath}\0${name}`;
+}
+
+/** 元のテンプレート内の `__tool_info__("tecscde")` を解析して階層内の未知キー引き継ぎ元を得る（4-6）。 */
+function parsePriorTecscde(templateText: string | undefined): ToolInfoTecscdeParsed | undefined {
+  if (!templateText) return undefined;
+  const priorBlock = ToolInfoValidator.extractBlocks(templateText).blocks.find((block) => block.toolName === "tecscde");
+  return priorBlock ? ToolInfoValidator.parseTecscde(priorBlock.json).parsed : undefined;
+}
+
+/** セル・ポートレイアウトを組み立て、既存の階層内未知キーを引き継ぐ（三者相違一覧4-6）。 */
+function buildCellList(cells: readonly Cell[], prior?: ToolInfoTecscdeParsed): Record<string, CellLayout> {
+  const cellList: Record<string, CellLayout> = {};
+  for (const cell of cells) {
+    const priorCell = prior?.cellList[cell.id] ?? prior?.cellList[cell.sourceName];
+    const ports: Record<string, PortLayout> = {};
+    for (const port of [...cell.cports, ...cell.eports]) {
+      const key = portLayoutKey(port);
+      const priorPort = priorCell?.ports?.[key];
+      ports[key] = {
+        ...(priorPort ?? {}),
+        edge: port.edgeSide,
+        offset: port.offset,
+      };
+    }
+    const { ports: _priorPorts, ...priorCellRest } = priorCell ?? {};
+    cellList[cell.id] = {
+      ...priorCellRest,
+      location: [cell.x, cell.y, cell.width, cell.height],
+      region: cell.regionId,
+      ...(Object.keys(ports).length > 0 ? { ports } : {}),
+    };
+  }
+  return cellList;
+}
+
+/** 選別セル所有の結合レイアウトだけを組み立て、結合・バー内部の未知キーを引き継ぐ（三者相違一覧4-5・4-6）。 */
+function buildJoinList(
+  doc: TecscdeDocument,
+  ownedCellIds: ReadonlySet<string>,
+  prior?: ToolInfoTecscdeParsed,
+): Record<string, JoinLayout> {
+  const joinList: Record<string, JoinLayout> = {};
+  for (const join of doc.joinValues()) {
+    if (!ownedCellIds.has(join.cellId)) continue;
+    const sourceCell = doc.getCell(join.cellId);
+    if (!sourceCell?.editable) continue;
+    const targetCell = doc.getCell(join.eportCellId);
+    const priorJoin = prior?.joinList[join.id];
+    const priorBars = priorJoin && priorJoin.bars.length === join.bars.length ? priorJoin.bars : undefined;
+    const bars: BarLayout[] = join.bars.map((bar, idx) => ({
+      ...(priorBars?.[idx] ?? {}),
+      dir: bar.direction,
+      fixed: bar.fixed,
+      from: bar.from,
+      to: bar.to,
+    }));
+    joinList[join.id] = {
+      ...(priorJoin ?? {}),
+      cell: sourceCell.name,
+      cport: join.cportName,
+      targetCell: targetCell?.name ?? "",
+      eport: join.eportName,
+      bars,
+    };
+  }
+  return joinList;
 }
 
 type SourceJoin = NonNullable<CdlSourceTemplate["cells"][number]["joins"]>[number] & Partial<JoinAssignDecl>;
@@ -236,31 +310,10 @@ export class CdlSerializer {
     const template = doc.sourceTemplates.get(sourceKey);
     if (!template) throw new Error(`No editable CDL source for ${sourceKey}`);
     const cells = doc.cellValues().filter((cell) => cell.editable && cell.locale === sourceKey);
-    const cellList: Record<string, CellLayout> = {};
-    for (const cell of cells) {
-      const ports: Record<string, { edge: EdgeSide; offset: number }> = {};
-      for (const port of [...cell.cports, ...cell.eports]) {
-        ports[portLayoutKey(port)] = { edge: port.edgeSide, offset: port.offset };
-      }
-      cellList[cell.id] = {
-        location: [cell.x, cell.y, cell.width, cell.height], region: cell.regionId,
-        ...(Object.keys(ports).length > 0 ? { ports } : {}),
-      };
-    }
+    const prior = parsePriorTecscde(template.text);
+    const cellList = buildCellList(cells, prior);
     const cellIds = new Set(cells.map((cell) => cell.id));
-    const joinList: Record<string, JoinLayout> = {};
-    for (const join of doc.joinValues()) {
-      if (!cellIds.has(join.cellId)) continue;
-      joinList[join.id] = {
-        cell: doc.getCell(join.cellId)!.name,
-        cport: join.cportName,
-        targetCell: doc.getCell(join.eportCellId)?.name ?? "",
-        eport: join.eportName,
-        bars: join.bars.map((bar) => ({ dir: bar.direction, fixed: bar.fixed, from: bar.from, to: bar.to })),
-      };
-    }
-    const priorBlock = ToolInfoValidator.extractBlocks(template.text).blocks.find((block) => block.toolName === "tecscde");
-    const prior = priorBlock ? ToolInfoValidator.parseTecscde(priorBlock.json).parsed : undefined;
+    const joinList = buildJoinList(doc, cellIds, prior);
     const arrayElements = collectArrayElements(doc, cells);
     const tecscdeBlock = formatToolInfoBlock("tecscde", ToolInfoValidator.serializeTecscde(
       { size: prior?.paper?.size ?? doc.paper.size, orientation: prior?.paper?.orientation ?? doc.paper.orientation },
@@ -275,10 +328,11 @@ export class CdlSerializer {
    * ただしtecsgenブロックのsaved_atは保存時刻を反映するため、この値自体は毎回変わる）。
    */
   static serialize(doc: TecscdeDocument, now: Date = new Date()): string {
+    // 三者相違一覧4-5（監査#29）: sourceTemplates.size に依存せず、主ファイル所有または未割当のセルのみ選別する。
     const editableCells = doc
       .cellValues()
       .filter((c) => c.editable && (doc.primarySourceKey === null
-        ? !c.locale : doc.sourceTemplates.size <= 1 || c.locale === doc.editingFileName))
+        ? !c.locale : (!c.locale || c.locale === doc.editingFileName)))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -295,32 +349,10 @@ export class CdlSerializer {
 
     const cellBlocks = editableCells.map((c) => serializeCellBlock(doc, c)).join("\n\n");
 
-    const cellList: Record<string, CellLayout> = {};
-    for (const cell of editableCells) {
-      const ports: Record<string, { edge: EdgeSide; offset: number }> = {};
-      for (const p of [...cell.cports, ...cell.eports]) {
-        ports[portLayoutKey(p)] = { edge: p.edgeSide, offset: p.offset };
-      }
-      cellList[cell.id] = {
-        location: [cell.x, cell.y, cell.width, cell.height],
-        region: cell.regionId,
-        ...(Object.keys(ports).length > 0 ? { ports } : {}),
-      };
-    }
-
-    const joinList: Record<string, JoinLayout> = {};
-    for (const join of doc.joinValues()) {
-      const sourceCell = doc.getCell(join.cellId);
-      if (!sourceCell?.editable) continue; // 5.4.1: 編集可能セル由来の結合のみ書き出す
-      const targetCell = doc.getCell(join.eportCellId);
-      joinList[join.id] = {
-        cell: sourceCell.name,
-        cport: join.cportName,
-        targetCell: targetCell?.name ?? "",
-        eport: join.eportName,
-        bars: join.bars.map((b) => ({ dir: b.direction, fixed: b.fixed, from: b.from, to: b.to })),
-      };
-    }
+    const prior = parsePriorTecscde(doc.sourceTemplate?.text);
+    const cellList = buildCellList(editableCells, prior);
+    const editableCellIds = new Set(editableCells.map((c) => c.id));
+    const joinList = buildJoinList(doc, editableCellIds, prior);
 
     const arrayElements = collectArrayElements(doc, editableCells);
     const tecscdeBlock = formatToolInfoBlock(

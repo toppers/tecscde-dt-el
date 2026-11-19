@@ -9,6 +9,8 @@ import { resolveTecsgenCommand, snapshotTecsgenEnvironment, type TecsgenDiscover
 import type {
   CppOrigin,
   CppOriginReason,
+  PaperOrientationSetting,
+  PaperSizeSetting,
   PluginTypeSource,
   ResolvedTecsgenCommand,
   ToolSettings,
@@ -278,11 +280,14 @@ export class ToolSettingsService {
     cppArgs?: string,
     pluginTypeSource: PluginTypeSource = "external",
     cdlFilesRoot = "",
+    defaultPaperSize?: PaperSizeSetting,
+    defaultPaperOrientation?: PaperOrientationSetting,
   ): ToolSettings {
     return Object.freeze({
       revision: this.revision,
       tecsgenPath: path,
       tecspath: this.environment.TECSPATH ?? "",
+      tecsgenCommandEnv: this.environment.TECSGEN_COMMAND ?? "",
       effectiveSource: command.source,
       effectiveCommand: this.environment.TECSGEN_COMMAND !== undefined
         ? this.environment.TECSGEN_COMMAND : command.executable,
@@ -297,6 +302,8 @@ export class ToolSettingsService {
       cppOriginReason: resolvedCpp.originReason,
       pluginTypeSource,
       cdlFilesRoot,
+      ...(defaultPaperSize ? { defaultPaperSize } : {}),
+      ...(defaultPaperOrientation ? { defaultPaperOrientation } : {}),
     });
   }
 
@@ -319,7 +326,17 @@ export class ToolSettingsService {
     );
     const pluginTypeSource: PluginTypeSource = stored.pluginTypeSource ?? "external";
     const cdlFilesRoot = typeof stored.cdlFilesRoot === "string" ? stored.cdlFilesRoot : "";
-    this.current = this.settings(path, command, resolvedCpp, cppPath, cppArgs, pluginTypeSource, cdlFilesRoot);
+    this.current = this.settings(
+      path,
+      command,
+      resolvedCpp,
+      cppPath,
+      cppArgs,
+      pluginTypeSource,
+      cdlFilesRoot,
+      stored.defaultPaperSize,
+      stored.defaultPaperOrientation,
+    );
   }
 
   get(): Promise<ToolSettings> {
@@ -345,7 +362,15 @@ export class ToolSettingsService {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       return Promise.resolve({ ok: false, error: "設定の指定が不正です。" });
     }
-    const allowedKeys = ["tecsgenPath", "cppPath", "cppArgs", "pluginTypeSource", "cdlFilesRoot"];
+    const allowedKeys = [
+      "tecsgenPath",
+      "cppPath",
+      "cppArgs",
+      "pluginTypeSource",
+      "cdlFilesRoot",
+      "defaultPaperSize",
+      "defaultPaperOrientation",
+    ];
     const patchKeys = Object.keys(patch);
     if (patchKeys.length === 0 || patchKeys.some((key) => !allowedKeys.includes(key))) {
       return Promise.resolve({ ok: false, error: "指定された設定キーまたは値が不正です。" });
@@ -355,6 +380,16 @@ export class ToolSettingsService {
         const val = patch.pluginTypeSource;
         if (val !== "external" && val !== "internal") {
           return Promise.resolve({ ok: false, error: "pluginTypeSourceには'external'または'internal'を指定してください。" });
+        }
+      } else if (key === "defaultPaperSize") {
+        const val = patch.defaultPaperSize;
+        if (val !== "A4" && val !== "A3" && val !== "A2") {
+          return Promise.resolve({ ok: false, error: "defaultPaperSizeには'A4'・'A3'・'A2'を指定してください。" });
+        }
+      } else if (key === "defaultPaperOrientation") {
+        const val = patch.defaultPaperOrientation;
+        if (val !== "LANDSCAPE" && val !== "PORTRAIT") {
+          return Promise.resolve({ ok: false, error: "defaultPaperOrientationには'LANDSCAPE'または'PORTRAIT'を指定してください。" });
         }
       } else if (typeof (patch as Record<string, unknown>)[key] !== "string") {
         return Promise.resolve({ ok: false, error: `${key}には文字列を指定してください。` });
@@ -389,12 +424,21 @@ export class ToolSettingsService {
           ? patch.cdlFilesRoot
           : (typeof stored.cdlFilesRoot === "string" ? stored.cdlFilesRoot : "");
 
+        const newDefaultPaperSize = patch.defaultPaperSize !== undefined
+          ? patch.defaultPaperSize
+          : stored.defaultPaperSize;
+        const newDefaultPaperOrientation = patch.defaultPaperOrientation !== undefined
+          ? patch.defaultPaperOrientation
+          : stored.defaultPaperOrientation;
+
         const patchToSave: AppSettingsPatch = {
           ...(patch.tecsgenPath !== undefined ? { tecsgenPath: path } : {}),
           ...(patch.cppPath !== undefined ? { cppPath: patch.cppPath } : {}),
           ...(patch.cppArgs !== undefined ? { cppArgs: patch.cppArgs } : {}),
           ...(patch.pluginTypeSource !== undefined ? { pluginTypeSource: patch.pluginTypeSource } : {}),
           ...(patch.cdlFilesRoot !== undefined ? { cdlFilesRoot: patch.cdlFilesRoot } : {}),
+          ...(patch.defaultPaperSize !== undefined ? { defaultPaperSize: patch.defaultPaperSize } : {}),
+          ...(patch.defaultPaperOrientation !== undefined ? { defaultPaperOrientation: patch.defaultPaperOrientation } : {}),
         };
 
         await this.save(patchToSave);
@@ -407,7 +451,17 @@ export class ToolSettingsService {
           this.discovery.platform ?? process.platform,
         );
 
-        this.current = this.settings(path, command, resolvedCpp, newCppPath, newCppArgs, newPluginTypeSource, newCdlFilesRoot);
+        this.current = this.settings(
+          path,
+          command,
+          resolvedCpp,
+          newCppPath,
+          newCppArgs,
+          newPluginTypeSource,
+          newCdlFilesRoot,
+          newDefaultPaperSize,
+          newDefaultPaperOrientation,
+        );
         return { ok: true, settings: this.current };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };

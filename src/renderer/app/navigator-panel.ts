@@ -1,12 +1,10 @@
 // [[TECSCDE-DT-EL内部仕様]] 第6章6.3節・第3章3.5節・7.1節・外部仕様7.1.2 — ナビゲータ（モジュールG次段）。
 // `computeNavigator`/`navigatorPointToPanCenter`（純粋な幾何計算、view-state/navigator.ts）を
 // 実DOM（SVGミニマップ）へ配線する。用紙全体が表示範囲に収まるときは自動的に隠す（外部仕様7.1.2）。
-// クリック位置→パン中心の変換はテスト済みの純関数側にあり、ここでは`getBoundingClientRect()`
-// に基づく画面座標→正規化座標の変換のみを行う——happy-domはレイアウトを持たないため、
-// この最後の一段（実ピクセル座標）はheadlessテストの対象外とし、`electron .`での目視確認に委ねる
-// （第5・6章のSVG幾何確認と同じ方針、[[TECSCDE-DT-EL実装]]参照）。
+// 三者相違一覧2-18（監査#56）: 用紙枠・表示範囲枠に加えて、可視セルと結合の縮小図を描く。
 
 import { computeNavigator, navigatorPointToPanCenter, type Viewport } from "../view-state/navigator";
+import { isCellVisible } from "../render/cell-visibility";
 import type { AppStore } from "./store";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -14,6 +12,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 export class NavigatorView {
   private readonly svg: SVGSVGElement;
   private readonly paperRect: SVGRectElement;
+  private readonly minimapGroup: SVGGElement;
   private readonly viewportRect: SVGRectElement;
   /** 利用者の指定。`auto` は用紙全体が収まるときだけ自動で隠す（外部仕様7.1.2）。`shown`・`hidden` は自動判定に勝つ。 */
   private override: "auto" | "shown" | "hidden" = "auto";
@@ -30,8 +29,10 @@ export class NavigatorView {
     // クリック位置をviewBox座標へそのまま対応させるため、アスペクト比を保たず引き伸ばす。
     this.svg.setAttribute("preserveAspectRatio", "none");
     this.paperRect = this.createRect("navigator-paper");
+    this.minimapGroup = document.createElementNS(SVG_NS, "g");
+    this.minimapGroup.setAttribute("class", "navigator-minimap");
     this.viewportRect = this.createRect("navigator-viewport");
-    this.svg.append(this.paperRect, this.viewportRect);
+    this.svg.append(this.paperRect, this.minimapGroup, this.viewportRect);
 
     // 外部仕様7.1.2: クリックまたはドラッグで、その位置を表示範囲の中央に移動する。
     // 押した位置へ移し（クリック）、押している間はポインタに追従させる（ドラッグ）。
@@ -91,6 +92,47 @@ export class NavigatorView {
     this.paperRect.setAttribute("y", "0");
     this.paperRect.setAttribute("width", String(pw));
     this.paperRect.setAttribute("height", String(ph));
+
+    // 三者相違一覧2-18: 可視セルと結合の縮小表示を描く
+    this.minimapGroup.replaceChildren();
+    const canvasView = this.store.view.toCanvasView(doc.regions);
+    const visibleIds = new Set<string>();
+    for (const cell of doc.cellValues()) {
+      if (!isCellVisible(doc, cell, canvasView)) continue;
+      visibleIds.add(cell.id);
+    }
+    for (const join of doc.joinValues()) {
+      if (!visibleIds.has(join.cellId) || !visibleIds.has(join.eportCellId)) continue;
+      if (join.bars.length === 0) continue;
+      const pts: string[] = [];
+      for (const bar of join.bars) {
+        const ax = bar.direction === "H" ? bar.from : bar.fixed;
+        const ay = bar.direction === "H" ? bar.fixed : bar.from;
+        const bx = bar.direction === "H" ? bar.to : bar.fixed;
+        const by = bar.direction === "H" ? bar.fixed : bar.to;
+        if (pts.length === 0) pts.push(`${ax},${ay}`);
+        pts.push(`${bx},${by}`);
+      }
+      const poly = document.createElementNS(SVG_NS, "polyline");
+      poly.setAttribute("class", "navigator-join");
+      poly.setAttribute("points", pts.join(" "));
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#6e7781");
+      poly.setAttribute("stroke-width", "0.8");
+      this.minimapGroup.appendChild(poly);
+    }
+    for (const cell of doc.cellValues()) {
+      if (!visibleIds.has(cell.id)) continue;
+      const r = this.createRect("navigator-cell");
+      r.setAttribute("x", String(cell.x));
+      r.setAttribute("y", String(cell.y));
+      r.setAttribute("width", String(cell.width));
+      r.setAttribute("height", String(cell.height));
+      r.setAttribute("fill", "#d0d7de");
+      r.setAttribute("stroke", "#57606a");
+      r.setAttribute("stroke-width", "0.8");
+      this.minimapGroup.appendChild(r);
+    }
 
     const vp = model.viewport;
     this.viewportRect.setAttribute("x", String(vp.x));

@@ -202,11 +202,15 @@ export interface ResolvedTecsgenCommand {
   readonly source: TecsgenCommandSource;
 }
 export type PluginTypeSource = "external" | "internal";
+export type PaperSizeSetting = "A4" | "A3" | "A2";
+export type PaperOrientationSetting = "LANDSCAPE" | "PORTRAIT";
 
 export interface ToolSettings {
   readonly revision: number;
   readonly tecsgenPath: string;
   readonly tecspath: string;
+  /** V0.3.0: 環境変数 TECSGEN_COMMAND の値（未設定時は空文字）。 */
+  readonly tecsgenCommandEnv?: string;
   readonly effectiveSource: TecsgenCommandSource;
   readonly effectiveCommand: string;
   readonly executable: string;
@@ -223,6 +227,9 @@ export interface ToolSettings {
   readonly pluginTypeSource: PluginTypeSource;
   /** CDLファイル一覧の対象ディレクトリ。未設定は空文字（三者相違一覧1-6、内部09D 9D.5）。 */
   readonly cdlFilesRoot: string;
+  /** V0.3.0 (2-7): 新規作成時のアプリケーション既定用紙サイズ・向き（未設定時は A4 横）。 */
+  readonly defaultPaperSize?: PaperSizeSetting;
+  readonly defaultPaperOrientation?: PaperOrientationSetting;
 }
 export interface ToolSettingsUpdate {
   readonly tecsgenPath?: string;
@@ -230,6 +237,8 @@ export interface ToolSettingsUpdate {
   readonly cppPath?: string;
   readonly cppArgs?: string;
   readonly pluginTypeSource?: PluginTypeSource;
+  readonly defaultPaperSize?: PaperSizeSetting;
+  readonly defaultPaperOrientation?: PaperOrientationSetting;
 }
 export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
   | { readonly ok: false; readonly error: string };

@@ -188,7 +188,7 @@ export async function applyOpenResult(
     if (logService && typeof logService.append === "function") {
       const mode = provider.source === "internal" ? "内部 tecsgen (internal)" : "外部 tecsgen (external)";
       // 書けなかった最初の一度は、診断一覧へ警告を出す（結果を捨てない。三者相違一覧9-1）。IPC自体の失敗は無視する。
-      const logged = await logService.append([`Plugin 生成型取り込み方式: ${mode}`]).catch(() => undefined) as LogAppendResult | void;
+      const logged = await logService.append([`Plugin 生成型取り込み方式: ${mode}`], "debug").catch(() => undefined) as LogAppendResult | void;
       if (logged && logged.newFailure !== undefined) store.setLogWriteWarning(logWriteFailedDiagnostic(logged.newFailure));
     }
   }
@@ -294,12 +294,13 @@ export async function newDocument(store: AppStore, gateway: FileGateway): Promis
       if ((cell.locale ?? null) === current.primarySourceKey) retained = cascadeDeleteCell(retained, cell.id);
     }
     const empty = TecscdeDocument.empty();
+    // 三者相違一覧2-7（監査#41）: 新規作成の用紙はアプリケーション既定（未設定時は A4 横）を使う。
     const document = TecscdeDocument.build({
       cells: new Map(retained.cellValues().map((cell) => [cell.id, cell])),
       joins: new Map(retained.joinValues().map((join) => [join.id, join])),
       celltypes: new Map(current.celltypeValues().filter((type) =>
         !type.sourcePath || type.sourcePath !== current.primarySourceKey).map((type) => [type.name, type])),
-      regions: retained.regions, toolInfoTecsgen: empty.toolInfoTecsgen, paper: empty.paper,
+      regions: retained.regions, toolInfoTecsgen: empty.toolInfoTecsgen, paper: store.getDefaultPaper(),
       referenceFiles: current.referenceFiles, primarySourceKey: null,
       sourceOrder: current.sourceOrder.filter((key) => key !== current.primarySourceKey),
       sourceTemplates: new Map([...current.sourceTemplates].filter(([key]) => key !== current.primarySourceKey)),
@@ -505,12 +506,32 @@ export async function save(store: AppStore, gateway: FileGateway): Promise<void>
   // 主ファイルが閲覧のみ（システム定義CDL）のときは、主ファイルだけを保存しない。編集した参照CDLは保存し、
   // 主ファイルを保存しなかったことを知らせる（三者相違一覧4-3、2026-11-17 決定）。
   const readOnlyPrimary = store.isEditingFileReadOnlySystemDefined();
-  if (!readOnlyPrimary && !store.filePath) return saveAs(store, gateway);
   const document = store.getDocument();
   const path = store.filePath;
   const referenceTickets = store.getReferenceFilePaths().filter((key) =>
     document.sourceTemplates.has(key) && store.isSourceDirty(key)).map((key) =>
     store.createSaveTicket(key, CdlSerializer.serializeSource(document, key)));
+
+  // 三者相違一覧4-2: 主ファイル未確定（消去後・主なしセッション復元後など）でも、
+  // 変更済みの参照CDLがあればそれぞれの元のパスへ保存する。主ソースにも未保存の変更があれば続けて saveAs を呼ぶ。
+  if (!readOnlyPrimary && !path) {
+    if (referenceTickets.length === 0) return saveAs(store, gateway);
+    const primaryDirty = store.isSourceDirty(document.editingFileName ?? null);
+    await store.trackSave(async () => {
+      const results = await Promise.allSettled(referenceTickets.map(async (ticket) => {
+        const destination = ticket.key!;
+        const receipt = await gateway.save(destination, ticket.content);
+        store.recordSaved(ticket, destination, false, receipt?.writeSequence);
+      }));
+      const failed = results.flatMap((result, index) => result.status === "rejected"
+        ? [{ path: referenceTickets[index]!.key!, reason: describeFailure(result.reason) }] : []);
+      const saved = results.flatMap((result, index) => result.status === "fulfilled" ? [referenceTickets[index]!.key!] : []);
+      if (failed.length > 0) throw new SaveFailure(failed, saved);
+    });
+    if (primaryDirty) return saveAs(store, gateway);
+    return;
+  }
+
   if (readOnlyPrimary && referenceTickets.length === 0) {
     store.setTransientActionDiagnostics([saveReadOnlyDiagnostic(path, [])]);
     return;

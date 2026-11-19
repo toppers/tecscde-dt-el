@@ -23,6 +23,7 @@ import { serializeCellsAsCdl } from "../cdl/fragment";
 import { emptyPortTypeIndex, type PortTypeIndex } from "../cdl/port-type-index";
 import type { Cell } from "../model/cell";
 import type { CellId } from "../model/ids";
+import { PaperSpec } from "../model/paper";
 import { TecscdeDocument } from "../model/document";
 import { SelectionState } from "../render/view";
 import { ViewState } from "../view-state/view-state";
@@ -60,6 +61,8 @@ export class AppStore {
   private actionDiagnostics: readonly Diagnostic[] = [];
   setActionDiagnostics(diagnostics: readonly Diagnostic[]): void { this.actionDiagnostics = diagnostics; this.notify(); }
   private path: string | null = null;
+  /** V0.3.0 (2-7): 新規作成時のアプリケーション既定用紙（未設定時は A4 横）。 */
+  private defaultPaper: PaperSpec = PaperSpec.default();
   /** 7J: source checkpoints track successful writes independently of history depth. */
   private readonly savedSequences = new Map<string | null, number>();
   private readonly savedWriteSequences = new Map<string, number>();
@@ -173,6 +176,14 @@ export class AppStore {
 
   get filePath(): string | null {
     return this.path;
+  }
+
+  getDefaultPaper(): PaperSpec {
+    return this.defaultPaper;
+  }
+
+  setDefaultPaper(paper: PaperSpec): void {
+    this.defaultPaper = paper;
   }
 
   getSessionSnapshot(): SessionSnapshot {

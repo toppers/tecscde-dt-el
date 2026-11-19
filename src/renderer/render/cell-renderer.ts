@@ -10,7 +10,7 @@ import type { EdgeSide, Port } from "../model/port";
 import { portPosition } from "../model/geometry";
 import { styleSearchHighlight } from "./search-highlights";
 import { isActiveCell } from "../model/active-cell";
-import { deriveCellVisualState, type CellVisualState } from "./cell-visual-state";
+import { deriveCellVisualState } from "./cell-visual-state";
 import type { TecscdeDocument } from "../model/document";
 
 export interface CellRenderContext {
@@ -22,20 +22,29 @@ export interface CellRenderContext {
 /** リージョンの色の帯の幅(mm)。第6B章6B.5（暫定値）。 */
 export const REGION_TAB_MM = 2;
 
-/** 三角記号の1辺の長さ(px)。外部仕様4.3.1 Triangle_Len/Height相当を簡略化。 */
-const PORT_SYMBOL_PX = 4;
+/** 外部仕様4.3.2・三者相違一覧3-11（監査#57）: ポート三角記号の底辺 3 mm・高さ 2.598 mm。 */
+export const PORT_TRIANGLE_LEN_MM = 3;
+export const PORT_TRIANGLE_HEIGHT_MM = 2.598;
 
-/** 辺の向きに応じた三角形の頂点列（呼び口/受け口の左右を向きで区別する）。 */
-function portSymbolPoints(edge: EdgeSide, size: number): string {
+/**
+ * 辺とポート種別（呼び口/受け口）に応じた三角形の頂点列を返す。
+ * 呼び口（cport）はセルの外向き、受け口（eport）はセルの内向きとし、色のみに依存せず区別する。
+ * 寸法は mm 単位に `k`（MM_TO_PX * zoom）を掛けてズームに追従させる。
+ */
+export function portSymbolPoints(edge: EdgeSide, kind: "cport" | "eport", k: number): string {
+  const half = (PORT_TRIANGLE_LEN_MM * k) / 2;
+  const h = PORT_TRIANGLE_HEIGHT_MM * k;
+  // outward: +1 はセル外向き（呼び口）、-1 はセル内向き（受け口）
+  const dir = kind === "cport" ? 1 : -1;
   switch (edge) {
     case "LEFT":
-      return `0,${-size} ${size * 1.2},0 0,${size}`;
+      return `0,${-half} ${-h * dir},0 0,${half}`;
     case "RIGHT":
-      return `0,${-size} ${-size * 1.2},0 0,${size}`;
+      return `0,${-half} ${h * dir},0 0,${half}`;
     case "TOP":
-      return `${-size},0 0,${size * 1.2} ${size},0`;
+      return `${-half},0 0,${-h * dir} ${half},0`;
     case "BOTTOM":
-      return `${-size},0 0,${-size * 1.2} ${size},0`;
+      return `${-half},0 0,${h * dir} ${half},0`;
   }
 }
 
@@ -220,7 +229,7 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
     if (port.subscript !== null) g.dataset["portSubscript"] = String(port.subscript);
 
     const tri = svgEl("polygon");
-    tri.setAttribute("points", portSymbolPoints(port.edgeSide, PORT_SYMBOL_PX));
+    tri.setAttribute("points", portSymbolPoints(port.edgeSide, kind, k));
     tri.setAttribute("class", `port-symbol port-symbol-${kind}`);
     g.appendChild(tri);
     parent.appendChild(g);

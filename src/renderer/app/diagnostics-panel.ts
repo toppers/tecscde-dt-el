@@ -1,14 +1,26 @@
-// [[TECSCDE-DT-EL内部仕様]] 第8章8.4節・第2章2.3節「G: UIシェル」— 診断パネル（モジュールG次段）。
-// `AppStore.getReport()`（B・H・Iの集約結果）を一覧表示する。`relatedCellId`/`relatedJoinId`を
-// 持つ診断は第6章6.4節の検索ジャンプ機構と同じ操作（選択＋パン）にそのまま渡し、専用の
-// ハイライト表現は新設しない（8.4節）。`location`のみの診断（CDL解析エラー等）は図要素への
-// ジャンプ先が無いため、現状はテキスト位置の提示に留める（同節）。
-// 図要素が無くても該当行・列へ移るソースジャンプは[[TECSCDE-DT-EL内部仕様 - 08B 診断位置へのソースジャンプ|8B]]で設計済みだが未実装（V0.3.0以降、三者相違一覧 8-12・9-7）。
+// [[TECSCDE-DT-EL内部仕様]] 第8章8.4節・8.7節・外部仕様9.6 — 診断パネル（モジュールG次段）。
+// `AppStore.getReport()`（B・H・Iの集約結果）を「種別・該当箇所・メッセージ・操作」の4列表で表示する（三者相違一覧2-19・監査#52）。
+// `relatedCellId`/`relatedJoinId`を持つ診断は第6章6.4節の検索ジャンプ機構と同じ操作（選択＋パン）にそのまま渡す。
+// 図要素が無くても該当行・列へ移るソースジャンプは[[TECSCDE-DT-EL内部仕様 - 08B 診断位置へのソースジャンプ|8B]]で設計済みだが未実装（V0.4.0、三者相違一覧 8-12・9-7）。
 
 import type { Diagnostic } from "../diagnostics/types";
-import { formatDiagnostic } from "../diagnostics/format";
 import { SelectionState } from "../render/view";
 import type { AppStore } from "./store";
+
+function formatLocationColumn(d: Diagnostic): string {
+  if (d.location) {
+    const file = d.location.file ? `${d.location.file}:` : "";
+    return `${file}${d.location.line}:${d.location.column}`;
+  }
+  if (d.relatedCellId !== undefined) return String(d.relatedCellId);
+  if (d.relatedJoinId !== undefined) return String(d.relatedJoinId);
+  return "—";
+}
+
+function formatSeverityColumn(d: Diagnostic): string {
+  const kind = d.severity === "error" ? "エラー" : "警告";
+  return d.code ? `${kind} [${d.code}]` : kind;
+}
 
 export class DiagnosticsPanelView {
   private visible = false;
@@ -57,31 +69,74 @@ export class DiagnosticsPanelView {
     if (hidden) return;
 
     this.panelEl.replaceChildren();
+    const table = document.createElement("table");
+    table.className = "diag-table";
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["種別", "該当箇所", "メッセージ", "操作"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
     report.items.forEach((d, i) => {
-      const item = document.createElement("div");
-      item.className = `diag-item diag-${d.severity}`;
-      if (this.jumpTarget(d)) {
-        item.classList.add("diag-jumpable");
-        item.dataset["diagIndex"] = String(i);
+      const row = document.createElement("tr");
+      row.className = `diag-item diag-${d.severity}`;
+      const jumpable = this.jumpTarget(d);
+      if (jumpable) {
+        row.classList.add("diag-jumpable");
+        row.dataset["diagIndex"] = String(i);
       }
-      item.textContent = formatDiagnostic(d);
-      this.panelEl.appendChild(item);
+
+      const tdKind = document.createElement("td");
+      tdKind.className = "diag-col-kind";
+      tdKind.textContent = formatSeverityColumn(d);
+
+      const tdLoc = document.createElement("td");
+      tdLoc.className = "diag-col-location";
+      tdLoc.textContent = formatLocationColumn(d);
+
+      const tdMsg = document.createElement("td");
+      tdMsg.className = "diag-col-message";
+      tdMsg.textContent = d.message;
+
+      const tdAction = document.createElement("td");
+      tdAction.className = "diag-col-action";
+      if (jumpable) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "diag-jump-btn";
+        btn.dataset["diagIndex"] = String(i);
+        btn.textContent = "ジャンプ";
+        tdAction.appendChild(btn);
+      } else {
+        tdAction.textContent = "—";
+      }
+
+      row.append(tdKind, tdLoc, tdMsg, tdAction);
+      tbody.appendChild(row);
     });
+    table.appendChild(tbody);
+    this.panelEl.appendChild(table);
     this.updateHeightLimit();
   }
 
-  /** 折り返し行も1診断として、先頭10件の実際の高さ（padding・罫線込み）まで表示する。 */
+  /** 折り返し行も1診断として、先頭10件の実際の高さ（ヘッダ・padding・罫線込み）まで表示する。 */
   updateHeightLimit(): void {
     if (this.panelEl.hidden) return;
+    const theadHeight = this.panelEl.querySelector<HTMLElement>("thead")?.getBoundingClientRect().height ?? 0;
     const rows = Array.from(this.panelEl.querySelectorAll<HTMLElement>(".diag-item")).slice(0, 10);
-    const height = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+    const height = theadHeight + rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
     if (height > 0) this.panelEl.style.maxHeight = `${height}px`;
   }
 
   private jumpTarget(d: Diagnostic): boolean {
     return d.relatedCellId !== undefined || d.relatedJoinId !== undefined;
   }
-
 
   private jumpTo(index: number): void {
     const d = this.store.getReport().items[index];

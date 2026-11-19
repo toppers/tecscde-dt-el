@@ -60,6 +60,16 @@
         opacity: 0.45;
         cursor: default;
       }
+      #toolbar-mode {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+      }
+      #toolbar-mode button.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
       #toolbar .tecsgen-copy-controls {
         display: flex;
         align-items: center;
@@ -94,33 +104,9 @@
         gap: 12px;
         max-width: 100%;
       }
-      #toolbar[hidden], #palette[hidden], #property-panel[hidden], #statusbar[hidden], #file-browser[hidden] {
+      #palette[hidden], #file-browser[hidden] {
         display: none;
       }
-      #panel-visibility { position: relative; flex: none; }
-      #panel-visibility > summary {
-        padding: 2px 8px;
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        background: #fff;
-        cursor: pointer;
-      }
-      #panel-visibility-options {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        z-index: 20;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        min-width: 180px;
-        padding: 8px;
-        background: #fff;
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
-      }
-      #panel-visibility:not([open]) #panel-visibility-options { display: none; }
       #region-filter {
         position: relative;
       }
@@ -352,24 +338,12 @@
         overflow: auto;
         scrollbar-gutter: stable;
         background: #fafafa;
-        /* 2026-09-21: 用紙(#canvas)がビューポートより小さいとき（低〜中倍率で頻発）、
-           overflow:autoの既定block整列だとSVGが左上に張り付き、scrollLeft/Topも
-           スクロール範囲なしで常に0にクランプされる（pan-scroll.ts）。結果、
-           ズームの固定点計算（view-state.ts zoomAt）は正しくてもカーソル位置ではなく
-           常に画面左上を中心にズームしているように見えていた（実機対話確認で発見）。
-           横方向のflex+safe centerは「収まる時は中央寄せ、はみ出す時は通常のスクロール開始位置
-           （左上0）」を両立する標準的な手法——コンテンツが実際にビューポートを超える
-           軸ではこれまで通りscrollLeft/Topの計算がそのまま機能する。 */
         display: flex;
         justify-content: safe center;
-        /* 下端の診断パネルで高さが変わっても、用紙の上端を動かさない（外部仕様9.6）。 */
         align-items: flex-start;
       }
       #canvas {
         display: block;
-        /* 親(#canvas-scroll)がflexのため、既定のflex-shrink:1だとSVGが親の幅へ縮められ、
-           はみ出した部分が切れて横スクロールもできなくなる（拡大時に一部のセルしか
-           見えず、ナビゲータでも動かない不具合の原因）。縮めない。 */
         flex: none;
       }
       #region-legend {
@@ -388,19 +362,17 @@
       #region-legend[hidden] {
         display: none;
       }
+      /* 内部仕様 5B.4: キャンバスに隣接する固定の凡例領域（キャンバス上のセルを隠さない） */
       #status-legend {
-        position: absolute;
-        left: 8px;
-        top: 8px;
         display: flex;
-        gap: 8px;
-        padding: 4px 8px;
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid var(--border);
-        border-radius: 3px;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 3px 10px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
         font-size: 11px;
-        pointer-events: none;
-        z-index: 5;
+        flex: none;
       }
       #status-legend .legend-item {
         display: inline-flex;
@@ -689,12 +661,41 @@
         background: #fff;
         border-top: 1px solid var(--border);
       }
-      .diag-item {
-        padding: 4px 10px;
+      .diag-table {
+        width: 100%;
+        border-collapse: collapse;
         font-size: 11px;
         line-height: 18px;
+      }
+      .diag-table th,
+      .diag-table td {
+        padding: 4px 8px;
+        text-align: left;
+        vertical-align: top;
         border-bottom: 1px solid var(--border);
+      }
+      .diag-table th {
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .diag-col-kind,
+      .diag-col-location,
+      .diag-col-action {
+        white-space: nowrap;
+      }
+      .diag-col-message {
         overflow-wrap: anywhere;
+      }
+      .diag-jump-btn {
+        font: inherit;
+        padding: 1px 6px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: #fff;
+        cursor: pointer;
       }
       .diag-error {
         color: #b91c1c;
@@ -716,6 +717,10 @@
       <div id="toolbar">
         <button data-action="openFileBrowser" type="button" title="ファイルブラウザを開く">ファイル</button>
         <button data-action="openCelltypes" type="button" title="セルタイプ一覧を開く">セルタイプ一覧</button>
+        <div id="toolbar-mode" role="group" aria-label="編集モード">
+          <button data-mode="select" type="button" aria-pressed="true" class="active">選択</button>
+          <button data-mode="newCell" type="button" aria-pressed="false">セル新規作成</button>
+        </div>
         <button data-action="save" type="button">保存</button>
         <button data-action="saveAs" type="button">名前を付けて保存</button>
         <button data-action="exportDiagram" type="button">エクスポート</button>
@@ -747,16 +752,6 @@
         <button data-action="about" type="button" title="バージョン情報を表示する（外部仕様3.8）">情報</button>
         <span class="sep"></span>
         <div id="display-controls" role="group" aria-label="表示設定">
-          <details id="panel-visibility">
-            <summary>表示</summary>
-            <div id="panel-visibility-options">
-              <label><input type="checkbox" data-panel="toolbar" aria-controls="toolbar" checked /> ツールバー</label>
-              <label><input type="checkbox" data-panel="palette" aria-controls="palette" checked /> セルタイプ一覧</label>
-              <label><input type="checkbox" data-panel="property-panel" aria-controls="property-panel" checked /> プロパティ</label>
-              <label><input type="checkbox" data-panel="statusbar" aria-controls="statusbar" checked /> ステータス表示</label>
-              <label><input type="checkbox" data-panel="file-browser" aria-controls="file-browser" checked /> ファイルブラウザ</label>
-            </div>
-          </details>
           <div id="region-filter">
             <button type="button" id="region-filter-toggle" aria-expanded="false" title="チェックを外したリージョンのセルを非表示にする（外部仕様7.5.2）">リージョン</button>
             <div id="region-filter-popover" hidden></div>
@@ -777,6 +772,7 @@
               <option value="A2:PORTRAIT">A2 縦</option>
             </select>
           </label>
+          <button data-action="setDefaultPaper" type="button" id="paper-set-default" title="現在の用紙を新規作成時のアプリケーション既定に設定する（外部仕様3.2.y）">既定に設定</button>
         </div>
         <div id="search-box">
           <input type="search" id="search-input" placeholder="検索: セル名/セルタイプ/シグニチャ" />
@@ -786,18 +782,18 @@
           <div id="search-results"></div>
         </div>
       </div>
+      <div id="status-legend" class="status-legend" aria-label="状態凡例">
+        <span class="legend-item"><span class="badge badge-ro">RO</span> 編集不可</span>
+        <span class="legend-item"><span class="badge badge-warn">!</span> 不完全</span>
+        <span class="legend-item"><span class="badge badge-u">U</span> 未結合</span>
+      </div>
       <div id="main">
         <div id="canvas-area">
           <div id="canvas-scroll">
             <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
           </div>
           <div id="region-legend" hidden></div>
-          <div id="status-legend" class="status-legend" aria-label="状態凡例">
-            <span class="legend-item"><span class="badge badge-ro">RO</span> 編集不可</span>
-            <span class="legend-item"><span class="badge badge-warn">!</span> 不完全</span>
-            <span class="legend-item"><span class="badge badge-u">U</span> 未結合</span>
-          </div>
-        <div id="navigator">
+          <div id="navigator">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
           </div>
         </div>

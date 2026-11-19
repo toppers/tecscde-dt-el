@@ -39,6 +39,7 @@ export class InformationDialog {
   private readonly version: HTMLPreElement;
   private readonly path: HTMLInputElement;
   private readonly tecspath: HTMLInputElement;
+  private readonly tecsgenCommandEnv: HTMLInputElement;
   private readonly override: HTMLParagraphElement;
   private readonly checkResult: HTMLParagraphElement;
   private readonly settingsResult: HTMLParagraphElement;
@@ -114,9 +115,12 @@ export class InformationDialog {
     help.textContent = "確認は入力中の候補を調べます。確認に失敗しても保存できます。";
     this.checkResult = this.result("information-check-result");
     this.settingsResult = this.result("information-settings-result");
-    const tecspathField = this.field("information-tecspath", "TECSPATH");
+    const tecspathField = this.field("information-tecspath", "環境変数TECSPATH:");
     this.tecspath = tecspathField.input;
     this.tecspath.readOnly = true;
+    const tecsgenCommandField = this.field("information-tecsgen-command", "環境変数TECSGEN_COMMAND:");
+    this.tecsgenCommandEnv = tecsgenCommandField.input;
+    this.tecsgenCommandEnv.readOnly = true;
     this.override = this.doc.createElement("p");
     this.override.id = "information-override";
     this.override.className = "information-note";
@@ -229,7 +233,7 @@ export class InformationDialog {
     footer.append(this.button("close", "閉じる", () => { this.dialog.close(); }));
     this.dialog.append(
       heading, versionHeading, this.version, copy, this.copyResult,
-      settingsHeading, pathField.wrapper, actions, help, this.checkResult, this.settingsResult, tecspathField.wrapper, this.override,
+      settingsHeading, pathField.wrapper, actions, help, this.checkResult, this.settingsResult, tecspathField.wrapper, tecsgenCommandField.wrapper, this.override,
       cppHeading, this.cppEffective, this.cppMeta, cppPathField.wrapper, cppActions, cppArgsField.wrapper, this.cppResult,
       pluginHeading, pluginField, pluginActions, this.pluginResult, pluginTableLabel, pluginTable, pluginNoteUnsupported, pluginNoteExternal, pluginNoteReload,
       footer
@@ -371,6 +375,7 @@ export class InformationDialog {
     if (this.settings && settings.revision < this.settings.revision) return false;
     this.settings = settings;
     this.tecspath.value = settings.tecspath;
+    this.tecsgenCommandEnv.value = settings.tecsgenCommandEnv ?? "";
     this.override.textContent = settings.override
       ? "環境変数TECSGEN_COMMANDが優先されているため、保存したパスは実行に使われません。"
       : "";
@@ -407,7 +412,7 @@ export class InformationDialog {
     ] : ["バージョン情報: 未取得"];
     const confirmedCommand = this.toolStatus?.command === "未確認" ? undefined : this.toolStatus?.command;
     lines.push(`tecsgen: ${this.toolStatus?.version || "未確認"}`,
-      `実行コマンド: ${confirmedCommand || this.settings?.effectiveCommand || "未確認"}`);
+      `tecsgenのコマンドラインオプション: ${confirmedCommand || this.settings?.effectiveCommand || "未確認"}`);
     this.version.textContent = lines.join("\n");
   }
 
