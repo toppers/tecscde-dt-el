@@ -21,6 +21,7 @@ import type {
   CloseStateResponse,
   SourceWriteReceipt,
   LogAppendResult,
+  LogKind,
   ToolSettingsUpdate,
 } from "../shared/ipc-types.js";
 
@@ -116,7 +117,7 @@ const api: TecscdeApi = {
     replyCloseState: (response: CloseStateResponse) => ipcRenderer.send("window:closeState", response),
   },
   log: {
-    append: (lines: readonly string[]): Promise<LogAppendResult> => ipcRenderer.invoke("log:append", lines),
+    append: (lines: readonly string[], kind?: LogKind): Promise<LogAppendResult> => ipcRenderer.invoke("log:append", lines, kind),
   },
   // 第7章7.4節: main が did-finish-load 後に一度だけ送る起動ドキュメント。
   onBootstrap: (listener: (data: OpenResult | null) => void): void => {

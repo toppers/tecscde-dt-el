@@ -107,7 +107,7 @@ describe("checkTecsgenVersion", () => {
     expect(codes()).toContain(TECSGEN_VERSION_CODES.OLD);
     store.loadDocument(store.getDocument(), null);
     expect(codes()).toContain(TECSGEN_VERSION_CODES.OLD);
-    expect(log.append).toHaveBeenCalledWith(["tecsgen version: 1.2.0"]);
+    expect(log.append).toHaveBeenCalledWith(["tecsgen version: 1.2.0"], "debug");
   });
 
   it("adds nothing when the version is supported, and logs the version", async () => {
@@ -115,7 +115,7 @@ describe("checkTecsgenVersion", () => {
     const log = { append: vi.fn().mockResolvedValue(undefined) };
     await checkTecsgenVersion(store, { version: async () => ({ kind: "ok", text: "tecsgen  version 1.9.1" }) }, log);
     expect(store.getReport().items.map((d) => d.code)).not.toContain(TECSGEN_VERSION_CODES.OLD);
-    expect(log.append).toHaveBeenCalledWith(["tecsgen version: 1.9.1"]);
+    expect(log.append).toHaveBeenCalledWith(["tecsgen version: 1.9.1"], "debug");
   });
 
   it("treats a rejected IPC call as an unknown version", async () => {

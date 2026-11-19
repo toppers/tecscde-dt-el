@@ -251,6 +251,8 @@ export type PdfPage =
   | { readonly kind: "paper"; readonly size: "A4" | "A3" | "A2"; readonly orientation: "LANDSCAPE" | "PORTRAIT" }
   | { readonly kind: "custom"; readonly widthMm: number; readonly heightMm: number };
 
+export type LogKind = "diagnosis" | "error" | "debug";
+
 /** `log.append` の結果。`newFailure` は、ログを書けなくなった最初の一度だけ入る理由。 */
 export interface LogAppendResult {
   readonly newFailure?: string;
@@ -337,7 +339,7 @@ export interface TecscdeApi {
    * 結果の `newFailure` は、書けなくなった最初の一度だけ入る理由（外部仕様9.5.2の規定13）。
    */
   readonly log: {
-    append(lines: readonly string[]): Promise<LogAppendResult>;
+    append(lines: readonly string[], kind?: LogKind): Promise<LogAppendResult>;
   };
   /**
    * 第7章7.4節: 起動時に main が一度だけ送る初期ドキュメント。コマンドライン引数・

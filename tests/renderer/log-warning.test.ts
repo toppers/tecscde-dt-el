@@ -47,7 +47,7 @@ describe("Plugin取り込み方式の行（9-1）", () => {
       editable: { path: "/main.cdl", content: "cell tUndefinedType cFoo {}\n" }, references: [],
     }, { pluginTypeSource: "external", log });
 
-    expect(log.append).toHaveBeenCalled();
+    expect(log.append).toHaveBeenCalledWith([expect.stringContaining("Plugin 生成型取り込み方式")], "debug");
     const warnings = store.getReport().items.filter((d) => d.code === "W-LOG-WRITE-FAILED");
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.message).toContain("EACCES");
@@ -67,7 +67,7 @@ describe("createLogAppender", () => {
 
     await createLogAppender(gateway, store)(["[W-A] x"]);
 
-    expect(gateway.append).toHaveBeenCalledWith(["[W-A] x"]);
+    expect(gateway.append).toHaveBeenCalledWith(["[W-A] x"], undefined);
     const warnings = store.getReport().items.filter((d) => d.code === "W-LOG-WRITE-FAILED");
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.message).toContain("ENOENT");

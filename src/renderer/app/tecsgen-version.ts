@@ -3,7 +3,7 @@
 // （ドキュメントの読み込みやGenerateでは消えない）。tecsgenが見つからないときは何も出さない
 // （「実行(Generate)」などで必要になったときに、エラーとして提示される）。
 
-import type { TecsgenVersionResult } from "../../shared/ipc-types.js";
+import type { LogKind, TecsgenVersionResult } from "../../shared/ipc-types.js";
 import type { Diagnostic } from "../diagnostics";
 import type { AppStore } from "./store";
 import type { TecsgenGateway } from "../gateways/tecsgen-gateway";
@@ -43,7 +43,7 @@ function formatVersion(version: readonly number[]): string {
   return version.join(".");
 }
 
-/** 結果から、出すべき診断（無ければ空）と、診断ログに書く1行（取得できたとき）を決める。 */
+/** 結果から、出すべき診断（無ければ空）と、デバッグログに書く1行（取得できたとき）を決める。 */
 export function evaluateTecsgenVersion(result: TecsgenVersionResult): {
   readonly diagnostics: readonly Diagnostic[];
   readonly logLine?: string;
@@ -82,7 +82,7 @@ export async function checkTecsgenVersion(
   store: Pick<AppStore, "setEnvironmentDiagnostics" | "setTecsgenInfo"> &
     Partial<Pick<AppStore, "replaceTecsgenEnvironmentDiagnostics" | "setTecsgenStatus" | "setToolSettingsRevision">>,
   tecsgen: Pick<TecsgenGateway, "version">,
-  log: { append(lines: readonly string[]): Promise<unknown> },
+  log: { append(lines: readonly string[], kind?: LogKind): Promise<unknown> },
   onWarning?: () => void,
   command = "未確認",
   revision?: number,
@@ -115,6 +115,6 @@ export async function checkTecsgenVersion(
   if (diagnostics.length > 0) {
     onWarning?.();
   }
-  if (logLine) await log.append([logLine]).catch(() => undefined);
+  if (logLine) await log.append([logLine], "debug").catch(() => undefined);
   return result;
 }

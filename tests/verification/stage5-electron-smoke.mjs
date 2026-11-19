@@ -140,8 +140,8 @@ try {
 
   assert(true, "Electron and renderer loaded with window.tecscde");
 
-  // 2. ログディレクトリの特定（Windows では LOCALAPPDATA/tecscde-dt-el/logs）
-  const expectedLogsDir = join(temp, "tecscde-dt-el", "logs");
+  // 2. 診断ログディレクトリの特定（Windows では LOCALAPPDATA/tecscde-dt-el/logs/diagnosis）
+  const expectedLogsDir = join(temp, "tecscde-dt-el", "logs", "diagnosis");
 
   // 起動直後: サンプルのロードのみでエラーがない場合、空の区切り行だけのファイルは作成されない（監査#67）
   await delay(500);
@@ -159,7 +159,7 @@ try {
     "--- /virtual/test.cdl ---",
     "[W-TEST] sample warning line 1\\\\nline 2"
   ])`);
-  assert(appendResult?.success === true, "log.append succeeded", { appendResult });
+  assert(appendResult && appendResult.newFailure === undefined, "log.append succeeded", { appendResult });
 
   // ログファイルが作成されたことを確認
   const createdFiles = await eventually(async () => {

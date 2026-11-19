@@ -150,7 +150,9 @@ describe("LogGateway", () => {
 
     new LogGateway().append(["[W-X] a"]);
 
-    expect(api.log.append).toHaveBeenCalledWith(["[W-X] a"]);
+    expect(api.log.append).toHaveBeenCalledWith(["[W-X] a"], undefined);
+    new LogGateway().append(["[E-X] failure"], "error");
+    expect(api.log.append).toHaveBeenCalledWith(["[E-X] failure"], "error");
   });
 });
 

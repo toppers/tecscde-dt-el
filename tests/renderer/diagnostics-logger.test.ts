@@ -40,6 +40,26 @@ describe("formatDiagnostic & escapeSingleLine", () => {
 });
 
 describe("DiagnosticsLogger", () => {
+  it("routes E- codes to the error log while keeping other diagnostics in the diagnosis log", () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const { store, state } = fakeStore({
+      filePath: "/p/main.cdl",
+      items: [diag("E-SAVE-FAILED", "save failed"), diag("W-A", "warning")],
+    });
+    const logger = new DiagnosticsLogger(store, write);
+
+    logger.sync();
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[E-SAVE-FAILED] save failed"], "error");
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] warning"], "diagnosis");
+    write.mockClear();
+
+    state.filePath = "/p/next.cdl";
+    state.items = [diag("E-SAVE-FAILED", "save failed")];
+    logger.sync();
+    expect(write).toHaveBeenCalledWith(["--- /p/next.cdl ---", "[E-SAVE-FAILED] save failed"], "error");
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
   it("does not write anything when a file is open but has no diagnostics (audit #67)", () => {
     const write = vi.fn().mockResolvedValue(undefined);
     const { store } = fakeStore({ filePath: "/p/main.cdl", items: [] });
@@ -62,7 +82,7 @@ describe("DiagnosticsLogger", () => {
     logger.sync();
 
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one", "[W-B] two"]);
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one", "[W-B] two"], "diagnosis");
   });
 
   it("writes only newly appeared diagnostics on later syncs, and nothing when unchanged", () => {
@@ -77,7 +97,7 @@ describe("DiagnosticsLogger", () => {
 
     state.items = [diag("W-A", "one"), diag("W-C", "three")];
     logger.sync();
-    expect(write).toHaveBeenCalledWith(["[W-C] three"]);
+    expect(write).toHaveBeenCalledWith(["[W-C] three"], "diagnosis");
   });
 
   it("never writes the log-write-failed warning into the log (spec 9.5.2 rule 13)", () => {
@@ -89,7 +109,7 @@ describe("DiagnosticsLogger", () => {
 
     new DiagnosticsLogger(store, write).sync();
 
-    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one"]);
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one"], "diagnosis");
   });
 
   it("starts over with a separator line when the edited file changes", () => {
@@ -108,7 +128,7 @@ describe("DiagnosticsLogger", () => {
     // 診断が現れたら --- /p/b.cdl --- と一緒に書き込まれる
     state.items = [diag("W-A", "one")];
     logger.sync();
-    expect(write).toHaveBeenCalledWith(["--- /p/b.cdl ---", "[W-A] one"]);
+    expect(write).toHaveBeenCalledWith(["--- /p/b.cdl ---", "[W-A] one"], "diagnosis");
   });
 
   it("filters out W-LOG-WRITE-FAILED from being logged to prevent recursion (audit #66)", () => {
@@ -126,7 +146,7 @@ describe("DiagnosticsLogger", () => {
     // 他の診断がある場合、W-LOG-WRITE-FAILED 以外だけが出力される
     state.items = [diag("W-A", "one"), diag(W_CODES.LOG_WRITE_FAILED, "failed to write log")];
     logger.sync();
-    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one"]);
+    expect(write).toHaveBeenCalledWith(["--- /p/main.cdl ---", "[W-A] one"], "diagnosis");
   });
 
   it("reports a failed write to the console without throwing", async () => {

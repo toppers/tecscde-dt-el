@@ -4,48 +4,52 @@
 // W-LOG-WRITE-FAILED 自身はログ追記から除外して再帰を防止する（監査#66）。
 
 import { formatDiagnostic } from "../diagnostics/format";
+import type { LogKind } from "../../shared/ipc-types.js";
 import { LOG_WRITE_FAILED_CODE } from "./log-warning";
 import type { AppStore } from "./store";
 
 export class DiagnosticsLogger {
   private previous: ReadonlySet<string> = new Set();
   private currentFile: string | null = null;
-  private pendingDelimiter: string | null = null;
+  private pendingDelimiters: Record<"diagnosis" | "error", string | null> = { diagnosis: null, error: null };
 
   constructor(
     private readonly store: AppStore,
-    private readonly write: (lines: readonly string[]) => Promise<unknown>,
+    private readonly write: (lines: readonly string[], kind?: LogKind) => Promise<unknown>,
   ) {}
 
   sync(): void {
     // ログを書けない警告は、ログへ書かない（書けないため。外部仕様9.5.2の規定13）。
-    const lines = this.store
+    const items = this.store
       .getReport()
-      .items.filter((d) => d.code !== LOG_WRITE_FAILED_CODE)
-      .map(formatDiagnostic);
-    const out: string[] = [];
+      .items.filter((d) => d.code !== LOG_WRITE_FAILED_CODE);
 
     const filePath = this.store.filePath;
     if (filePath !== this.currentFile) {
       this.currentFile = filePath;
       this.previous = new Set();
-      this.pendingDelimiter = filePath ? `--- ${filePath} ---` : null;
+      this.pendingDelimiters = {
+        diagnosis: filePath ? `--- ${filePath} ---` : null,
+        error: filePath ? `--- ${filePath} ---` : null,
+      };
     }
 
-    const newLines: string[] = [];
-    for (const line of lines) {
-      if (!this.previous.has(line)) newLines.push(line);
+    const newLines: Record<"diagnosis" | "error", string[]> = { diagnosis: [], error: [] };
+    const lines = items.map((d) => ({ line: formatDiagnostic(d), kind: d.code.startsWith("E-") ? "error" as const : "diagnosis" as const }));
+    for (const { line, kind } of lines) {
+      if (!this.previous.has(line)) newLines[kind].push(line);
     }
-    this.previous = new Set(lines);
+    this.previous = new Set(lines.map(({ line }) => line));
 
-    if (newLines.length > 0) {
+    for (const kind of ["diagnosis", "error"] as const) {
+      if (newLines[kind].length === 0) continue;
       const out: string[] = [];
-      if (this.pendingDelimiter !== null) {
-        out.push(this.pendingDelimiter);
-        this.pendingDelimiter = null;
+      if (this.pendingDelimiters[kind] !== null) {
+        out.push(this.pendingDelimiters[kind]!);
+        this.pendingDelimiters[kind] = null;
       }
-      out.push(...newLines);
-      this.write(out).catch((error: unknown) => console.error("ログ出力に失敗しました:", error));
+      out.push(...newLines[kind]);
+      this.write(out, kind).catch((error: unknown) => console.error("ログ出力に失敗しました:", error));
     }
   }
 }

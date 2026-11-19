@@ -73,7 +73,7 @@ function main(): void {
   const shell = new AppShell({ root: document, store, gateway, clipboard, tecsgen, settings, windowGateway: new WindowGateway(), runtimeVersions: window.tecscde.versions, win: window });
   shell.start();
 
-  // 診断パネルに出る内容を、ログファイルにも同じ文面で残す。
+  // 診断パネルに出る内容を、コードに応じて診断ログとエラーログへ残す。
   const appendLog = createLogAppender(new LogGateway(), store);
   const logger = new DiagnosticsLogger(store, appendLog);
   store.subscribe(() => logger.sync());

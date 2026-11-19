@@ -6,7 +6,14 @@ import { LogService, logFileName, pruneOldLogs, LOG_KEEP_COUNT } from "../../src
 
 describe("logFileName", () => {
   it("builds a timestamped .txt name from the local time", () => {
-    expect(logFileName(new Date(2026, 9, 5, 7, 8, 9))).toBe("tecscde-log-20261005-070809.txt");
+    expect(logFileName(new Date(2026, 9, 5, 7, 8, 9), "diagnosis")).toBe("tecscde-diagnosis-20261005-070809.txt");
+  });
+
+  it("uses a separate name for each log kind", () => {
+    const now = new Date(2026, 9, 5, 7, 8, 9);
+    expect(logFileName(now, "diagnosis")).toBe("tecscde-diagnosis-20261005-070809.txt");
+    expect(logFileName(now, "error")).toBe("tecscde-error-20261005-070809.txt");
+    expect(logFileName(now, "debug")).toBe("tecscde-debug-20261005-070809.txt");
   });
 });
 
@@ -36,10 +43,11 @@ describe("LogService", () => {
     await service.append(["[W-A] first"]);
     await service.append(["[W-B] second", "[W-C] third"]);
 
-    const files = await readdir(dir);
-    expect(files).toEqual(["tecscde-log-20261005-102030.txt"]);
-    expect(service.path).toBe(join(dir, files[0]!));
-    const text = await readFile(join(dir, files[0]!), "utf8");
+    expect(await readdir(dir)).toEqual(["diagnosis"]);
+    const files = await readdir(join(dir, "diagnosis"));
+    expect(files).toEqual(["tecscde-diagnosis-20261005-102030.txt"]);
+    expect(service.path).toBe(join(dir, "diagnosis", files[0]!));
+    const text = await readFile(join(dir, "diagnosis", files[0]!), "utf8");
     const lines = text.trimEnd().split("\n");
     expect(lines[0]).toBe(`# TECSCDE 診断ログ（起動: ${started.toISOString()}、版: 0.1.0）`);
     expect(lines.slice(1)).toEqual(["[W-A] first", "[W-B] second", "[W-C] third"]);
@@ -51,7 +59,7 @@ describe("LogService", () => {
 
     await service.append(["[W-A] first"]);
 
-    expect(await readdir(nested)).toEqual(["tecscde-log-20261005-102030.txt"]);
+    expect(await readdir(join(nested, "diagnosis"))).toEqual(["tecscde-diagnosis-20261005-102030.txt"]);
   });
 
   it("keeps the order of calls that are not awaited one by one", async () => {
@@ -75,6 +83,26 @@ describe("LogService", () => {
     const service = new LogService(dir, "0.1.0", () => started);
 
     await expect(service.append(["[W-A] first"])).resolves.toEqual({});
+  });
+
+  it("writes diagnosis, error, and debug entries only to their own directories", async () => {
+    const service = new LogService(dir, "0.1.0", () => started);
+    await service.append(["[W-A] warning"], "diagnosis");
+    await service.append(["[E-A] failure"], "error");
+    await service.append(["plugin mode: internal"], "debug");
+
+    expect((await readdir(dir)).sort()).toEqual(["debugs", "diagnosis", "error"]);
+    expect(await readFile(service.pathFor("diagnosis")!, "utf8")).toContain("[W-A] warning");
+    expect(await readFile(service.pathFor("error")!, "utf8")).toContain("[E-A] failure");
+    expect(await readFile(service.pathFor("debug")!, "utf8")).toContain("plugin mode: internal");
+    expect(await readFile(service.pathFor("diagnosis")!, "utf8")).not.toContain("[E-A]");
+    expect(await readFile(service.pathFor("error")!, "utf8")).not.toContain("[W-A]");
+  });
+
+  it("rejects an unknown log kind before creating a directory", async () => {
+    const service = new LogService(dir, "0.1.0", () => started);
+    await expect(service.append(["x"], "unknown" as never)).rejects.toThrow("Invalid log kind");
+    expect(await readdir(dir)).toEqual([]);
   });
 
   describe("when the log cannot be written (spec 9.5.2 rule 13)", () => {
@@ -108,6 +136,12 @@ describe("LogService", () => {
       const second = await service.append(["[W-B] second"]);
 
       expect(second).toEqual({});
+    });
+
+    it("reports only the first failure across all log kinds", async () => {
+      const service = new LogService(blockedDir, "0.1.0", () => started);
+      expect((await service.append(["[E-A] failure"], "error")).newFailure).toBeDefined();
+      expect(await service.append(["plugin mode: internal"], "debug")).toEqual({});
     });
 
     it("recovers: once the directory becomes writable, writes succeed and nothing is reported", async () => {
@@ -152,13 +186,13 @@ describe("pruneOldLogs (spec 9.5.2 rule 12)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  const name = (i: number): string => `tecscde-log-202610${String(i).padStart(2, "0")}-120000.txt`;
+  const name = (i: number): string => `tecscde-diagnosis-202610${String(i).padStart(2, "0")}-120000.txt`;
 
-  it("keeps the newest 30 tecscde-log-*.txt files (by file name) and deletes the older ones", async () => {
+  it("keeps the newest 30 diagnosis files (by file name) and deletes the older ones", async () => {
     expect(LOG_KEEP_COUNT).toBe(30);
     for (let i = 1; i <= 35; i += 1) await writeFile(join(dir, name(i)), "x");
 
-    await pruneOldLogs(dir);
+    await pruneOldLogs(dir, "diagnosis");
 
     const left = (await readdir(dir)).sort();
     expect(left).toHaveLength(30);
@@ -169,26 +203,26 @@ describe("pruneOldLogs (spec 9.5.2 rule 12)", () => {
   it("leaves everything when there are 30 or fewer", async () => {
     for (let i = 1; i <= 30; i += 1) await writeFile(join(dir, name(i)), "x");
 
-    await pruneOldLogs(dir);
+    await pruneOldLogs(dir, "diagnosis");
 
     expect(await readdir(dir)).toHaveLength(30);
   });
 
-  it("never touches files that do not match tecscde-log-*.txt, nor subdirectories", async () => {
+  it("never touches files that do not match the diagnosis log name, nor subdirectories", async () => {
     for (let i = 1; i <= 35; i += 1) await writeFile(join(dir, name(i)), "x");
     await writeFile(join(dir, "settings.json"), "{}");
     await writeFile(join(dir, "notes.txt"), "keep");
-    await writeFile(join(dir, "tecscde-log-keep.bak"), "keep");
-    await mkdir(join(dir, "tecscde-log-20200101-000000.txt")); // 名前は合うがディレクトリ
+    await writeFile(join(dir, "tecscde-diagnosis-keep.bak"), "keep");
+    await mkdir(join(dir, "tecscde-diagnosis-20200101-000000.txt")); // 名前は合うがディレクトリ
 
-    await pruneOldLogs(dir);
+    await pruneOldLogs(dir, "diagnosis");
 
     const left = await readdir(dir);
-    expect(left).toEqual(expect.arrayContaining(["settings.json", "notes.txt", "tecscde-log-keep.bak", "tecscde-log-20200101-000000.txt"]));
-    expect(left.filter((f) => /^tecscde-log-\d{8}-\d{6}\.txt$/.test(f) && f !== "tecscde-log-20200101-000000.txt")).toHaveLength(30);
+    expect(left).toEqual(expect.arrayContaining(["settings.json", "notes.txt", "tecscde-diagnosis-keep.bak", "tecscde-diagnosis-20200101-000000.txt"]));
+    expect(left.filter((f) => /^tecscde-diagnosis-\d{8}-\d{6}\.txt$/.test(f) && f !== "tecscde-diagnosis-20200101-000000.txt")).toHaveLength(30);
   });
 
   it("does nothing, without throwing, when the directory does not exist", async () => {
-    await expect(pruneOldLogs(join(dir, "missing"))).resolves.toBeUndefined();
+    await expect(pruneOldLogs(join(dir, "missing"), "diagnosis")).resolves.toBeUndefined();
   });
 });

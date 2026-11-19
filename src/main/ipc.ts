@@ -12,7 +12,7 @@ import { ToolSettingsService, chooseCppPath } from "./tool-settings.js";
 import { getAppInformation } from "./app-information.js";
 import { formatTecsgenCommand } from "./tecsgen-command-copy.js";
 import { CdlFileListService } from "./cdl-file-list.js";
-import type { ExportFormat, ImportRequest, ImportResolutionOptions, PdfPage, SessionSnapshot, ToolSettingsUpdate } from "../shared/ipc-types.js";
+import type { ExportFormat, ImportRequest, ImportResolutionOptions, LogKind, PdfPage, SessionSnapshot, ToolSettingsUpdate } from "../shared/ipc-types.js";
 
 /**
  * macOSでは全ウィンドウを閉じてもアプリは終了せず、Dockから再度開くと`createWindow()`が
@@ -134,7 +134,7 @@ export function registerIpcHandlers(
   ipcMain.handle("settings:get", async () => ({
     allowEditSystemDefined: (await loadAppSettings()).allowEditSystemDefined === true,
   }));
-  ipcMain.handle("log:append", (_e, lines: readonly string[]) => logService.append(lines));
+  ipcMain.handle("log:append", (_e, lines: readonly string[], kind?: LogKind) => logService.append(lines, kind));
 
   // 第4章4.1節・第2章2.4節: clipboardはpreloadから直接requireできない
   // （実機確認で判明——ESM/CJS問わずpreloadに公開されるelectronモジュールには

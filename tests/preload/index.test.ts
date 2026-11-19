@@ -77,7 +77,9 @@ describe("preload", () => {
 
   it("log.append invokes log:append with the lines", () => {
     exposedApi().log.append(["[W-X] a", "[W-Y] b"]);
-    expect(invoke).toHaveBeenCalledWith("log:append", ["[W-X] a", "[W-Y] b"]);
+    expect(invoke).toHaveBeenCalledWith("log:append", ["[W-X] a", "[W-Y] b"], undefined);
+    exposedApi().log.append(["[E-X] failure"], "error");
+    expect(invoke).toHaveBeenCalledWith("log:append", ["[E-X] failure"], "error");
   });
 
   it("file.chooseFolder invokes the file:chooseFolder channel", () => {

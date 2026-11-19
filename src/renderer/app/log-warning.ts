@@ -2,7 +2,7 @@
 // アプリを止めず、診断の一覧（画面）に一度だけ出す。ログには書かない（書けないため。
 // DiagnosticsLogger がこのコードを除いて書き出す）。
 
-import type { LogAppendResult } from "../../shared/ipc-types.js";
+import type { LogAppendResult, LogKind } from "../../shared/ipc-types.js";
 import { W_CODES } from "../cdl/messages";
 import type { Diagnostic } from "../diagnostics";
 import type { AppStore } from "./store";
@@ -14,7 +14,7 @@ export function logWriteFailedDiagnostic(detail: string): Diagnostic {
   return {
     severity: "warning",
     code: LOG_WRITE_FAILED_CODE,
-    message: `診断ログを書けません（${detail}）。診断パネルの内容は、ログファイルに残りません。`,
+    message: `ログファイルを書けません（${detail}）。該当する内容は、ログファイルに残りません。`,
   };
 }
 
@@ -23,11 +23,11 @@ export function logWriteFailedDiagnostic(detail: string): Diagnostic {
  * （main が一度しか知らせないので、警告も一度）。IPC 自体の失敗は、そのまま呼び出し側へ返す。
  */
 export function createLogAppender(
-  gateway: { append(lines: readonly string[]): Promise<LogAppendResult | void> },
+  gateway: { append(lines: readonly string[], kind?: LogKind): Promise<LogAppendResult | void> },
   store: Pick<AppStore, "setLogWriteWarning">,
-): (lines: readonly string[]) => Promise<void> {
-  return async (lines) => {
-    const result = await gateway.append(lines);
+): (lines: readonly string[], kind?: LogKind) => Promise<void> {
+  return async (lines, kind) => {
+    const result = await gateway.append(lines, kind);
     if (result && result.newFailure !== undefined) {
       store.setLogWriteWarning(logWriteFailedDiagnostic(result.newFailure));
     }

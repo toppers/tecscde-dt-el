@@ -198,7 +198,9 @@ describe("registerIpcHandlers", () => {
     await expect(handlers.get("settings:get")!({})).resolves.toEqual({ allowEditSystemDefined: true });
 
     handlers.get("log:append")!({}, ["[W-X] a"]);
-    expect(logService.append).toHaveBeenCalledWith(["[W-X] a"]);
+    expect(logService.append).toHaveBeenCalledWith(["[W-X] a"], undefined);
+    handlers.get("log:append")!({}, ["[E-X] failure"], "error");
+    expect(logService.append).toHaveBeenCalledWith(["[E-X] failure"], "error");
     logService.append.mockResolvedValueOnce({ newFailure: "EACCES" });
     await expect(handlers.get("log:append")!({}, ["[W-Y] b"])).resolves.toEqual({ newFailure: "EACCES" });
 

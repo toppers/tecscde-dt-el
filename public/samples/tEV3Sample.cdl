@@ -1,7 +1,7 @@
 __tool_info__("tecsgen") {
-  "tecscde_version": "0.1.0",
+  "tecscde_version": "0.2.6",
   "cde_format_version": "0.1.0.0",
-  "saved_at": "2026-11-14T00:51:25.224Z",
+  "saved_at": "2026-11-18T01:50:55.608Z",
   "direct_import": [
     "VM1.cdl",
     "EV3_common.cdl",
@@ -49,6 +49,44 @@ __tool_info__("tecscde") {
     "orientation": "LANDSCAPE"
   },
   "join_list": {
+    "Mruby.cInit": {
+      "cell": "Mruby",
+      "cport": "cInit",
+      "targetCell": "VM_TECSInitializer",
+      "eport": "eInitialize",
+      "bars": [
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 285,
+          "to": 281
+        },
+        {
+          "dir": "V",
+          "fixed": 281,
+          "from": 18,
+          "to": 29
+        },
+        {
+          "dir": "H",
+          "fixed": 29,
+          "from": 281,
+          "to": 39
+        },
+        {
+          "dir": "V",
+          "fixed": 39,
+          "from": 29,
+          "to": 18
+        },
+        {
+          "dir": "H",
+          "fixed": 18,
+          "from": 39,
+          "to": 35
+        }
+      ]
+    },
     "MrubyTask1.cBody": {
       "cell": "MrubyTask1",
       "cport": "cBody",
@@ -1135,11 +1173,11 @@ __tool_info__("tecscde") {
           "dir": "V",
           "fixed": 424,
           "from": 183,
-          "to": 228
+          "to": 227
         },
         {
           "dir": "H",
-          "fixed": 228,
+          "fixed": 227,
           "from": 424,
           "to": 420
         }
@@ -1191,20 +1229,20 @@ __tool_info__("tecscde") {
       "bars": [
         {
           "dir": "H",
-          "fixed": 225,
+          "fixed": 249,
           "from": 505,
           "to": 501
         },
         {
           "dir": "H",
-          "fixed": 225,
+          "fixed": 249,
           "from": 501,
           "to": 479
         },
         {
           "dir": "V",
           "fixed": 479,
-          "from": 225,
+          "from": 249,
           "to": 228
         },
         {

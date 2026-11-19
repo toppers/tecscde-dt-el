@@ -129,14 +129,15 @@ CDL を開くと、`tecsgen` を一時的な `-g` ディレクトリで実行し
 
 Cプリプロセッサ（`import_C` 等）は既定で `gcc -E -DTECSGEN` を使用します。`#include "kernel.h"` のようなプロジェクト内ヘッダを解決できるよう、import パスが `-I` として渡されます。
 
-## Diagnostics log
+## Logs
 
-診断パネルに表示される内容は、設定フォルダ配下の固定ディレクトリ（Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外は `userData/logs/`）の `tecscde-log-YYYYMMDD-HHMMSS.txt` に追記されます。起動時に直近30個のログファイルを保持し、古いログは整理されます。書き込みに失敗した場合は一度限りの警告（`W-LOG-WRITE-FAILED`）として画面に通知され、アプリは停止しません。ログファイルは `.gitignore` 対象です。
+ログは設定フォルダ配下の `logs/` に種類別に保存します。Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、それ以外では `userData/logs/` です。診断パネルには全ての診断を表示し、ファイル出力だけをコードで振り分けます。書き込みに失敗した場合は警告 `W-LOG-WRITE-FAILED` を起動中一度だけ画面に出し、アプリは停止しません。ログファイルは `.gitignore` 対象です。
 
-- **置き場所**: 設定ファイル（`settings.json`）と同じフォルダの `logs/` です。Windows では `%LOCALAPPDATA%\tecscde-dt-el\logs\`、macOS では `~/Library/Application Support/tecscde-dt-el/logs/`、それ以外では Electron の `userData` フォルダ配下の `logs/` です。カレントディレクトリには作りません。
-- **先頭行**: `# TECSCDE 診断ログ（起動: <日時>、版: <アプリの版>）` です。診断が1件も出ない起動では、ファイルを作りません。
-- **古いログ**: 起動時に、`tecscde-log-*.txt` のうちファイル名の新しい30個を残し、古いものを削除します（他のファイルには触れません）。
-- **書けないとき**: アプリは停止せず、警告 `W-LOG-WRITE-FAILED` を診断パネルに一度だけ出します（この警告はログには書きません）。
+- **診断ログ**: `logs/diagnosis/tecscde-diagnosis-YYYYMMDD-HHMMSS.txt` に `E-` 以外の診断を記録します。
+- **エラーログ**: `logs/error/tecscde-error-YYYYMMDD-HHMMSS.txt` に `E-` で始まる診断を記録します。
+- **デバッグログ**: `logs/debugs/tecscde-debug-YYYYMMDD-HHMMSS.txt` に tecsgen の版と Plugin 生成型の取り込み方式などの内部情報を記録します。書式は規定しません。
+- **作成と保持**: 各ファイルは、その種類で最初に書く内容があるときだけ作ります。起動時に各種類の新しい30ファイルを残します。
+- **書けないとき**: 警告 `W-LOG-WRITE-FAILED` を診断パネルに一度だけ出します（この警告はログには書きません）。
 - ログにはファイルのパスがそのまま入るため、不具合の報告に添えるときは、ユーザー名などを含まないか確認してください。
 
 ウィンドウに依存しない設定（ファイルブラウザのルート、前回のセッションのファイル一式）は、Windowsでは Local AppData 配下（`%LOCALAPPDATA%\tecscde-dt-el\settings.json`）、macOS では `~/Library/Application Support/tecscde-dt-el/settings.json`、それ以外では Electron の `userData` フォルダ配下に保存されます。
