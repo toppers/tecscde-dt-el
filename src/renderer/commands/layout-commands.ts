@@ -2,7 +2,7 @@
 // 読み込み時の配置（外部仕様5.3.x）と同じ規則（`placeAutoCells`）で、対象のセルを置き直す。
 import { Command } from "./command";
 import { rerouteJoinsTouching } from "./support";
-import { placeAutoCells, type Rect } from "../cdl/auto-placement";
+import { placeAutoCells, type CellSize, type Rect } from "../cdl/auto-placement";
 import type { TecscdeDocument } from "../model/document";
 import type { CellId } from "../model/ids";
 
@@ -18,13 +18,18 @@ export interface AutoPlacementPlan {
 export function planAutoPlacement(doc: TecscdeDocument, cellIds: readonly CellId[]): AutoPlacementPlan {
   const wanted = new Set<CellId>(cellIds);
   const targetIds: CellId[] = [];
+  const targetSizes: CellSize[] = [];
   const occupied: Rect[] = [];
   for (const cell of doc.cellValues()) {
-    if (wanted.has(cell.id) && cell.editable) targetIds.push(cell.id);
-    else occupied.push({ x: cell.x, y: cell.y, width: cell.width, height: cell.height });
+    if (wanted.has(cell.id) && cell.editable) {
+      targetIds.push(cell.id);
+      targetSizes.push({ width: cell.width, height: cell.height });
+    } else {
+      occupied.push({ x: cell.x, y: cell.y, width: cell.width, height: cell.height });
+    }
   }
   const { width, height } = doc.paper.contentSize();
-  const { positions, overflow } = placeAutoCells(targetIds.length, occupied, width, height);
+  const { positions, overflow } = placeAutoCells(targetSizes, occupied, width, height);
   return { targetIds, positions, overflow };
 }
 

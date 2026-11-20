@@ -61,8 +61,6 @@ export function prepareMoveActiveToTop(doc: TecscdeDocument): ActiveTopPlan {
   const obstacles = [...doc.cellValues()].filter((c) => !targetIds.has(c.id));
 
   const { width: paperW, height: paperH } = doc.paper.contentSize();
-  const maxX = paperW - 30;
-  const maxY = paperH - 20;
 
   const moves = new Map<CellId, Point>();
   const topRowCellIds: CellId[] = [];
@@ -71,13 +69,12 @@ export function prepareMoveActiveToTop(doc: TecscdeDocument): ActiveTopPlan {
   // 各対象セルが配置された後の位置を記録して後続セルの障害物とする
   const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
 
-  let curY = START_Y;
-  let curX = START_X;
-
+  // 三者相違一覧 6-12: 各セルの実寸（target.width / target.height）で用紙の内外を判定し、
+  // セルごとに最上段の左（START_X, START_Y）から重ならない最初の候補を走査する。
   for (const target of targets) {
     let fitted = false;
-    while (curY <= maxY) {
-      while (curX <= maxX) {
+    for (let curY = START_Y; curY + target.height <= paperH && !fitted; curY += STEP_Y) {
+      for (let curX = START_X; curX + target.width <= paperW; curX += STEP_X) {
         // 重なり検査（固定障害物 + 既に配置済みの対象セル）
         const hasCollision =
           obstacles.some((obs) => overlaps(curX, curY, target.width, target.height, obs.x, obs.y, obs.width, obs.height)) ||
@@ -88,17 +85,10 @@ export function prepareMoveActiveToTop(doc: TecscdeDocument): ActiveTopPlan {
           placed.push({ x: curX, y: curY, w: target.width, h: target.height });
           if (curY === START_Y) topRowCellIds.push(target.id);
           else spilledCellIds.push(target.id);
-
-          curX += STEP_X;
           fitted = true;
           break;
         }
-        curX += STEP_X;
       }
-      if (fitted) break;
-      // 次の行へ
-      curX = START_X;
-      curY += STEP_Y;
     }
 
     if (!fitted) {
