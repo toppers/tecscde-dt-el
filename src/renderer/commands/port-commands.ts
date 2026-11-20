@@ -266,6 +266,7 @@ export class InsertPortElementCommand extends Command {
         offset: newOffset,
         subscript: insertIndex,
         arraySize: null,
+        arrayKind: "variable",
       });
       next = doc.withCell(cell.withEPorts(cell.eports.map(adjust)).withCPorts(insertAt(cell.cports.map(adjust), created)));
     } else {
@@ -276,6 +277,7 @@ export class InsertPortElementCommand extends Command {
         offset: newOffset,
         subscript: insertIndex,
         arraySize: null,
+        arrayKind: "variable",
       });
       next = doc.withCell(cell.withCPorts(cell.cports.map(adjust)).withEPorts(insertAt(cell.eports.map(adjust), created)));
     }

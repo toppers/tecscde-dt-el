@@ -11,7 +11,10 @@
 // 満たすアダプタを提供する（描画層は第6章のクラス実体に依存しない）。
 
 import type { Point } from "../model/geometry";
-import type { CellId, JoinId, RegionId } from "../model/ids";
+import type { CellId, JoinId, PortId, RegionId } from "../model/ids";
+import type { Cell } from "../model/cell";
+import type { TecscdeDocument } from "../model/document";
+import type { CPort, EPort } from "../model/port";
 import type { CellNameDisplayMode, NamespaceDisplayMode } from "../../shared/ipc-types";
 
 /** モデル座標 1mm あたりの基準ピクセル数（ズーム100%時、外部仕様3.2.1）。 */
@@ -89,16 +92,39 @@ export interface Rect {
   readonly b: Point;
 }
 
-/** 同名ポートと配列要素を区別する、選択用の参照。 */
+/** 同名ポートと配列要素を区別する、選択用の参照。portId がある場合は添字変更後も同一要素を追跡する。 */
 export interface SelectedPort {
   readonly kind: "cport" | "eport";
   readonly cellId: CellId;
   readonly portName: string;
   readonly subscript: number | null;
+  readonly portId?: PortId;
 }
 
 function samePort(a: SelectedPort, b: SelectedPort): boolean {
+  if (a.portId !== undefined && b.portId !== undefined) {
+    return a.portId === b.portId;
+  }
   return a.kind === b.kind && a.cellId === b.cellId && a.portName === b.portName && a.subscript === b.subscript;
+}
+
+/** 選択参照から現在のドキュメント上のセルとポートを解決する（portId 優先、未指定時は名前+添字）。 */
+export function resolveSelectedPort(
+  doc: TecscdeDocument,
+  selected: SelectedPort,
+): { readonly cell: Cell; readonly port: CPort | EPort } | undefined {
+  const cell = doc.getCell(selected.cellId);
+  if (!cell) return undefined;
+  if (selected.kind === "cport") {
+    const port =
+      (selected.portId !== undefined ? cell.findCPortById(selected.portId) : undefined) ??
+      cell.findCPort(selected.portName, selected.subscript);
+    return port ? { cell, port } : undefined;
+  }
+  const port =
+    (selected.portId !== undefined ? cell.findEPortById(selected.portId) : undefined) ??
+    cell.findEPort(selected.portName, selected.subscript);
+  return port ? { cell, port } : undefined;
 }
 
 /**

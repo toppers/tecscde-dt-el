@@ -3,11 +3,16 @@
 // invariants.tsの事後検証ではなく、フィールドの型そのもの（単一値 vs 配列）で表現する。
 
 import { InvariantViolation } from "./errors";
-import type { JoinId } from "./ids";
+import { nextPortId, type JoinId, type PortId } from "./ids";
 
 export type EdgeSide = "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
 
+/** ポート宣言の配列種別（内部仕様 04E 4E.1・三者監査#20）。 */
+export type PortArrayKind = "none" | "fixed" | "variable" | "unresolved";
+
 export interface PortCreateParams {
+  /** 安定した要素識別子。添字変更後も維持する。省略時は一意な ID を自動採番する。 */
+  readonly id?: PortId;
   readonly name: string;
   /** シグニチャ名の参照のみ（外部仕様4.5.2: 定義は編集しない）。 */
   readonly signature: string;
@@ -16,19 +21,30 @@ export interface PortCreateParams {
   readonly offset: number;
   /** 配列ポートの添字。非配列なら null。 */
   readonly subscript?: number | null;
-  /** 固定長配列のサイズ。可変長・非配列は null。 */
+  /** 固定長配列のサイズ。可変長・非配列・未解決は null。 */
   readonly arraySize?: number | null;
+  /** 配列種別。省略時は arraySize / subscript から既定値を導出する。 */
+  readonly arrayKind?: PortArrayKind;
+}
+
+function inferArrayKind(params: PortCreateParams): PortArrayKind {
+  if (params.arrayKind !== undefined) return params.arrayKind;
+  if (params.arraySize !== null && params.arraySize !== undefined) return "fixed";
+  if (params.subscript !== null && params.subscript !== undefined) return "variable";
+  return "none";
 }
 
 /** 抽象基底。それ自体はインスタンス化しない（3.2節の表）。 */
 export abstract class Port {
   protected constructor(
+    readonly id: PortId,
     readonly name: string,
     readonly signature: string,
     readonly edgeSide: EdgeSide,
     readonly offset: number,
     readonly subscript: number | null,
     readonly arraySize: number | null,
+    readonly arrayKind: PortArrayKind,
   ) {}
 }
 
@@ -40,85 +56,93 @@ export function portLayoutKey(port: { readonly name: string; readonly subscript:
 
 export class CPort extends Port {
   private constructor(
+    id: PortId,
     name: string,
     signature: string,
     edgeSide: EdgeSide,
     offset: number,
     subscript: number | null,
     arraySize: number | null,
+    arrayKind: PortArrayKind,
     readonly joinId: JoinId | null,
   ) {
-    super(name, signature, edgeSide, offset, subscript, arraySize);
+    super(id, name, signature, edgeSide, offset, subscript, arraySize, arrayKind);
   }
 
   static create(params: PortCreateParams): CPort {
     return new CPort(
+      params.id ?? nextPortId("cport"),
       params.name,
       params.signature,
       params.edgeSide,
       params.offset,
       params.subscript ?? null,
       params.arraySize ?? null,
+      inferArrayKind(params),
       null,
     );
   }
 
   withEdge(edgeSide: EdgeSide, offset: number): CPort {
-    return new CPort(this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.joinId);
+    return new CPort(this.id, this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.arrayKind, this.joinId);
   }
 
   withSubscript(subscript: number | null): CPort {
-    return new CPort(this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.joinId);
+    return new CPort(this.id, this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.arrayKind, this.joinId);
   }
 
   withJoin(joinId: JoinId): CPort {
     if (this.joinId !== null) {
       throw new InvariantViolation(`CPort ${this.name} already has a join`);
     }
-    return new CPort(this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, joinId);
+    return new CPort(this.id, this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, this.arrayKind, joinId);
   }
 
   withoutJoin(): CPort {
-    return new CPort(this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, null);
+    return new CPort(this.id, this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, this.arrayKind, null);
   }
 }
 
 /** 受け口（Entry Port）。結合は複数可（外部仕様4.4.1、10.3 #3）。 */
 export class EPort extends Port {
   private constructor(
+    id: PortId,
     name: string,
     signature: string,
     edgeSide: EdgeSide,
     offset: number,
     subscript: number | null,
     arraySize: number | null,
+    arrayKind: PortArrayKind,
     readonly joinIds: readonly JoinId[],
   ) {
-    super(name, signature, edgeSide, offset, subscript, arraySize);
+    super(id, name, signature, edgeSide, offset, subscript, arraySize, arrayKind);
   }
 
   static create(params: PortCreateParams): EPort {
     return new EPort(
+      params.id ?? nextPortId("eport"),
       params.name,
       params.signature,
       params.edgeSide,
       params.offset,
       params.subscript ?? null,
       params.arraySize ?? null,
+      inferArrayKind(params),
       [],
     );
   }
 
   withEdge(edgeSide: EdgeSide, offset: number): EPort {
-    return new EPort(this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.joinIds);
+    return new EPort(this.id, this.name, this.signature, edgeSide, offset, this.subscript, this.arraySize, this.arrayKind, this.joinIds);
   }
 
   withSubscript(subscript: number | null): EPort {
-    return new EPort(this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.joinIds);
+    return new EPort(this.id, this.name, this.signature, this.edgeSide, this.offset, subscript, this.arraySize, this.arrayKind, this.joinIds);
   }
 
   withJoin(joinId: JoinId): EPort {
-    return new EPort(this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, [
+    return new EPort(this.id, this.name, this.signature, this.edgeSide, this.offset, this.subscript, this.arraySize, this.arrayKind, [
       ...this.joinIds,
       joinId,
     ]);
@@ -126,12 +150,14 @@ export class EPort extends Port {
 
   withoutJoin(joinId: JoinId): EPort {
     return new EPort(
+      this.id,
       this.name,
       this.signature,
       this.edgeSide,
       this.offset,
       this.subscript,
       this.arraySize,
+      this.arrayKind,
       this.joinIds.filter((j) => j !== joinId),
     );
   }

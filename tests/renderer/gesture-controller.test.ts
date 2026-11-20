@@ -198,7 +198,7 @@ describe("select mode — ports", () => {
     const h = harness({ doc });
     h.gesture.pointerDown({ x: 35, y: 18 });
     h.gesture.pointerUp({ x: 35, y: 18 });
-    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null }]);
+    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null, portId: expect.any(String) }]);
     expect(h.selection().cellIds.size).toBe(0);
     expect(h.gesture.stateKind).toBe("idle");
     expect(h.dispatched).toHaveLength(0);
@@ -217,7 +217,7 @@ describe("select mode — ports", () => {
     h.gesture.pointerDown({ x: 120, y: 15 }, { ctrl: true, shift: false, meta: false });
     expect(h.selection().ports.map((port) => port.portName)).toEqual(["cSensor"]);
     h.gesture.pointerDown({ x: 35, y: 18 }, shift);
-    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null }]);
+    expect(h.selection().ports).toEqual([{ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null, portId: expect.any(String) }]);
     h.gesture.pointerDown({ x: 130, y: 15 }, shift);
     expect(h.selection().ports).toHaveLength(0);
     expect(h.selection().hasCell(CONTROLLER)).toBe(true);

@@ -57,11 +57,11 @@ describe("HitTester on overlapping cells selects the one drawn on top", () => {
 
     // 呼び口 c は左辺 (10, 15)
     expect(tester(doc).hitTest({ x: 10, y: 15 })).toEqual({
-      kind: "cport", cellId: asCellId("over"), portName: "c", subscript: null,
+      kind: "cport", cellId: asCellId("over"), portName: "c", subscript: null, portId: expect.any(String),
     });
     // 受け口 e は右辺 (35, 15)
     expect(tester(doc).hitTest({ x: 35, y: 15 })).toEqual({
-      kind: "eport", cellId: asCellId("over"), portName: "e", subscript: null,
+      kind: "eport", cellId: asCellId("over"), portName: "e", subscript: null, portId: expect.any(String),
     });
   });
 
@@ -91,12 +91,12 @@ describe("HitTester on overlapping cells selects the one drawn on top", () => {
     // y = 23 (eVar[1] の位置) をクリックした場合、eFixed[2] も距離 2.0mm <= 2.5mm で範囲内だが、
     // より近い eVar[1] (距離 0mm) が選択されること
     expect(tester(doc).hitTest({ x: 35, y: 23 })).toEqual({
-      kind: "eport", cellId: asCellId("server"), portName: "eVar", subscript: 1,
+      kind: "eport", cellId: asCellId("server"), portName: "eVar", subscript: 1, portId: expect.any(String),
     });
 
     // 逆に y = 21 (eFixed[2] の位置) をクリックした場合は eFixed[2] が選択されること
     expect(tester(doc).hitTest({ x: 35, y: 21 })).toEqual({
-      kind: "eport", cellId: asCellId("server"), portName: "eFixed", subscript: 2,
+      kind: "eport", cellId: asCellId("server"), portName: "eFixed", subscript: 2, portId: expect.any(String),
     });
   });
 });

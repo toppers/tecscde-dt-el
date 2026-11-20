@@ -15,7 +15,7 @@ import type { Cell } from "../model/cell";
 import type { Join } from "../model/join";
 import type { TecscdeDocument } from "../model/document";
 import type { Region } from "../model/region";
-import type { SelectedPort, SelectionState } from "../render/view";
+import { resolveSelectedPort, type SelectedPort, type SelectionState } from "../render/view";
 import type { AppStore } from "./store";
 import { definitionFooter, definitionLocation, type DefinitionSource } from "./definition-source";
 import { deriveCellVisualState } from "../render/cell-visual-state";
@@ -64,10 +64,9 @@ function isFullPath(location: string): boolean {
 }
 
 function selectedPort(doc: TecscdeDocument, selected: SelectedPort) {
-  const cell = doc.getCell(selected.cellId);
-  const ports = selected.kind === "cport" ? cell?.cports : cell?.eports;
-  const port = ports?.find((candidate) => candidate.name === selected.portName && candidate.subscript === selected.subscript);
-  if (!cell || !port) return undefined;
+  const resolved = resolveSelectedPort(doc, selected);
+  if (!resolved) return undefined;
+  const { cell, port } = resolved;
   const joinCount = "joinId" in port ? (port.joinId === null ? 0 : 1) : port.joinIds.length;
   return { cell, port, joinCount };
 }

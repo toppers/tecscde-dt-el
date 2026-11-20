@@ -1,6 +1,6 @@
 // TECSCDE-TS内部仕様 3.2 — CelltypeRef。参照のみを保持する値クラス、編集対象には含めない。
 
-import type { EdgeSide } from "./port";
+import type { EdgeSide, PortArrayKind } from "./port";
 import type { CompositeStructure } from "./composite";
 
 /** セルタイプが持つポートの雛形。セル生成時にCPort/EPortへ複製される（require指定は含めない、4.3.1）。 */
@@ -13,6 +13,16 @@ export interface PortTemplate {
   readonly arraySize: number | null;
   /** 可変長配列（`[]`）。セル生成時に、結合で使われた添字の最大値+1個の要素へ展開する。 */
   readonly variableArray?: boolean;
+  /** 配列種別（非配列・固定長・可変長・未解決）。 */
+  readonly arrayKind?: PortArrayKind;
+}
+
+/** PortTemplate から配列種別を導出する（未指定時は既存フィールドから互換解決）。 */
+export function portTemplateArrayKind(t: PortTemplate): PortArrayKind {
+  if (t.arrayKind !== undefined) return t.arrayKind;
+  if (t.arraySize !== null) return "fixed";
+  if (t.variableArray) return "variable";
+  return "none";
 }
 
 /** 修飾名（例: `nMruby::tBridge`、`::nA::nB::tFoo`）から名前空間部分を取り出す。無ければ undefined。 */

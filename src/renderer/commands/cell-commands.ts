@@ -16,7 +16,7 @@ import { Cell } from "../model/cell";
 import { CPort, EPort } from "../model/port";
 import { isIdentifier } from "../model/identifier";
 import { asCellId, ROOT_REGION_ID, type CellId, type JoinId, type RegionId } from "../model/ids";
-import type { PortTemplate } from "../model/celltype";
+import { portTemplateArrayKind, type PortTemplate } from "../model/celltype";
 import type { TecscdeDocument } from "../model/document";
 import type { SelectedPort } from "../render/view";
 
@@ -31,6 +31,7 @@ function templateParams(t: PortTemplate) {
     offset: t.offset,
     subscript: t.subscript,
     arraySize: t.arraySize,
+    arrayKind: portTemplateArrayKind(t),
   };
 }
 
