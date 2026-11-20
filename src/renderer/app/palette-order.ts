@@ -19,6 +19,18 @@ export function shortCelltypeName(name: string): string {
   return separator >= 0 ? name.slice(separator + 2) : name;
 }
 
+/** セルタイプ一覧の項目の先頭に付ける、種類の印。複合セルタイプは `[C]`、通常のセルタイプは `[N]`。 */
+export type CelltypeKindMark = "[C]" | "[N]";
+
+/**
+ * セルタイプの種類の印を返す（外部仕様3.1.x項目3、内部仕様2B.1）。
+ * 複合セルタイプは `composite`（内部構造）を持つ。MrubyBridgePluginの橋渡し用セルタイプなど、持たないものは通常扱い。
+ * 表示名（短い名前／完全修飾名）には影響しない。
+ */
+export function celltypeKindMark(celltype: CelltypeRef): CelltypeKindMark {
+  return celltype.composite !== undefined ? "[C]" : "[N]";
+}
+
 /**
  * セルタイプ一覧を名前空間でグループ化し、並び替えて返す。
  * - 名前空間なし（`namespace === undefined`）のグループを先頭にする。

@@ -6,7 +6,7 @@ import { PaperSpec } from "../../src/renderer/model/paper";
 import { emptyToolInfoTecsgen } from "../../src/renderer/model/tool-info-types";
 import { AppStore } from "../../src/renderer/app/store";
 import { PaletteView } from "../../src/renderer/app/palette";
-import { groupAndSortCelltypes, shortCelltypeName } from "../../src/renderer/app/palette-order";
+import { celltypeKindMark, groupAndSortCelltypes, shortCelltypeName } from "../../src/renderer/app/palette-order";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 
 function ct(name: string, namespace?: string): CelltypeRef {
@@ -122,6 +122,64 @@ namespace nAlpha {
     const detailsButtons = Array.from(root.querySelectorAll<HTMLButtonElement>(".palette-celltype-details"));
     detailsButtons[2]!.click();
     expect(onDetails).toHaveBeenCalledWith("nAlpha::tA", detailsButtons[2]);
+
+    unsub();
+    palette.dispose();
+  });
+});
+
+describe("V0.3.1 Stage 1: celltype kind mark ([C]/[N]) in the palette", () => {
+  const cdl = `
+signature sX { void run(void); };
+celltype tRootA { entry sX e; };
+namespace nAlpha {
+  celltype tPlain { entry sX e; };
+  composite tCompA {
+    entry sX e;
+    cell tRootA inner {};
+    composite.e => inner.e;
+  };
+};
+`;
+
+  it("returns [C] for composite celltypes and [N] for ordinary celltypes", () => {
+    const { document: doc } = CdlDocumentLoader.loadSources([{ fileName: "test.cdl", text: cdl, editable: true }]);
+    const byName = new Map(doc.celltypeValues().map((c) => [c.name, c]));
+    expect(celltypeKindMark(byName.get("nAlpha::tCompA")!)).toBe("[C]");
+    expect(celltypeKindMark(byName.get("tRootA")!)).toBe("[N]");
+    expect(celltypeKindMark(ct("tPlain", "nAlpha"))).toBe("[N]");
+  });
+
+  it("labels MrubyBridgePlugin bridge celltypes as ordinary ([N])", () => {
+    const bridge = `
+signature sBridged { void run(void); };
+generate( MrubyBridgePlugin, sBridged, "" );
+`;
+    const { document: doc } = CdlDocumentLoader.loadSources([{ fileName: "bridge.cdl", text: bridge, editable: true }]);
+    const bridges = doc.celltypeValues().filter((c) => c.name.startsWith("nMruby::"));
+    expect(bridges.length).toBeGreaterThan(0);
+    for (const c of bridges) expect(celltypeKindMark(c)).toBe("[N]");
+  });
+
+  it("prefixes the kind mark to each palette item without changing the name, data-celltype or order", () => {
+    const { document: doc } = CdlDocumentLoader.loadSources([{ fileName: "test.cdl", text: cdl, editable: true }]);
+    const store = new AppStore(doc);
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<button data-mode="select"></button><button data-mode="newCell"></button><div id="palette-celltypes"></div>';
+    const palette = new PaletteView(root, store, vi.fn());
+    const unsub = store.subscribe(() => palette.render());
+    palette.render();
+
+    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>(".palette-celltype"));
+    // グループ内は短い名前の昇順（tCompA < tPlain）。名前空間なしのグループが先頭。
+    expect(buttons.map((b) => b.dataset["celltype"])).toEqual(["tRootA", "nAlpha::tCompA", "tPlain"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["[N] tRootA", "[C] nAlpha::tCompA", "[N] tPlain"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "通常のセルタイプ tRootA",
+      "複合セルタイプ nAlpha::tCompA",
+      "通常のセルタイプ tPlain",
+    ]);
 
     unsub();
     palette.dispose();

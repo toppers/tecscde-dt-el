@@ -5,7 +5,7 @@
 
 import type { AppStore } from "./store";
 import type { TecscdeDocument } from "../model/document";
-import { groupAndSortCelltypes } from "./palette-order";
+import { celltypeKindMark, groupAndSortCelltypes } from "./palette-order";
 
 export class PaletteView {
   private readonly selectModeBtn: HTMLButtonElement;
@@ -79,7 +79,7 @@ export class PaletteView {
       return;
     }
 
-    const signature = `${groups.map((g) => `${g.namespace ?? ""}:${g.celltypes.map((c) => c.name).join(",")}`).join(";")}|${active ?? ""}`;
+    const signature = `${groups.map((g) => `${g.namespace ?? ""}:${g.celltypes.map((c) => `${celltypeKindMark(c)}${c.name}`).join(",")}`).join(";")}|${active ?? ""}`;
     if (signature === this.lastCelltypeSignature) return;
     this.lastCelltypeSignature = signature;
 
@@ -110,7 +110,10 @@ export class PaletteView {
         item.type = "button";
         item.className = "palette-celltype" + (name === active ? " active" : "");
         item.dataset["celltype"] = name;
-        item.textContent = name;
+        // 種類の印を先頭に付ける。表示名・data-celltype（セルタイプ名）は変えない。
+        const mark = celltypeKindMark(celltype);
+        item.textContent = `${mark} ${name}`;
+        item.setAttribute("aria-label", `${mark === "[C]" ? "複合セルタイプ" : "通常のセルタイプ"} ${name}`);
         const details = document.createElement("button");
         details.type = "button";
         details.className = "palette-celltype-details";
