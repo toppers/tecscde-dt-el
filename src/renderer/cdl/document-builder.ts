@@ -4,14 +4,14 @@
 
 import { alignRound } from "../model/align";
 import { Cell } from "../model/cell";
-import { CelltypeRef, extractNamespaceFromQualifiedName, type PortTemplate } from "../model/celltype";
+import { CelltypeRef, extractNamespaceFromQualifiedName, normalizeNamespace, type PortTemplate } from "../model/celltype";
 import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../model/ids";
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
 import { PaperSpec } from "../model/paper";
 import { CPort, EPort, portLayoutKey, type EdgeSide } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
-import { TecscdeDocument, type CdlSourceTemplate } from "../model/document";
+import { TecscdeDocument, type CdlSourceTemplate, type NamespaceFileRef } from "../model/document";
 import { Region, RegionTree } from "../model/region";
 import { CTypeRegistry, type TypeDefinition, type TypeResolution } from "../cdecl/type-registry";
 import type { CdeclResult } from "../cdecl/extractor";
@@ -299,6 +299,24 @@ export class CdlDocumentLoader {
     const regionPaths = new Set<string>(["::"]);
     const namespaceScopePaths = new Set<string>();
     const editableRegionPaths = new Set<string>(["::"]);
+    const namespaceFilesMap = new Map<string, Map<string, NamespaceFileRef>>();
+    const namespaceFileKey = (path: string): string =>
+      /^[A-Za-z]:[\\/]|^\\\\/.test(path) ? path.replace(/\//g, "\\").toLowerCase() : path;
+    const recordNamespaceFile = (nsRaw: string | undefined, source: CdlSource): void => {
+      const ns = normalizeNamespace(nsRaw);
+      if (!ns) return;
+      const path = source.sourcePath ?? source.fileName;
+      if (!path) return;
+      let bucket = namespaceFilesMap.get(ns);
+      if (!bucket) {
+        bucket = new Map();
+        namespaceFilesMap.set(ns, bucket);
+      }
+      const key = namespaceFileKey(path);
+      if (!bucket.has(key)) {
+        bucket.set(key, { path, generated: source.generated === true });
+      }
+    };
     let sourceTemplate: CdlSourceTemplate | undefined;
     const sourceTemplates = new Map<string, CdlSourceTemplate>();
 
@@ -312,9 +330,19 @@ export class CdlDocumentLoader {
       for (const definition of parsed.typedefs) {
         localTypeDefinitions.push({ ...definition, origin: source.fileName, fallback: false });
       }
-      for (const generate of parsed.generates) generates.push({ generate, fileName: source.fileName });
+      for (const generate of parsed.generates) {
+        generates.push({ generate, fileName: source.fileName });
+        if (generate.pluginName === "MrubyBridgePlugin") recordNamespaceFile("nMruby", source);
+      }
+      for (const cell of parsed.cells) {
+        const typeNs = extractNamespaceFromQualifiedName(cell.celltypeName);
+        if (typeNs) recordNamespaceFile(typeNs, source);
+      }
       for (const scope of parsed.scopes) {
-        if (scope.kind === "namespace") namespaceScopePaths.add(scope.path);
+        if (scope.kind === "namespace") {
+          namespaceScopePaths.add(scope.path);
+          recordNamespaceFile(scope.path, source);
+        }
         let path = scope.path;
         while (path !== "::") {
           regionPaths.add(path);
@@ -917,11 +945,20 @@ export class CdlDocumentLoader {
 
     const referenceFiles = sources.filter((source) => source !== primarySource && !source.generated).map((source) => source.fileName);
 
+    const namespaceFiles = new Map<string, readonly NamespaceFileRef[]>();
+    for (const ns of [...namespaceFilesMap.keys()].sort((a, b) => a.localeCompare(b) || (a < b ? -1 : a > b ? 1 : 0))) {
+      const files = [...namespaceFilesMap.get(ns)!.values()].sort(
+        (a, b) => a.path.localeCompare(b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+      );
+      namespaceFiles.set(ns, files);
+    }
+
     const document = TecscdeDocument.build({
       cells,
       joins,
       celltypes,
       regions: buildRegionTree(regionPaths, cells),
+      namespaceFiles,
       toolInfoTecsgen,
       paper,
       referenceFiles,

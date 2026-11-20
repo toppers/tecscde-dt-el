@@ -362,21 +362,87 @@
         display: block;
         flex: none;
       }
-      #region-legend {
+      #canvas-legends {
         position: absolute;
         left: 8px;
         bottom: 8px;
-        max-width: 260px;
-        max-height: 40%;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        max-width: 340px;
+        max-height: 45%;
+        pointer-events: none;
+      }
+      #region-legend,
+      #namespace-legend {
+        pointer-events: auto;
+        max-width: 340px;
+        max-height: 180px;
         overflow: auto;
         padding: 4px 8px;
-        background: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.92);
         border: 1px solid var(--border);
         border-radius: 3px;
         font-size: 11px;
       }
-      #region-legend[hidden] {
+      #region-legend[hidden],
+      #namespace-legend[hidden] {
         display: none;
+      }
+      .namespace-legend-title {
+        font-weight: 600;
+        margin-bottom: 3px;
+      }
+      .namespace-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 2px 0;
+      }
+      .namespace-legend-name {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .namespace-files-btn,
+      .namespace-details-ref,
+      .namespace-details-close {
+        font: inherit;
+        font-size: 11px;
+        padding: 1px 6px;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 3px;
+        cursor: pointer;
+        flex: none;
+      }
+      .namespace-details-dialog {
+        width: min(680px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--ink);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+      }
+      .namespace-details-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 8px 0 12px;
+      }
+      .namespace-details-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .namespace-details-path {
+        flex: 1;
+        min-width: 0;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
       }
       /* 内部仕様 5B.4: キャンバスに隣接する固定の凡例領域（キャンバス上のセルを隠さない） */
       #status-legend {
@@ -823,7 +889,10 @@
           <div id="canvas-scroll">
             <svg id="canvas" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
           </div>
-          <div id="region-legend" hidden></div>
+          <div id="canvas-legends">
+            <div id="namespace-legend" hidden></div>
+            <div id="region-legend" hidden></div>
+          </div>
           <div id="navigator">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>
           </div>

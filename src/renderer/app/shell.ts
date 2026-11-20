@@ -40,6 +40,8 @@ import { autoPlace, canAutoPlace } from "./auto-place-actions";
 import { regionStatusText } from "./status-region";
 import { RegionFilterPanel } from "./region-filter-panel";
 import { RegionLegendView } from "./region-legend";
+import { NamespaceLegendView } from "./namespace-legend";
+import { NamespaceDetailsView } from "./namespace-details-view";
 import { PropertyPanelView } from "./property-panel";
 import { SearchBoxView } from "./search-box";
 import { searchDocument } from "../view-state/search";
@@ -138,6 +140,8 @@ export class AppShell {
   private readonly aboutDialog: AboutDialogView;
   private readonly regionFilter: RegionFilterPanel;
   private readonly regionLegend: RegionLegendView;
+  private readonly namespaceLegend: NamespaceLegendView | undefined;
+  private readonly namespaceDetails: NamespaceDetailsView;
   private readonly propertyPanel: PropertyPanelView;
   private readonly searchBox: SearchBoxView;
   private readonly navigator: NavigatorView;
@@ -233,6 +237,15 @@ export class AppShell {
     this.palette = new PaletteView(requireEl<HTMLElement>(root, "#palette"), this.store, (name) => this.celltypeDetails.open(name));
     this.regionFilter = new RegionFilterPanel(requireEl<HTMLElement>(root, "#region-filter"), this.store);
     this.regionLegend = new RegionLegendView(requireEl<HTMLElement>(root, "#region-legend"), this.store);
+    this.namespaceDetails = new NamespaceDetailsView({
+      document: docForViews,
+      store: this.store,
+      onShowFile: (source) => void this.definitionView.open(source, "ファイル"),
+    });
+    const namespaceLegendEl = root.querySelector<HTMLElement>("#namespace-legend");
+    this.namespaceLegend = namespaceLegendEl
+      ? new NamespaceLegendView(namespaceLegendEl, this.store, (ns) => this.namespaceDetails.open(ns))
+      : undefined;
     this.propertyPanel = new PropertyPanelView(requireEl<HTMLElement>(root, "#property-panel"), this.store,
       { onShowDefinition: (source) => void this.definitionView.open(source, "セル定義ファイルウィンドウ") },
       (msg) => this.showMessage(msg),
@@ -329,6 +342,7 @@ export class AppShell {
 
   dispose(): void {
     this.definitionView.dispose();
+    this.namespaceDetails.dispose();
     this.celltypeDetails.dispose();
     this.copyCommandGeneration++;
     this.information?.dispose();
@@ -368,6 +382,8 @@ export class AppShell {
     this.palette.render();
     this.regionFilter.render();
     this.regionLegend.render();
+    this.namespaceLegend?.render();
+    this.namespaceDetails.render();
     this.propertyPanel.render();
     this.searchBox.render(hits);
     this.navigator.render();
