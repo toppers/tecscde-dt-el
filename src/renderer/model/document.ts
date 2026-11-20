@@ -28,11 +28,18 @@ export interface CdlSourceTemplate {
   readonly toolInfoBlocks: readonly { readonly toolName: string; readonly startIndex: number; readonly endIndex: number }[];
 }
 
+export interface NamespaceFileRef {
+  readonly path: string;
+  readonly generated: boolean;
+}
+
 export interface TecscdeDocumentBuildParams {
   readonly cells: ReadonlyMap<CellId, Cell>;
   readonly joins: ReadonlyMap<JoinId, Join>;
   readonly celltypes: ReadonlyMap<string, CelltypeRef>;
   readonly regions?: RegionTree;
+  /** V0.3.1 段3: 名前空間（先頭 `::` なし）ごとの使用ファイル一覧。 */
+  readonly namespaceFiles?: ReadonlyMap<string, readonly NamespaceFileRef[]>;
   readonly toolInfoTecsgen: ToolInfoTecsgen;
   readonly paper: PaperSpec;
   /** 8.2.2: 今回のセッションで参照専用として読み込んだファイル名のみ。 */
@@ -69,6 +76,7 @@ export class TecscdeDocument {
     readonly sourceTemplates: ReadonlyMap<string, CdlSourceTemplate>,
     readonly primarySourceKey: string | null,
     readonly sourceOrder: readonly string[],
+    readonly namespaceFiles: ReadonlyMap<string, readonly NamespaceFileRef[]> = new Map(),
   ) {}
 
   static empty(): TecscdeDocument {
@@ -87,6 +95,7 @@ export class TecscdeDocument {
       new Map(),
       null,
       [],
+      new Map(),
     );
   }
 
@@ -107,6 +116,7 @@ export class TecscdeDocument {
       params.sourceTemplates ?? new Map(),
       params.primarySourceKey === undefined ? params.editingFileName ?? null : params.primarySourceKey,
       params.sourceOrder ?? [...(params.sourceTemplates?.keys() ?? [])],
+      params.namespaceFiles ?? new Map(),
     );
   }
 
@@ -165,6 +175,7 @@ export class TecscdeDocument {
       this.sourceTemplates,
       this.primarySourceKey,
       this.sourceOrder,
+      this.namespaceFiles,
     );
   }
 
@@ -186,6 +197,7 @@ export class TecscdeDocument {
       this.sourceTemplates,
       this.primarySourceKey,
       this.sourceOrder,
+      this.namespaceFiles,
     );
   }
 
@@ -207,6 +219,7 @@ export class TecscdeDocument {
       this.sourceTemplates,
       this.primarySourceKey,
       this.sourceOrder,
+      this.namespaceFiles,
     );
   }
 
@@ -228,6 +241,7 @@ export class TecscdeDocument {
       this.sourceTemplates,
       this.primarySourceKey,
       this.sourceOrder,
+      this.namespaceFiles,
     );
   }
 
@@ -249,6 +263,7 @@ export class TecscdeDocument {
       this.sourceTemplates,
       this.primarySourceKey,
       this.sourceOrder,
+      this.namespaceFiles,
     );
   }
 
@@ -266,6 +281,10 @@ export class TecscdeDocument {
     const isPrimary = this.primarySourceKey === oldKey;
     const order = this.sourceOrder.map((key) => key === oldKey ? newKey : key);
     if (oldKey === null && !order.includes(newKey)) order.push(newKey);
+    const namespaceFiles = new Map<string, readonly NamespaceFileRef[]>();
+    for (const [ns, files] of this.namespaceFiles) {
+      namespaceFiles.set(ns, files.map((f) => (f.path === oldKey ? { ...f, path: newKey } : f)));
+    }
     return TecscdeDocument.build({
       cells, joins: this.joinsById, celltypes: this.celltypesByName, regions: this.regions,
       toolInfoTecsgen: this.toolInfoTecsgen, paper: this.paper,
@@ -274,6 +293,7 @@ export class TecscdeDocument {
       primarySourceKey: isPrimary ? newKey : this.primarySourceKey, sourceOrder: order,
       unknownToolInfoTecscde: this.unknownToolInfoTecscde, preservedImports: this.preservedImports,
       sourceTemplate: this.sourceTemplate, sourceTemplates: templates,
+      namespaceFiles,
     });
   }
 }
