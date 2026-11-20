@@ -37,12 +37,12 @@ function tester(doc: TecscdeDocument): HitTester {
 describe("HitTester.hitTest — priority ポート＞セル＞結合バー", () => {
   it("returns the call port when the point is on a cport (even though it is also on the cell edge)", () => {
     const hit = tester(loadDoc()).hitTest({ x: 120, y: 15 });
-    expect(hit).toEqual({ kind: "cport", cellId: CONTROLLER, portName: "cLog", subscript: null });
+    expect(hit).toEqual({ kind: "cport", cellId: CONTROLLER, portName: "cLog", subscript: null, portId: expect.any(String) });
   });
 
   it("returns the entry port when the point is on an eport", () => {
     const hit = tester(loadDoc()).hitTest({ x: 35, y: 18 });
-    expect(hit).toEqual({ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null });
+    expect(hit).toEqual({ kind: "eport", cellId: LOGGER, portName: "eLog", subscript: null, portId: expect.any(String) });
   });
 
   it("returns the cell body when the point is inside a cell but away from ports", () => {

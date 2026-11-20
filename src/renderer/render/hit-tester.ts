@@ -18,13 +18,13 @@ import { joinPolyline, joinStub } from "./svg-path";
 import { portPosition } from "../model/geometry";
 import type { Point } from "../model/geometry";
 import type { Cell } from "../model/cell";
-import type { CellId, JoinId, RegionId } from "../model/ids";
+import type { CellId, JoinId, PortId, RegionId } from "../model/ids";
 import type { TecscdeDocument } from "../model/document";
 import { isCellVisible } from "./cell-visibility";
 
 export type HitResult =
-  | { readonly kind: "cport"; readonly cellId: CellId; readonly portName: string; readonly subscript: number | null }
-  | { readonly kind: "eport"; readonly cellId: CellId; readonly portName: string; readonly subscript: number | null }
+  | { readonly kind: "cport"; readonly cellId: CellId; readonly portName: string; readonly subscript: number | null; readonly portId: PortId }
+  | { readonly kind: "eport"; readonly cellId: CellId; readonly portName: string; readonly subscript: number | null; readonly portId: PortId }
   | { readonly kind: "cell"; readonly cellId: CellId }
   | { readonly kind: "joinBar"; readonly joinId: JoinId; readonly barIndex: number }
   | { readonly kind: "none" };
@@ -114,13 +114,13 @@ export class HitTester {
       for (const p of cell.cports) {
         const d = distance(point, portPosition(cell, p));
         if (d <= PORT_HIT_RADIUS_MM && (!best || d < best.d)) {
-          best = { result: { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript }, d };
+          best = { result: { kind: "cport", cellId: cell.id, portName: p.name, subscript: p.subscript, portId: p.id }, d };
         }
       }
       for (const p of cell.eports) {
         const d = distance(point, portPosition(cell, p));
         if (d <= PORT_HIT_RADIUS_MM && (!best || d < best.d)) {
-          best = { result: { kind: "eport", cellId: cell.id, portName: p.name, subscript: p.subscript }, d };
+          best = { result: { kind: "eport", cellId: cell.id, portName: p.name, subscript: p.subscript, portId: p.id }, d };
         }
       }
       if (best) return best.result;

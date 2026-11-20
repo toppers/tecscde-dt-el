@@ -11,7 +11,7 @@ import { CellRenderer } from "./cell-renderer";
 import { JoinRenderer } from "./join-renderer";
 import { setAttrs, svgEl } from "./element-renderer";
 import { joinPolyline, joinStub } from "./svg-path";
-import { pxPerMm, type CanvasView, type SelectionState } from "./view";
+import { pxPerMm, resolveSelectedPort, type CanvasView, type SelectionState } from "./view";
 import { ALIGN_MM } from "../model/align";
 import type { Bar, Join } from "../model/join";
 import type { Cell } from "../model/cell";
@@ -257,11 +257,9 @@ export class SvgRenderer {
     this.selectionLayer.replaceChildren();
     const k = pxPerMm(view);
     for (const selected of selection.ports) {
-      const cell = doc.getCell(selected.cellId);
-      if (!cell || view.hiddenRegionIds.has(cell.regionId)) continue;
-      const ports = selected.kind === "cport" ? cell.cports : cell.eports;
-      const port = ports.find((candidate) => candidate.name === selected.portName && candidate.subscript === selected.subscript);
-      if (!port) continue;
+      const resolved = resolveSelectedPort(doc, selected);
+      if (!resolved || view.hiddenRegionIds.has(resolved.cell.regionId)) continue;
+      const { cell, port } = resolved;
       const point = portPosition(cell, port);
       const circle = svgEl("circle");
       setAttrs(circle, { cx: point.x * k, cy: point.y * k, r: 2.5 * k });

@@ -2,7 +2,7 @@
 
 import { alignRound } from "./align";
 import { assertIdentifierSyntax } from "./identifier";
-import type { CellId, RegionId } from "./ids";
+import type { CellId, PortId, RegionId } from "./ids";
 import type { CPort, EPort } from "./port";
 
 export interface CellCreateParams {
@@ -93,7 +93,10 @@ export class Cell {
   }
 
   withCPort(port: CPort): Cell {
-    const cports = this.cports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
+    const byId = this.cports.some((p) => p.id === port.id);
+    const cports = byId
+      ? this.cports.map((p) => (p.id === port.id ? port : p))
+      : this.cports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
     return this.withCPorts(cports);
   }
 
@@ -119,7 +122,10 @@ export class Cell {
   }
 
   withEPort(port: EPort): Cell {
-    const eports = this.eports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
+    const byId = this.eports.some((p) => p.id === port.id);
+    const eports = byId
+      ? this.eports.map((p) => (p.id === port.id ? port : p))
+      : this.eports.map((p) => (p.name === port.name && p.subscript === port.subscript ? port : p));
     return this.withEPorts(eports);
   }
 
@@ -150,5 +156,13 @@ export class Cell {
 
   findEPort(name: string, subscript?: number | null): EPort | undefined {
     return this.eports.find((p) => p.name === name && (subscript === undefined || p.subscript === subscript));
+  }
+
+  findCPortById(portId: PortId): CPort | undefined {
+    return this.cports.find((p) => p.id === portId);
+  }
+
+  findEPortById(portId: PortId): EPort | undefined {
+    return this.eports.find((p) => p.id === portId);
   }
 }

@@ -4,12 +4,12 @@
 
 import { alignRound } from "../model/align";
 import { Cell } from "../model/cell";
-import { CelltypeRef, extractNamespaceFromQualifiedName, normalizeNamespace, type PortTemplate } from "../model/celltype";
-import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../model/ids";
+import { CelltypeRef, extractNamespaceFromQualifiedName, normalizeNamespace, portTemplateArrayKind, type PortTemplate } from "../model/celltype";
+import { asCellId, asJoinId, asPortId, asRegionId, type CellId, type JoinId } from "../model/ids";
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
 import { PaperSpec } from "../model/paper";
-import { CPort, EPort, portLayoutKey, type EdgeSide } from "../model/port";
+import { CPort, EPort, portLayoutKey, type EdgeSide, type PortArrayKind } from "../model/port";
 import { emptyToolInfoTecsgen, type ToolInfoTecsgen } from "../model/tool-info-types";
 import { TecscdeDocument, type CdlSourceTemplate, type NamespaceFileRef } from "../model/document";
 import { Region, RegionTree } from "../model/region";
@@ -70,7 +70,7 @@ function withLocation(d: Diagnostic, file: string): Diagnostic {
  * （外部仕様4.3.1のCPGap/EPGap=10mmという間隔の趣旨を、ポート数に応じて均等割りする形で踏襲）。
  */
 function assignDefaultPortLayout(
-  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number; readonly variableArray?: boolean }[],
+  decls: readonly { readonly name: string; readonly signature: string; readonly arraySize?: number; readonly variableArray?: boolean; readonly arrayKind?: PortArrayKind }[],
   edge: EdgeSide,
   edgeLength: number,
 ): PortTemplate[] {
@@ -83,6 +83,7 @@ function assignDefaultPortLayout(
     subscript: null,
     arraySize: p.arraySize ?? null,
     ...(p.variableArray ? { variableArray: true } : {}),
+    ...(p.arrayKind ? { arrayKind: p.arrayKind } : {}),
   }));
 }
 
@@ -428,7 +429,7 @@ export class CdlDocumentLoader {
     }
     const portTypes = new Map<string, ResolvedPortType>();
     const qualifiedCelltypes = new Map<string, CelltypeRef>();
-    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number; variableArray?: boolean } => {
+    const portDeclaration = (celltypeName: string, port: PortDecl, fileName: string): { name: string; signature: string; arraySize?: number; variableArray?: boolean; arrayKind: PortArrayKind } => {
       const id = resolveSignatureInScope(port.signature, port.scopePath, signatures);
       const valid = id ? (signatureTypes.get(id)?.valid ?? false) : false;
       portTypes.set(portTypeKey(celltypeName, port.kind, port.name), { signatureId: id, valid });
@@ -444,11 +445,20 @@ export class CdlDocumentLoader {
         location: { file: fileName, line: port.line, column: port.column },
         relatedPortName: port.name,
       });
+      const arrayKind: PortArrayKind =
+        port.arraySize !== undefined
+          ? "fixed"
+          : port.unresolvedSize !== undefined
+            ? "unresolved"
+            : port.isArray
+              ? "variable"
+              : "none";
       return {
         name: port.name,
         signature: id ? `::${id}` : port.signature,
         arraySize: port.arraySize,
-        ...(port.isArray && port.arraySize === undefined ? { variableArray: true } : {}),
+        ...(arrayKind === "variable" ? { variableArray: true } : {}),
+        arrayKind,
       };
     };
     // 名前つき`require`（`require 名前 = 要求先.受け口;`）の呼び口は、要求先の受け口のシグニチャを持つ
@@ -807,23 +817,27 @@ export class CdlDocumentLoader {
         const cports = celltype.cportTemplates.flatMap(expandCallArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return CPort.create({
+            id: asPortId(`${id}:call:${portLayoutKey(t)}`),
             name: t.name,
             signature: t.signature,
             edgeSide: t.edgeSide,
             offset: t.offset,
             subscript: t.subscript,
             arraySize: t.arraySize,
+            arrayKind: portTemplateArrayKind(t),
           });
         });
         const eports = celltype.eportTemplates.flatMap(expandEntryArrayPort).map((p) => {
           const t = applyPortLayout(p);
           return EPort.create({
+            id: asPortId(`${id}:entry:${portLayoutKey(t)}`),
             name: t.name,
             signature: t.signature,
             edgeSide: t.edgeSide,
             offset: t.offset,
             subscript: t.subscript,
             arraySize: t.arraySize,
+            arrayKind: portTemplateArrayKind(t),
           });
         });
 

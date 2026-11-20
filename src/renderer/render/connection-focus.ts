@@ -5,7 +5,7 @@
 
 import type { TecscdeDocument } from "../model/document";
 import type { JoinId } from "../model/ids";
-import type { SelectedPort } from "./view";
+import { resolveSelectedPort, type SelectedPort } from "./view";
 
 /**
  * 現在のドキュメントと選択されたポート群から、直接結合している結合IDの集合を純粋に導出する。
@@ -18,21 +18,17 @@ export function resolveHighlightedJoinIds(
 
   const highlighted = new Set<JoinId>();
 
-  for (const port of selectedPorts) {
-    const cell = doc.getCell(port.cellId);
-    if (!cell) continue;
+  for (const selected of selectedPorts) {
+    const resolved = resolveSelectedPort(doc, selected);
+    if (!resolved) continue;
 
-    if (port.kind === "cport") {
-      const cport = cell.findCPort(port.portName, port.subscript);
-      if (cport && cport.joinId !== null) {
-        highlighted.add(cport.joinId);
+    if ("joinId" in resolved.port) {
+      if (resolved.port.joinId !== null) {
+        highlighted.add(resolved.port.joinId);
       }
     } else {
-      const eport = cell.findEPort(port.portName, port.subscript);
-      if (eport) {
-        for (const jid of eport.joinIds) {
-          highlighted.add(jid);
-        }
+      for (const jid of resolved.port.joinIds) {
+        highlighted.add(jid);
       }
     }
   }
