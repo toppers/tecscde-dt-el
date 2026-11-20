@@ -11,6 +11,7 @@ import { portPosition } from "../model/geometry";
 import { styleSearchHighlight } from "./search-highlights";
 import { isActiveCell } from "../model/active-cell";
 import { deriveCellVisualState } from "./cell-visual-state";
+import { formatCellDisplayLabel, formatCelltypeDisplayLabel } from "./label-format";
 import type { TecscdeDocument } from "../model/document";
 
 export interface CellRenderContext {
@@ -93,29 +94,42 @@ export class CellRenderer extends ElementRenderer<Cell, CellRenderContext> {
       element.appendChild(tab);
     }
 
-    const nameLabel = svgEl("text");
-    setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 - 3 });
-    nameLabel.setAttribute("text-anchor", "middle");
-    // 外部仕様7.4.2: セル名強調がオンなら、セル名を大きくセルの中央に置き、セルタイプ名は描かない。
-    const emphasized = ctx.view.emphasizeCellName;
-    nameLabel.setAttribute("class", emphasized ? "cell-label emphasized" : "cell-label");
-    if (emphasized) {
-      nameLabel.setAttribute("dominant-baseline", "middle");
-      setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 });
-    }
-    nameLabel.textContent = cell.name;
-    element.appendChild(nameLabel);
+    const cellNameDisplay = ctx.view.cellNameDisplay ?? "show";
+    const showCelltypeName = ctx.view.showCelltypeName ?? true;
+    const showStatusSymbols = ctx.view.showStatusSymbols ?? true;
+    const namespaceDisplay = ctx.view.namespaceDisplay ?? "show";
 
-    if (!emphasized) {
+    // 外部仕様7.4.2 + V0.3.1段2: セル名が表示（表示/短縮）されている場合に限り「セル名強調」を適用する。
+    const emphasized = ctx.view.emphasizeCellName && cellNameDisplay !== "hide";
+    const cellLabelText = formatCellDisplayLabel(cell.name, cellNameDisplay, namespaceDisplay);
+    const showType = !emphasized && showCelltypeName;
+
+    if (cellLabelText !== null) {
+      const nameLabel = svgEl("text");
+      setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 - 3 });
+      nameLabel.setAttribute("text-anchor", "middle");
+      nameLabel.setAttribute("class", emphasized ? "cell-label emphasized" : "cell-label");
+      if (emphasized || !showType) {
+        nameLabel.setAttribute("dominant-baseline", "middle");
+        setAttrs(nameLabel, { x: x + w / 2, y: y + h / 2 });
+      }
+      nameLabel.textContent = cellLabelText;
+      element.appendChild(nameLabel);
+    }
+
+    if (showType) {
       const typeLabel = svgEl("text");
-      setAttrs(typeLabel, { x: x + w / 2, y: y + h / 2 + 9 });
+      setAttrs(typeLabel, { x: x + w / 2, y: cellLabelText === null ? y + h / 2 : y + h / 2 + 9 });
+      if (cellLabelText === null) typeLabel.setAttribute("dominant-baseline", "middle");
       typeLabel.setAttribute("text-anchor", "middle");
       typeLabel.setAttribute("class", "celltype-label");
-      typeLabel.textContent = cell.celltypeName;
+      typeLabel.textContent = formatCelltypeDisplayLabel(cell.celltypeName, namespaceDisplay);
       element.appendChild(typeLabel);
     }
 
-    this.appendStatusBadges(element, cell, ctx, x, y, w, h);
+    if (showStatusSymbols) {
+      this.appendStatusBadges(element, cell, ctx, x, y, w, h);
+    }
 
     for (const port of cell.cports) this.appendPortSymbol(element, cell, port, "cport", k);
     for (const port of cell.eports) this.appendPortSymbol(element, cell, port, "eport", k);

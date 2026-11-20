@@ -776,6 +776,21 @@
           <label title="リージョンごとにセルの左端を色分けする（外部仕様7.5.2）"><input type="checkbox" id="filter-color" /> 色分け</label>
           <label title="結合のシグニチャ名ラベルを表示する（外部仕様7.5.2）"><input type="checkbox" id="filter-signature" /> シグニチャ名</label>
           <label title="セル名を大きく表示し、セルタイプ名を隠す（外部仕様7.4.2）"><input type="checkbox" id="filter-emphasize" /> セル名強調</label>
+          <label title="セルタイプ名を表示する（V0.3.1）"><input type="checkbox" id="filter-celltype-name" checked /> セルタイプ名</label>
+          <label title="セル名の表示方式（表示・短縮・非表示）">セル名
+            <select id="filter-cell-name" aria-label="セル名表示">
+              <option value="show">表示</option>
+              <option value="shorten">短縮</option>
+              <option value="hide">非表示</option>
+            </select>
+          </label>
+          <label title="記号（RO / ! / U）を表示する（V0.3.1）"><input type="checkbox" id="filter-status-symbols" checked /> 記号</label>
+          <label title="セル名・セルタイプ名の名前空間表示方式">名前空間
+            <select id="filter-namespace" aria-label="名前空間表示">
+              <option value="show">表示</option>
+              <option value="dot">黒丸</option>
+            </select>
+          </label>
           <label title="アクティブなセルだけを表示する（外部仕様7.5.x）"><input type="checkbox" id="filter-active-only" /> アクティブのみ</label>
           <button data-action="toggleConnectionFocus" type="button" id="toggle-connection-focus" aria-pressed="false" title="選択したポートの結合を赤色太線で強調する（外部仕様7.6）">結合強調</button>
           <label id="paper-control">用紙

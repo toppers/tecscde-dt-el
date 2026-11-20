@@ -456,6 +456,10 @@ function viewEquals(a: CanvasView | undefined, b: CanvasView): boolean {
     // 結合強調・アクティブのみ・矩形モード・色帯も、図の見え方を変える（三者相違一覧3-10、3-2）。
     // 比べないと、これだけが変わったとき結合・セルの要素が描き直されない。
     (a.activeOnly ?? false) === (b.activeOnly ?? false) &&
+    (a.showCelltypeName ?? true) === (b.showCelltypeName ?? true) &&
+    (a.cellNameDisplay ?? "show") === (b.cellNameDisplay ?? "show") &&
+    (a.showStatusSymbols ?? true) === (b.showStatusSymbols ?? true) &&
+    (a.namespaceDisplay ?? "show") === (b.namespaceDisplay ?? "show") &&
     (a.regionOutlineMode ?? false) === (b.regionOutlineMode ?? false) &&
     (a.regionBands ?? true) === (b.regionBands ?? true) &&
     setsEqual(a.focusedJoinIds ?? EMPTY_SET, b.focusedJoinIds ?? EMPTY_SET)

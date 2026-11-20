@@ -109,6 +109,11 @@ export class AppShell {
   private readonly filterSignature: HTMLInputElement;
   private readonly filterEmphasize: HTMLInputElement;
   private readonly filterActiveOnly: HTMLInputElement | null;
+  private readonly filterCelltypeName: HTMLInputElement | null;
+  private readonly filterCellName: HTMLSelectElement | null;
+  private readonly filterStatusSymbols: HTMLInputElement | null;
+  private readonly filterNamespace: HTMLSelectElement | null;
+  private readonly statusLegend: HTMLElement | null;
   private readonly statusPos: HTMLElement;
   private readonly statusZoom: HTMLElement;
   private readonly statusFile: HTMLElement;
@@ -182,6 +187,11 @@ export class AppShell {
     this.filterSignature = requireEl<HTMLInputElement>(root, "#filter-signature");
     this.filterEmphasize = requireEl<HTMLInputElement>(root, "#filter-emphasize");
     this.filterActiveOnly = root.querySelector<HTMLInputElement>("#filter-active-only");
+    this.filterCelltypeName = root.querySelector<HTMLInputElement>("#filter-celltype-name");
+    this.filterCellName = root.querySelector<HTMLSelectElement>("#filter-cell-name");
+    this.filterStatusSymbols = root.querySelector<HTMLInputElement>("#filter-status-symbols");
+    this.filterNamespace = root.querySelector<HTMLSelectElement>("#filter-namespace");
+    this.statusLegend = root.querySelector<HTMLElement>("#status-legend");
     this.statusPos = requireEl<HTMLElement>(root, "#status-pos");
     this.statusZoom = requireEl<HTMLElement>(root, "#status-zoom");
     this.statusFile = requireEl<HTMLElement>(root, "#status-file");
@@ -291,10 +301,18 @@ export class AppShell {
     this.bindScroll();
     this.bindCanvasResize();
     this.bindDirtyReport();
-    // 三者相違一覧2-7（監査#41）: 保存済みのアプリケーション既定用紙があれば起動時に復元する。
+    // 三者相違一覧2-7（監査#41）+ V0.3.1 段2: 保存済みの既定用紙・表示切替4種があれば起動時に復元する。
     void this.settings?.getToolSettings().then((s) => {
       if (s.defaultPaperSize) {
         this.store.setDefaultPaper(PaperSpec.create(s.defaultPaperSize, s.defaultPaperOrientation ?? "LANDSCAPE"));
+      }
+      let nextFilters = this.store.view.filters;
+      if (s.showCelltypeName !== undefined) nextFilters = nextFilters.withShowCelltypeName(s.showCelltypeName);
+      if (s.cellNameDisplay !== undefined) nextFilters = nextFilters.withCellNameDisplay(s.cellNameDisplay);
+      if (s.showStatusSymbols !== undefined) nextFilters = nextFilters.withShowStatusSymbols(s.showStatusSymbols);
+      if (s.namespaceDisplay !== undefined) nextFilters = nextFilters.withNamespaceDisplay(s.namespaceDisplay);
+      if (!nextFilters.equals(this.store.view.filters)) {
+        this.store.setView(this.store.view.withFilters(nextFilters));
       }
     }).catch(() => undefined);
     // 7.6.6節: 記憶済みのルートフォルダがあれば起動時に一度だけ自動復元する。
@@ -718,15 +736,49 @@ export class AppShell {
       const f = this.store.view.filters;
       this.store.setView(this.store.view.withFilters(f.withActiveOnly(this.filterActiveOnly.checked)));
     };
+    const onCelltypeName = (): void => {
+      if (!this.filterCelltypeName) return;
+      const on = this.filterCelltypeName.checked;
+      this.store.setView(this.store.view.withFilters(this.store.view.filters.withShowCelltypeName(on)));
+      void this.settings?.updateToolSettings({ showCelltypeName: on }).catch(() => undefined);
+    };
+    const onCellName = (): void => {
+      if (!this.filterCellName) return;
+      const val = this.filterCellName.value;
+      if (val !== "show" && val !== "shorten" && val !== "hide") return;
+      this.store.setView(this.store.view.withFilters(this.store.view.filters.withCellNameDisplay(val)));
+      void this.settings?.updateToolSettings({ cellNameDisplay: val }).catch(() => undefined);
+    };
+    const onStatusSymbols = (): void => {
+      if (!this.filterStatusSymbols) return;
+      const on = this.filterStatusSymbols.checked;
+      this.store.setView(this.store.view.withFilters(this.store.view.filters.withShowStatusSymbols(on)));
+      void this.settings?.updateToolSettings({ showStatusSymbols: on }).catch(() => undefined);
+    };
+    const onNamespace = (): void => {
+      if (!this.filterNamespace) return;
+      const val = this.filterNamespace.value;
+      if (val !== "show" && val !== "dot") return;
+      this.store.setView(this.store.view.withFilters(this.store.view.filters.withNamespaceDisplay(val)));
+      void this.settings?.updateToolSettings({ namespaceDisplay: val }).catch(() => undefined);
+    };
     this.filterColor.addEventListener("change", onColor);
     this.filterSignature.addEventListener("change", onSignature);
     this.filterEmphasize.addEventListener("change", onEmphasize);
     this.filterActiveOnly?.addEventListener("change", onActiveOnly);
+    this.filterCelltypeName?.addEventListener("change", onCelltypeName);
+    this.filterCellName?.addEventListener("change", onCellName);
+    this.filterStatusSymbols?.addEventListener("change", onStatusSymbols);
+    this.filterNamespace?.addEventListener("change", onNamespace);
     this.disposers.push(() => {
       this.filterColor.removeEventListener("change", onColor);
       this.filterSignature.removeEventListener("change", onSignature);
       this.filterEmphasize.removeEventListener("change", onEmphasize);
       this.filterActiveOnly?.removeEventListener("change", onActiveOnly);
+      this.filterCelltypeName?.removeEventListener("change", onCelltypeName);
+      this.filterCellName?.removeEventListener("change", onCellName);
+      this.filterStatusSymbols?.removeEventListener("change", onStatusSymbols);
+      this.filterNamespace?.removeEventListener("change", onNamespace);
     });
   }
 
@@ -761,7 +813,13 @@ export class AppShell {
     this.filterColor.checked = filters.colorByRegion;
     this.filterSignature.checked = filters.showSignatureNames;
     this.filterEmphasize.checked = filters.emphasizeCellName;
+    this.filterEmphasize.disabled = filters.cellNameDisplay === "hide";
     if (this.filterActiveOnly) this.filterActiveOnly.checked = filters.activeOnly;
+    if (this.filterCelltypeName) this.filterCelltypeName.checked = filters.showCelltypeName;
+    if (this.filterCellName) this.filterCellName.value = filters.cellNameDisplay;
+    if (this.filterStatusSymbols) this.filterStatusSymbols.checked = filters.showStatusSymbols;
+    if (this.filterNamespace) this.filterNamespace.value = filters.namespaceDisplay;
+    if (this.statusLegend) this.statusLegend.hidden = !filters.showStatusSymbols;
     // 第6C章6C.3 / 6C.5: トグルの aria-pressed 同期
     const cfBtn = this.toolbar.querySelector<HTMLButtonElement>("[data-action='toggleConnectionFocus']");
     if (cfBtn) cfBtn.setAttribute("aria-pressed", String(this.store.isConnectionFocusEnabled()));

@@ -174,6 +174,10 @@ export class ViewState {
       // 矩形モードの色は矩形の輪郭にだけ使い、セルの色帯は色分け表示がオンのときだけ描く（三者相違一覧3-2）。
       ...(this.regionOutlineMode && !this.filters.colorByRegion ? { regionBands: false } : {}),
       activeOnly: this.filters.activeOnly,
+      showCelltypeName: this.filters.showCelltypeName,
+      cellNameDisplay: this.filters.cellNameDisplay,
+      showStatusSymbols: this.filters.showStatusSymbols,
+      namespaceDisplay: this.filters.namespaceDisplay,
       regionOutlineMode: this.regionOutlineMode,
       focusedJoinIds,
     };

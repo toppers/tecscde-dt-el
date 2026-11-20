@@ -12,6 +12,7 @@
 
 import type { Point } from "../model/geometry";
 import type { CellId, JoinId, RegionId } from "../model/ids";
+import type { CellNameDisplayMode, NamespaceDisplayMode } from "../../shared/ipc-types";
 
 /** モデル座標 1mm あたりの基準ピクセル数（ズーム100%時、外部仕様3.2.1）。 */
 export const MM_TO_PX = 96 / 25.4;
@@ -42,6 +43,14 @@ export interface CanvasView {
    * 省略は`true`（`regionColors`があれば描く従来の動作）。
    */
   readonly regionBands?: boolean;
+  /** V0.3.1 段2: セルタイプ名の表示（既定 true）。 */
+  readonly showCelltypeName?: boolean;
+  /** V0.3.1 段2: セル名の表示方式（既定 "show"）。 */
+  readonly cellNameDisplay?: CellNameDisplayMode;
+  /** V0.3.1 段2: 記号（色以外: RO / ! / U）の表示（既定 true）。 */
+  readonly showStatusSymbols?: boolean;
+  /** V0.3.1 段2: セル名・セルタイプ名の名前空間表示方式（既定 "show"）。 */
+  readonly namespaceDisplay?: NamespaceDisplayMode;
 }
 
 // 実行時の投影は第6章の `ViewState.toCanvasView(regions)` が担う（モジュールF）。
@@ -57,6 +66,10 @@ export function defaultCanvasView(): CanvasView {
     activeOnly: false,
     focusedJoinIds: undefined,
     regionOutlineMode: false,
+    showCelltypeName: true,
+    cellNameDisplay: "show",
+    showStatusSymbols: true,
+    namespaceDisplay: "show",
   };
 }
 
