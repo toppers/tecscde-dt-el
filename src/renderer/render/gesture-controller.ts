@@ -16,7 +16,7 @@
 // （5.3節の note）。
 
 import { HitTester, type HitResult } from "./hit-tester";
-import { pxPerMm, SelectionState, type CanvasView, type SelectedPort } from "./view";
+import { pxPerMm, resolveSelectedPort, SelectionState, type CanvasView, type SelectedPort } from "./view";
 import type { JoinPreviewLine } from "./svg-renderer";
 import { ALIGN_MM, alignRound } from "../model/align";
 import { moveBarBars, portPosition } from "../model/geometry";
@@ -31,11 +31,14 @@ import {
   AddCellCommand,
   ChangePortEdgeCommand,
   CreateJoinCommand,
+  DeleteArrayPortElementsCommand,
   DeleteCommand,
-  InsertPortElementCommand,
+  InsertArrayPortElementCommand,
   MoveCellsCommand,
   MoveJoinBarCommand,
   MovePortsCommand,
+  prepareArrayPortElementDeletion,
+  prepareArrayPortInsertion,
 } from "../commands";
 
 /** 修飾キーの状態。DOM `MouseEvent`/`KeyboardEvent` から抜き出した最小集合。 */
@@ -369,100 +372,77 @@ export class GestureController {
 
   keyDown(key: string, mods: Mods = NO_MODS): boolean {
     if (key === "Insert") {
+      // 内部仕様 04E 4E.2（6-3）: 修飾キー付き・別操作中は横取りしない。Insert 単独のみ扱う。
+      if (this.state.kind !== "idle") return false;
+      if (mods.ctrl || mods.alt || mods.meta || mods.shift) return false;
       const sel = this.host.getSelection();
-      if (sel.ports.length === 1) {
-        const selected = sel.ports[0]!;
-        const doc = this.host.getDocument();
-        const cell = doc.getCell(selected.cellId);
-        if (!cell || !cell.editable) {
-          this.host.postMessage?.("読み込み専用セルのポートは編集できません");
-          return true;
-        }
-        const port =
-          selected.kind === "cport"
-            ? cell.findCPort(selected.portName, selected.subscript)
-            : cell.findEPort(selected.portName, selected.subscript);
-        if (!port) return false;
-
-        if (selected.subscript === null && port.arraySize === null) {
-          this.host.postMessage?.("配列ポートではありません");
-          return true;
-        }
-        if (port.arraySize !== null) {
-          this.host.postMessage?.("固定長配列には要素を追加できません");
-          return true;
-        }
-
-        this.host.dispatch(
-          new InsertPortElementCommand(
-            selected.cellId,
-            selected.kind === "cport" ? "CPort" : "EPort",
-            selected.portName,
-            selected.subscript ?? 0,
-            mods.shift,
-          ),
-        );
+      const result = prepareArrayPortInsertion(this.host.getDocument(), sel.ports);
+      if (!result.ok) {
+        this.host.postMessage?.(result.message);
         return true;
       }
-      return false;
+      this.host.dispatch(new InsertArrayPortElementCommand(result.plan));
+      return true;
     }
 
     if (key === "Delete" || key === "Backspace") {
+      // 内部仕様 04F 4F.1（6-3）: 修飾キー付き・別操作中は横取りしない。
+      if (this.state.kind !== "idle") return false;
+      if (mods.ctrl || mods.alt || mods.meta || mods.shift) return false;
+
       const sel = this.host.getSelection();
       const doc = this.host.getDocument();
 
-      const joinIdsToDelete = new Set<JoinId>(sel.joinIds);
-      for (const p of sel.ports) {
-        const cell = doc.getCell(p.cellId);
-        if (!cell || !cell.editable) continue;
-        if (p.kind === "cport") {
-          const port = cell.findCPort(p.portName, p.subscript);
-          if (port?.joinId) joinIdsToDelete.add(port.joinId);
-        } else {
-          const port = cell.findEPort(p.portName, p.subscript);
-          if (port) {
-            for (const jid of port.joinIds) joinIdsToDelete.add(jid);
+      // ポート選択時（内部仕様 04F 4F.1・4F.2: 結合ありなら結合だけ解除、全未結合なら配列要素削除）
+      if (sel.ports.length > 0 && sel.cellIds.size === 0 && sel.joinIds.size === 0) {
+        const connectedJoinIds = new Set<JoinId>();
+        for (const p of sel.ports) {
+          const resolved = resolveSelectedPort(doc, p);
+          if (!resolved) continue;
+          const port = resolved.port;
+          if ("joinId" in port) {
+            if (port.joinId !== null) connectedJoinIds.add(port.joinId);
+          } else {
+            for (const jid of port.joinIds) connectedJoinIds.add(jid);
           }
         }
-      }
 
-      const deletablePorts = sel.ports.filter((p) => {
-        const cell = doc.getCell(p.cellId);
-        if (!cell || !cell.editable) return false;
-        if (p.subscript === null || p.subscript === 0) return false;
-        const port =
-          p.kind === "cport"
-            ? cell.findCPort(p.portName, p.subscript)
-            : cell.findEPort(p.portName, p.subscript);
-        if (!port || port.arraySize !== null) return false;
-        return true;
-      });
-
-      for (const p of sel.ports) {
-        const cell = doc.getCell(p.cellId);
-        if (!cell || !cell.editable) continue;
-        const port =
-          p.kind === "cport"
-            ? cell.findCPort(p.portName, p.subscript)
-            : cell.findEPort(p.portName, p.subscript);
-        if (!port) continue;
-
-        const hasConnectedJoin =
-          "joinId" in port ? port.joinId !== null : port.joinIds.length > 0;
-        if (hasConnectedJoin) continue;
-
-        if (port.arraySize !== null && p.subscript !== null) {
-          this.host.postMessage?.("固定長配列の要素は削除できません");
-        } else if (p.subscript === 0) {
-          this.host.postMessage?.("先頭要素は削除できません");
+        if (connectedJoinIds.size > 0) {
+          const editableJoinIds = [...connectedJoinIds].filter((jid) => {
+            const join = doc.getJoin(jid);
+            const source = join ? doc.getCell(join.cellId) : undefined;
+            return source?.editable === true;
+          });
+          if (editableJoinIds.length === 0) {
+            this.host.postMessage?.("読み取り専用セルの結合は削除できません");
+            return false;
+          }
+          // 1回目 Delete では結合だけを外し、配列要素は削除しない。ポート選択は維持する。
+          this.host.dispatch(new DeleteCommand([], editableJoinIds));
+          return true;
         }
+
+        const delResult = prepareArrayPortElementDeletion(doc, sel.ports);
+        if (!delResult.ok) {
+          this.host.postMessage?.(delResult.message);
+          return false;
+        }
+        this.host.dispatch(new DeleteArrayPortElementsCommand(delResult.plan));
+        // 削除に成功した要素 ID だけを選択から外し、残存選択は維持する（4F.4）
+        const deletedIds = new Set(delResult.plan.allDeletePortIds);
+        const remainingPorts = sel.ports.filter((p) => {
+          const resolved = resolveSelectedPort(doc, p);
+          return resolved ? !deletedIds.has(resolved.port.id) : false;
+        });
+        this.host.setSelection(remainingPorts.length > 0 ? SelectionState.ofPorts(remainingPorts) : SelectionState.empty());
+        return true;
       }
 
-      if (sel.cellIds.size === 0 && joinIdsToDelete.size === 0 && deletablePorts.length === 0) {
+      if (sel.cellIds.size === 0 && sel.joinIds.size === 0) {
         return false;
       }
 
-      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...joinIdsToDelete], deletablePorts));
+      this.host.dispatch(new DeleteCommand([...sel.cellIds], [...sel.joinIds]));
       this.host.setSelection(SelectionState.empty());
       return true;
     }

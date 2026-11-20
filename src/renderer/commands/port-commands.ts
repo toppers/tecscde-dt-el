@@ -9,9 +9,25 @@ import { Command } from "./command";
 import { disconnectJoin, rerouteJoin } from "./support";
 import { alignRound } from "../model/align";
 import type { Cell } from "../model/cell";
-import type { CellId, JoinId } from "../model/ids";
+import { nextPortId, type CellId, type JoinId, type PortId } from "../model/ids";
 import { CPort, EPort, type EdgeSide } from "../model/port";
 import type { TecscdeDocument } from "../model/document";
+import type { SelectedPort } from "../render/view";
+
+function resolvePortRef(doc: TecscdeDocument, selected: SelectedPort): { readonly cell: Cell; readonly port: CPort | EPort } | undefined {
+  const cell = doc.getCell(selected.cellId);
+  if (!cell) return undefined;
+  if (selected.kind === "cport") {
+    const port =
+      (selected.portId !== undefined ? cell.findCPortById(selected.portId) : undefined) ??
+      cell.findCPort(selected.portName, selected.subscript);
+    return port ? { cell, port } : undefined;
+  }
+  const port =
+    (selected.portId !== undefined ? cell.findEPortById(selected.portId) : undefined) ??
+    cell.findEPort(selected.portName, selected.subscript);
+  return port ? { cell, port } : undefined;
+}
 
 export type PortKind = "CPort" | "EPort";
 
@@ -405,6 +421,509 @@ export class DeletePortElementCommand extends Command {
         next = next.withJoin(join.withSubscripts(join.cportSubscript, join.eportSubscript - 1));
       }
     }
+    return next;
+  }
+}
+
+// --- V0.3.2 段2: 内部仕様 04E / 04F 準拠の計画・コマンド（6-1〜6-5） ---
+
+export type ArrayPortInsertionRejectReason =
+  | "selection"
+  | "read-only"
+  | "not-found"
+  | "fixed-array"
+  | "unresolved"
+  | "not-array"
+  | "readonly-reference"
+  | "no-space";
+
+export interface ArrayPortInsertionPlan {
+  readonly cellId: CellId;
+  readonly portKind: PortKind;
+  readonly portName: string;
+  readonly anchorPortId: PortId;
+  readonly expectedElementIds: readonly PortId[];
+  readonly insertIndex: number;
+  readonly newPortId: PortId;
+  readonly edgeSide: EdgeSide;
+  readonly newOffset: number;
+  readonly movedOffsets: readonly { readonly portId: PortId; readonly offset: number }[];
+}
+
+export type ArrayPortInsertionResult =
+  | { readonly ok: true; readonly plan: ArrayPortInsertionPlan }
+  | { readonly ok: false; readonly reason: ArrayPortInsertionRejectReason; readonly message: string };
+
+/**
+ * 内部仕様 04E 4E.4（6-5）: 同じ配列グループ内（同じセル・方向・宣言名・同じ辺）に限定して
+ * 挿入位置と押し出し先を計画する。辺上に MIN_PORT_GAP_MM 間隔で収まらない場合は undefined を返す。
+ */
+function planArrayGroupInsertPosition(
+  cell: Cell,
+  groupOnEdge: readonly (CPort | EPort)[],
+  edge: EdgeSide,
+  anchor: number,
+): { newOffset: number; movedOffsets: readonly { readonly portId: PortId; readonly offset: number }[] } | undefined {
+  const maxLen = edgeLength(cell, edge);
+  const totalCount = groupOnEdge.length + 1;
+  if ((totalCount - 1) * MIN_PORT_GAP_MM > maxLen) return undefined;
+
+  const nextOffset = Math.min(...groupOnEdge.map((p) => p.offset).filter((offset) => offset > anchor));
+  const newProposed = anchor + INSERT_PORT_GAP_MM;
+  const push = Number.isFinite(nextOffset) ? Math.max(0, INSERT_PORT_GAP_MM * 2 - (nextOffset - anchor)) : 0;
+
+  const items = [
+    { port: null as CPort | EPort | null, offset: clampOffset(cell, edge, newProposed), origin: anchor + 0.5, subscript: -2, moves: true },
+    ...groupOnEdge.map((port) => {
+      const moves = port.offset > anchor;
+      return {
+        port: port as CPort | EPort | null,
+        offset: moves ? clampOffset(cell, edge, port.offset + push) : port.offset,
+        origin: port.offset,
+        subscript: port.subscript ?? -1,
+        moves,
+      };
+    }),
+  ];
+  // 昇順に並べてから、後ろから端へ押し戻し、前から 0 以上へ押し出して間隔を検証する。
+  items.sort((x, y) => x.offset - y.offset || x.origin - y.origin || x.subscript - y.subscript);
+
+  let upper = maxLen;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]!;
+    const bounded = Math.min(item.offset, upper);
+    item.offset = bounded;
+    upper = bounded - MIN_PORT_GAP_MM;
+  }
+  let lower = 0;
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]!;
+    const bounded = Math.max(item.offset, lower);
+    if (bounded > maxLen) return undefined;
+    item.offset = bounded;
+    lower = bounded + MIN_PORT_GAP_MM;
+  }
+  for (let i = 1; i < items.length; i += 1) {
+    if (items[i]!.offset - items[i - 1]!.offset < MIN_PORT_GAP_MM - 1e-6) return undefined;
+  }
+
+  const created = items.find((item) => item.port === null)!;
+  const movedOffsets: { readonly portId: PortId; readonly offset: number }[] = [];
+  for (const item of items) {
+    if (item.port && item.offset !== item.port.offset) {
+      movedOffsets.push({ portId: item.port.id, offset: item.offset });
+    }
+  }
+  return { newOffset: created.offset, movedOffsets };
+}
+
+function arrayGroupPorts(cell: Cell, portKind: PortKind, portName: string): readonly (CPort | EPort)[] {
+  const list = portKind === "CPort" ? cell.cports : cell.eports;
+  return list.filter((p) => p.name === portName);
+}
+
+function hasReadonlyEntryReference(
+  doc: TecscdeDocument,
+  targetCellId: CellId,
+  eportName: string,
+  affectedSubscriptFrom: number,
+): boolean {
+  for (const join of doc.joinValues()) {
+    if (
+      join.eportCellId === targetCellId &&
+      join.eportName === eportName &&
+      join.eportSubscript !== null &&
+      join.eportSubscript >= affectedSubscriptFrom
+    ) {
+      const source = doc.getCell(join.cellId);
+      if (!source || !source.editable) return true;
+    }
+  }
+  return false;
+}
+
+/** 内部仕様 04E 4E.3: Insert 単独による可変長配列ポート要素の直後挿入を計画する。 */
+export function prepareArrayPortInsertion(
+  doc: TecscdeDocument,
+  selectedPorts: readonly SelectedPort[],
+): ArrayPortInsertionResult {
+  if (selectedPorts.length !== 1) {
+    return { ok: false, reason: "selection", message: "可変長配列ポートの要素を1つだけ選択してください" };
+  }
+  const selected = selectedPorts[0]!;
+  const cell = doc.getCell(selected.cellId);
+  if (!cell) {
+    return { ok: false, reason: "not-found", message: "選択したポートが見つかりません" };
+  }
+  if (!cell.editable) {
+    return { ok: false, reason: "read-only", message: "読み込み専用セルのポートは編集できません" };
+  }
+  const resolved = resolvePortRef(doc, selected);
+  if (!resolved) {
+    return { ok: false, reason: "not-found", message: "選択したポートが見つかりません" };
+  }
+  const port = resolved.port;
+  if (port.arrayKind === "fixed") {
+    return { ok: false, reason: "fixed-array", message: "固定長配列には要素を挿入できません。" };
+  }
+  if (port.arrayKind === "unresolved") {
+    return { ok: false, reason: "unresolved", message: "配列長が未解決のポートには要素を挿入できません" };
+  }
+  if (port.arrayKind !== "variable" || port.subscript === null) {
+    return { ok: false, reason: "not-array", message: "配列ポートではありません" };
+  }
+
+  const portKind: PortKind = selected.kind === "cport" ? "CPort" : "EPort";
+  const insertIndex = port.subscript + 1;
+  if (portKind === "EPort" && hasReadonlyEntryReference(doc, cell.id, port.name, insertIndex)) {
+    return {
+      ok: false,
+      reason: "readonly-reference",
+      message: "読み取り専用セルからの結合参照を更新できないため、要素を挿入できません",
+    };
+  }
+
+  const group = arrayGroupPorts(cell, portKind, port.name);
+  const groupOnEdge = group.filter((p) => p.edgeSide === port.edgeSide);
+  const layout = planArrayGroupInsertPosition(cell, groupOnEdge, port.edgeSide, port.offset);
+  if (!layout) {
+    return { ok: false, reason: "no-space", message: "辺上に要素を配置できる空き位置がありません" };
+  }
+
+  return {
+    ok: true,
+    plan: {
+      cellId: cell.id,
+      portKind,
+      portName: port.name,
+      anchorPortId: port.id,
+      expectedElementIds: group.map((p) => p.id),
+      insertIndex,
+      newPortId: nextPortId(portKind === "CPort" ? "cport" : "eport"),
+      edgeSide: port.edgeSide,
+      newOffset: layout.newOffset,
+      movedOffsets: layout.movedOffsets,
+    },
+  };
+}
+
+/** 内部仕様 04E 4E.3: 確定済み挿入計画を同期・副作用なしで適用するコマンド。 */
+export class InsertArrayPortElementCommand extends Command {
+  readonly kind = "InsertArrayPortElement";
+  override readonly summary: string;
+
+  constructor(private readonly plan: ArrayPortInsertionPlan) {
+    super();
+    this.summary = `insert ${plan.portName}[${plan.insertIndex}]`;
+  }
+
+  apply(doc: TecscdeDocument): TecscdeDocument {
+    const cell = doc.getCell(this.plan.cellId);
+    if (!cell || !cell.editable) return doc;
+
+    const group = arrayGroupPorts(cell, this.plan.portKind, this.plan.portName);
+    // 二重適用防止・前提一致検査
+    if (group.some((p) => p.id === this.plan.newPortId)) return doc;
+    if (
+      group.length !== this.plan.expectedElementIds.length ||
+      group.some((p, i) => p.id !== this.plan.expectedElementIds[i])
+    ) {
+      return doc;
+    }
+    const anchor = group.find((p) => p.id === this.plan.anchorPortId);
+    if (!anchor || anchor.arrayKind !== "variable" || anchor.subscript === null) return doc;
+    if (
+      this.plan.portKind === "EPort" &&
+      hasReadonlyEntryReference(doc, cell.id, this.plan.portName, this.plan.insertIndex)
+    ) {
+      return doc;
+    }
+
+    const offsetMap = new Map<PortId, number>(this.plan.movedOffsets.map((m) => [m.portId, m.offset]));
+    const movedJoinIds: JoinId[] = [];
+    const adjust = <P extends CPort | EPort>(port: P): P => {
+      if (port.name !== this.plan.portName) return port;
+      let next: P = port;
+      if (port.subscript !== null && port.subscript >= this.plan.insertIndex) {
+        next = next.withSubscript(port.subscript + 1) as P;
+      }
+      const nextOffset = offsetMap.get(port.id);
+      if (nextOffset !== undefined && nextOffset !== port.offset) {
+        next = next.withEdge(port.edgeSide, nextOffset) as P;
+        movedJoinIds.push(...(port instanceof CPort ? joinIdsOfCPort(port) : port.joinIds));
+      }
+      return next;
+    };
+    const insertAt = <P extends CPort | EPort>(list: P[], created: P): P[] => {
+      const pos = list.findIndex(
+        (p) => p.name === this.plan.portName && p.subscript !== null && p.subscript > this.plan.insertIndex,
+      );
+      if (pos >= 0) list.splice(pos, 0, created);
+      else list.push(created);
+      return list;
+    };
+
+    let next: TecscdeDocument;
+    if (this.plan.portKind === "CPort") {
+      const created = CPort.create({
+        id: this.plan.newPortId,
+        name: anchor.name,
+        signature: anchor.signature,
+        edgeSide: this.plan.edgeSide,
+        offset: this.plan.newOffset,
+        subscript: this.plan.insertIndex,
+        arraySize: null,
+        arrayKind: "variable",
+      });
+      next = doc.withCell(cell.withCPorts(insertAt(cell.cports.map(adjust), created)));
+    } else {
+      const created = EPort.create({
+        id: this.plan.newPortId,
+        name: anchor.name,
+        signature: anchor.signature,
+        edgeSide: this.plan.edgeSide,
+        offset: this.plan.newOffset,
+        subscript: this.plan.insertIndex,
+        arraySize: null,
+        arrayKind: "variable",
+      });
+      next = doc.withCell(cell.withEPorts(insertAt(cell.eports.map(adjust), created)));
+    }
+
+    for (const join of next.joinValues()) {
+      let cSub = join.cportSubscript;
+      let eSub = join.eportSubscript;
+      if (
+        this.plan.portKind === "CPort" &&
+        join.cellId === this.plan.cellId &&
+        join.cportName === this.plan.portName &&
+        cSub !== null &&
+        cSub >= this.plan.insertIndex
+      ) {
+        cSub += 1;
+      }
+      if (
+        this.plan.portKind === "EPort" &&
+        join.eportCellId === this.plan.cellId &&
+        join.eportName === this.plan.portName &&
+        eSub !== null &&
+        eSub >= this.plan.insertIndex
+      ) {
+        eSub += 1;
+      }
+      if (cSub !== join.cportSubscript || eSub !== join.eportSubscript) {
+        next = next.withJoin(join.withSubscripts(cSub, eSub));
+      }
+    }
+
+    return reroutePortJoins(next, movedJoinIds);
+  }
+}
+
+export interface ArrayPortDeletionGroupPlan {
+  readonly cellId: CellId;
+  readonly portKind: PortKind;
+  readonly portName: string;
+  readonly expectedElementIds: readonly PortId[];
+  readonly deletePortIds: readonly PortId[];
+}
+
+export interface ArrayPortElementDeletionPlan {
+  readonly groups: readonly ArrayPortDeletionGroupPlan[];
+  readonly allDeletePortIds: readonly PortId[];
+}
+
+export type ArrayPortElementDeletionResult =
+  | { readonly ok: true; readonly plan: ArrayPortElementDeletionPlan }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * 内部仕様 04F 4F.2・4F.3（6-2）: 未結合の配列ポート要素削除計画を作成する。
+ * 削除可能要素と拒否対象が混在した場合は計画全体を拒否し、部分削除しない。
+ */
+export function prepareArrayPortElementDeletion(
+  doc: TecscdeDocument,
+  selectedPorts: readonly SelectedPort[],
+): ArrayPortElementDeletionResult {
+  if (selectedPorts.length === 0) {
+    return { ok: false, message: "削除対象のポートが選択されていません" };
+  }
+
+  const seenPortIds = new Set<PortId>();
+  const reasons: string[] = [];
+  const grouped = new Map<string, { cellId: CellId; portKind: PortKind; portName: string; deleteIds: PortId[]; minSubscript: number }>();
+
+  for (const selected of selectedPorts) {
+    const cell = doc.getCell(selected.cellId);
+    if (!cell) {
+      reasons.push("セルが見つかりません");
+      continue;
+    }
+    if (!cell.editable) {
+      reasons.push("読み取り専用セルのポートは削除できません");
+      continue;
+    }
+    const resolved = resolvePortRef(doc, selected);
+    if (!resolved) {
+      reasons.push("ポートが見つかりません");
+      continue;
+    }
+    const port = resolved.port;
+    if (seenPortIds.has(port.id)) continue;
+    seenPortIds.add(port.id);
+
+    const hasJoin = port instanceof CPort ? port.joinId !== null : port.joinIds.length > 0;
+    if (hasJoin) {
+      reasons.push("結合済みの要素は直接削除できません");
+      continue;
+    }
+    if (port.arrayKind === "fixed") {
+      reasons.push("固定長配列の要素は削除できません。");
+      continue;
+    }
+    if (port.arrayKind === "unresolved") {
+      reasons.push("配列長が未解決のポートは削除できません");
+      continue;
+    }
+    if (port.arrayKind !== "variable" || port.subscript === null) {
+      reasons.push("非配列ポートは個別に削除できません");
+      continue;
+    }
+    if (port.subscript === 0) {
+      reasons.push("先頭要素は削除できません");
+      continue;
+    }
+
+    const portKind: PortKind = selected.kind === "cport" ? "CPort" : "EPort";
+    const key = `${cell.id}\0${portKind}\0${port.name}`;
+    const entry = grouped.get(key);
+    if (entry) {
+      entry.deleteIds.push(port.id);
+      entry.minSubscript = Math.min(entry.minSubscript, port.subscript);
+    } else {
+      grouped.set(key, {
+        cellId: cell.id,
+        portKind,
+        portName: port.name,
+        deleteIds: [port.id],
+        minSubscript: port.subscript,
+      });
+    }
+  }
+
+  // 受け口の添字変更で読み取り専用参照元の書き換えが必要になる場合は全体拒否（4F.5）
+  for (const g of grouped.values()) {
+    if (g.portKind === "EPort" && hasReadonlyEntryReference(doc, g.cellId, g.portName, g.minSubscript + 1)) {
+      reasons.push(`${g.portName}: 読み取り専用セルからの結合参照を更新できないため削除できません`);
+    }
+  }
+
+  if (reasons.length > 0 || grouped.size === 0) {
+    return { ok: false, message: reasons.join(" / ") || "削除できる配列要素がありません" };
+  }
+
+  const groups: ArrayPortDeletionGroupPlan[] = [];
+  const allDeletePortIds: PortId[] = [];
+  for (const g of grouped.values()) {
+    const cell = doc.getCell(g.cellId)!;
+    const expectedElementIds = arrayGroupPorts(cell, g.portKind, g.portName).map((p) => p.id);
+    groups.push({
+      cellId: g.cellId,
+      portKind: g.portKind,
+      portName: g.portName,
+      expectedElementIds,
+      deletePortIds: g.deleteIds,
+    });
+    allDeletePortIds.push(...g.deleteIds);
+  }
+
+  return { ok: true, plan: { groups, allDeletePortIds } };
+}
+
+/** 内部仕様 04F 4F.3: 未結合の配列ポート要素を一括削除・再添字するコマンド。 */
+export class DeleteArrayPortElementsCommand extends Command {
+  readonly kind = "DeleteArrayPortElements";
+  override readonly summary: string;
+
+  constructor(private readonly plan: ArrayPortElementDeletionPlan) {
+    super();
+    this.summary = `delete ${plan.allDeletePortIds.length} array port element(s)`;
+  }
+
+  apply(doc: TecscdeDocument): TecscdeDocument {
+    // 全グループの前提を一括検査（1つでも不一致があれば元の doc を返す）
+    for (const g of this.plan.groups) {
+      const cell = doc.getCell(g.cellId);
+      if (!cell || !cell.editable) return doc;
+      const group = arrayGroupPorts(cell, g.portKind, g.portName);
+      if (
+        group.length !== g.expectedElementIds.length ||
+        group.some((p, i) => p.id !== g.expectedElementIds[i])
+      ) {
+        return doc;
+      }
+      const deleteSet = new Set(g.deletePortIds);
+      let minSub = Number.POSITIVE_INFINITY;
+      for (const p of group) {
+        if (!deleteSet.has(p.id)) continue;
+        if (p.arrayKind !== "variable" || p.subscript === null || p.subscript === 0) return doc;
+        const hasJoin = p instanceof CPort ? p.joinId !== null : p.joinIds.length > 0;
+        if (hasJoin) return doc;
+        minSub = Math.min(minSub, p.subscript);
+      }
+      if (g.portKind === "EPort" && hasReadonlyEntryReference(doc, g.cellId, g.portName, minSub + 1)) {
+        return doc;
+      }
+    }
+
+    let next = doc;
+    for (const g of this.plan.groups) {
+      const cell = next.getCell(g.cellId)!;
+      const deleteSet = new Set(g.deletePortIds);
+      const deletedSubscripts = arrayGroupPorts(cell, g.portKind, g.portName)
+        .filter((p) => deleteSet.has(p.id) && p.subscript !== null)
+        .map((p) => p.subscript!);
+      const shiftOf = (sub: number): number => deletedSubscripts.filter((d) => d < sub).length;
+
+      if (g.portKind === "CPort") {
+        const updated: CPort[] = [];
+        for (const p of cell.cports) {
+          if (p.name === g.portName && deleteSet.has(p.id)) continue;
+          if (p.name === g.portName && p.subscript !== null) {
+            const d = shiftOf(p.subscript);
+            updated.push(d > 0 ? p.withSubscript(p.subscript - d) : p);
+          } else {
+            updated.push(p);
+          }
+        }
+        next = next.withCell(cell.withCPorts(updated));
+        for (const join of next.joinValues()) {
+          if (join.cellId === g.cellId && join.cportName === g.portName && join.cportSubscript !== null) {
+            const d = shiftOf(join.cportSubscript);
+            if (d > 0) next = next.withJoin(join.withSubscripts(join.cportSubscript - d, join.eportSubscript));
+          }
+        }
+      } else {
+        const updated: EPort[] = [];
+        for (const p of cell.eports) {
+          if (p.name === g.portName && deleteSet.has(p.id)) continue;
+          if (p.name === g.portName && p.subscript !== null) {
+            const d = shiftOf(p.subscript);
+            updated.push(d > 0 ? p.withSubscript(p.subscript - d) : p);
+          } else {
+            updated.push(p);
+          }
+        }
+        next = next.withCell(cell.withEPorts(updated));
+        for (const join of next.joinValues()) {
+          if (join.eportCellId === g.cellId && join.eportName === g.portName && join.eportSubscript !== null) {
+            const d = shiftOf(join.eportSubscript);
+            if (d > 0) next = next.withJoin(join.withSubscripts(join.cportSubscript, join.eportSubscript - d));
+          }
+        }
+      }
+    }
+
     return next;
   }
 }
