@@ -230,7 +230,14 @@ export interface ToolSettings {
   /** V0.3.0 (2-7): 新規作成時のアプリケーション既定用紙サイズ・向き（未設定時は A4 横）。 */
   readonly defaultPaperSize?: PaperSizeSetting;
   readonly defaultPaperOrientation?: PaperOrientationSetting;
+  /** V0.3.1 Stage 2: ツールバー表示切替4種の永続化設定。 */
+  readonly showCelltypeName?: boolean;
+  readonly cellNameDisplay?: CellNameDisplayMode;
+  readonly showStatusSymbols?: boolean;
+  readonly namespaceDisplay?: NamespaceDisplayMode;
 }
+export type CellNameDisplayMode = "show" | "shorten" | "hide";
+export type NamespaceDisplayMode = "show" | "dot";
 export interface ToolSettingsUpdate {
   readonly tecsgenPath?: string;
   readonly cdlFilesRoot?: string;
@@ -239,6 +246,10 @@ export interface ToolSettingsUpdate {
   readonly pluginTypeSource?: PluginTypeSource;
   readonly defaultPaperSize?: PaperSizeSetting;
   readonly defaultPaperOrientation?: PaperOrientationSetting;
+  readonly showCelltypeName?: boolean;
+  readonly cellNameDisplay?: CellNameDisplayMode;
+  readonly showStatusSymbols?: boolean;
+  readonly namespaceDisplay?: NamespaceDisplayMode;
 }
 export type ToolSettingsUpdateResult = { readonly ok: true; readonly settings: ToolSettings }
   | { readonly ok: false; readonly error: string };

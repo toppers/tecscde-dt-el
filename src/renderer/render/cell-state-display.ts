@@ -84,9 +84,11 @@ export function appendCellStateIndicators(element: SVGGElement, cell: Cell, stat
   const title = element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
   title.setAttribute("class", "cell-status-description"); title.textContent = cellVisualStateDescription(cell, state); element.append(title);
   const badges: CellStateBadge[] = [];
-  if (state.readOnly) badges.push("readonly");
-  if (state.incompleteReasons.length) badges.push("incomplete");
-  if (state.unconnectedCallPorts?.length) badges.push("unconnected");
+  if (view.showStatusSymbols !== false) {
+    if (state.readOnly) badges.push("readonly");
+    if (state.incompleteReasons.length) badges.push("incomplete");
+    if (state.unconnectedCallPorts?.length) badges.push("unconnected");
+  }
   const scale = pxPerMm(view);
   const name = element.querySelector<SVGTextElement>(".cell-label");
   const type = element.querySelector<SVGTextElement>(".celltype-label");

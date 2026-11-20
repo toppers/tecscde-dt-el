@@ -5,7 +5,14 @@
 import { promises as fs } from "node:fs";
 import { join, posix, win32 } from "node:path";
 import { app } from "electron";
-import type { PaperOrientationSetting, PaperSizeSetting, PluginTypeSource, SessionSnapshot } from "../shared/ipc-types.js";
+import type {
+  CellNameDisplayMode,
+  NamespaceDisplayMode,
+  PaperOrientationSetting,
+  PaperSizeSetting,
+  PluginTypeSource,
+  SessionSnapshot,
+} from "../shared/ipc-types.js";
 
 export interface AppSettings {
   readonly [key: string]: unknown;
@@ -31,6 +38,11 @@ export interface AppSettings {
   /** V0.3.0 (2-7): 新規作成時のアプリケーション既定用紙サイズ・向き */
   readonly defaultPaperSize?: PaperSizeSetting;
   readonly defaultPaperOrientation?: PaperOrientationSetting;
+  /** V0.3.1 Stage 2: ツールバー表示切替4種 */
+  readonly showCelltypeName?: boolean;
+  readonly cellNameDisplay?: CellNameDisplayMode;
+  readonly showStatusSymbols?: boolean;
+  readonly namespaceDisplay?: NamespaceDisplayMode;
 }
 
 /** Legacy session fields are accepted at the update boundary and normalized before writing. */
@@ -111,6 +123,14 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   }
   if (normalized.defaultPaperOrientation !== "LANDSCAPE" && normalized.defaultPaperOrientation !== "PORTRAIT") {
     delete normalized.defaultPaperOrientation;
+  }
+  if (typeof normalized.showCelltypeName !== "boolean") delete normalized.showCelltypeName;
+  if (normalized.cellNameDisplay !== "show" && normalized.cellNameDisplay !== "shorten" && normalized.cellNameDisplay !== "hide") {
+    delete normalized.cellNameDisplay;
+  }
+  if (typeof normalized.showStatusSymbols !== "boolean") delete normalized.showStatusSymbols;
+  if (normalized.namespaceDisplay !== "show" && normalized.namespaceDisplay !== "dot") {
+    delete normalized.namespaceDisplay;
   }
   if (normalized.lastSession !== undefined) {
     const session = normalizeSessionSnapshot(normalized.lastSession);

@@ -7,8 +7,10 @@ import { loadAppSettings, saveAppSettings, type AppSettings, type AppSettingsPat
 import { TecsgenRunner } from "./tecsgen-runner.js";
 import { resolveTecsgenCommand, snapshotTecsgenEnvironment, type TecsgenDiscoveryOptions } from "./tecsgen-path-resolver.js";
 import type {
+  CellNameDisplayMode,
   CppOrigin,
   CppOriginReason,
+  NamespaceDisplayMode,
   PaperOrientationSetting,
   PaperSizeSetting,
   PluginTypeSource,
@@ -282,6 +284,12 @@ export class ToolSettingsService {
     cdlFilesRoot = "",
     defaultPaperSize?: PaperSizeSetting,
     defaultPaperOrientation?: PaperOrientationSetting,
+    display?: {
+      readonly showCelltypeName?: boolean;
+      readonly cellNameDisplay?: CellNameDisplayMode;
+      readonly showStatusSymbols?: boolean;
+      readonly namespaceDisplay?: NamespaceDisplayMode;
+    },
   ): ToolSettings {
     return Object.freeze({
       revision: this.revision,
@@ -304,6 +312,10 @@ export class ToolSettingsService {
       cdlFilesRoot,
       ...(defaultPaperSize ? { defaultPaperSize } : {}),
       ...(defaultPaperOrientation ? { defaultPaperOrientation } : {}),
+      ...(display?.showCelltypeName !== undefined ? { showCelltypeName: display.showCelltypeName } : {}),
+      ...(display?.cellNameDisplay !== undefined ? { cellNameDisplay: display.cellNameDisplay } : {}),
+      ...(display?.showStatusSymbols !== undefined ? { showStatusSymbols: display.showStatusSymbols } : {}),
+      ...(display?.namespaceDisplay !== undefined ? { namespaceDisplay: display.namespaceDisplay } : {}),
     });
   }
 
@@ -336,6 +348,12 @@ export class ToolSettingsService {
       cdlFilesRoot,
       stored.defaultPaperSize,
       stored.defaultPaperOrientation,
+      {
+        showCelltypeName: stored.showCelltypeName,
+        cellNameDisplay: stored.cellNameDisplay,
+        showStatusSymbols: stored.showStatusSymbols,
+        namespaceDisplay: stored.namespaceDisplay,
+      },
     );
   }
 
@@ -370,6 +388,10 @@ export class ToolSettingsService {
       "cdlFilesRoot",
       "defaultPaperSize",
       "defaultPaperOrientation",
+      "showCelltypeName",
+      "cellNameDisplay",
+      "showStatusSymbols",
+      "namespaceDisplay",
     ];
     const patchKeys = Object.keys(patch);
     if (patchKeys.length === 0 || patchKeys.some((key) => !allowedKeys.includes(key))) {
@@ -390,6 +412,20 @@ export class ToolSettingsService {
         const val = patch.defaultPaperOrientation;
         if (val !== "LANDSCAPE" && val !== "PORTRAIT") {
           return Promise.resolve({ ok: false, error: "defaultPaperOrientationには'LANDSCAPE'または'PORTRAIT'を指定してください。" });
+        }
+      } else if (key === "showCelltypeName" || key === "showStatusSymbols") {
+        if (typeof (patch as Record<string, unknown>)[key] !== "boolean") {
+          return Promise.resolve({ ok: false, error: `${key}には真偽値を指定してください。` });
+        }
+      } else if (key === "cellNameDisplay") {
+        const val = patch.cellNameDisplay;
+        if (val !== "show" && val !== "shorten" && val !== "hide") {
+          return Promise.resolve({ ok: false, error: "cellNameDisplayには'show'・'shorten'・'hide'を指定してください。" });
+        }
+      } else if (key === "namespaceDisplay") {
+        const val = patch.namespaceDisplay;
+        if (val !== "show" && val !== "dot") {
+          return Promise.resolve({ ok: false, error: "namespaceDisplayには'show'または'dot'を指定してください。" });
         }
       } else if (typeof (patch as Record<string, unknown>)[key] !== "string") {
         return Promise.resolve({ ok: false, error: `${key}には文字列を指定してください。` });
@@ -430,6 +466,18 @@ export class ToolSettingsService {
         const newDefaultPaperOrientation = patch.defaultPaperOrientation !== undefined
           ? patch.defaultPaperOrientation
           : stored.defaultPaperOrientation;
+        const newShowCelltypeName = patch.showCelltypeName !== undefined
+          ? patch.showCelltypeName
+          : stored.showCelltypeName;
+        const newCellNameDisplay = patch.cellNameDisplay !== undefined
+          ? patch.cellNameDisplay
+          : stored.cellNameDisplay;
+        const newShowStatusSymbols = patch.showStatusSymbols !== undefined
+          ? patch.showStatusSymbols
+          : stored.showStatusSymbols;
+        const newNamespaceDisplay = patch.namespaceDisplay !== undefined
+          ? patch.namespaceDisplay
+          : stored.namespaceDisplay;
 
         const patchToSave: AppSettingsPatch = {
           ...(patch.tecsgenPath !== undefined ? { tecsgenPath: path } : {}),
@@ -439,6 +487,10 @@ export class ToolSettingsService {
           ...(patch.cdlFilesRoot !== undefined ? { cdlFilesRoot: patch.cdlFilesRoot } : {}),
           ...(patch.defaultPaperSize !== undefined ? { defaultPaperSize: patch.defaultPaperSize } : {}),
           ...(patch.defaultPaperOrientation !== undefined ? { defaultPaperOrientation: patch.defaultPaperOrientation } : {}),
+          ...(patch.showCelltypeName !== undefined ? { showCelltypeName: patch.showCelltypeName } : {}),
+          ...(patch.cellNameDisplay !== undefined ? { cellNameDisplay: patch.cellNameDisplay } : {}),
+          ...(patch.showStatusSymbols !== undefined ? { showStatusSymbols: patch.showStatusSymbols } : {}),
+          ...(patch.namespaceDisplay !== undefined ? { namespaceDisplay: patch.namespaceDisplay } : {}),
         };
 
         await this.save(patchToSave);
@@ -461,6 +513,12 @@ export class ToolSettingsService {
           newCdlFilesRoot,
           newDefaultPaperSize,
           newDefaultPaperOrientation,
+          {
+            showCelltypeName: newShowCelltypeName,
+            cellNameDisplay: newCellNameDisplay,
+            showStatusSymbols: newShowStatusSymbols,
+            namespaceDisplay: newNamespaceDisplay,
+          },
         );
         return { ok: true, settings: this.current };
       } catch (error) {
