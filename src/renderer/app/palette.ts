@@ -5,6 +5,7 @@
 
 import type { AppStore } from "./store";
 import type { TecscdeDocument } from "../model/document";
+import { celltypeKindMark, groupAndSortCelltypes } from "./palette-order";
 
 export class PaletteView {
   private readonly selectModeBtn: HTMLButtonElement;
@@ -61,7 +62,8 @@ export class PaletteView {
   }
 
   private renderCelltypes(doc: TecscdeDocument): void {
-    const names = doc.celltypeValues().map((c) => c.name);
+    const groups = groupAndSortCelltypes(doc.celltypeValues());
+    const names = groups.flatMap((g) => g.celltypes.map((c) => c.name));
     const active = this.store.getActiveCelltypeName();
 
     // アクティブなセルタイプが未設定／解決不能なら先頭を設定する。setActiveCelltype()は
@@ -77,7 +79,7 @@ export class PaletteView {
       return;
     }
 
-    const signature = `${names.join(",")}|${active ?? ""}`;
+    const signature = `${groups.map((g) => `${g.namespace ?? ""}:${g.celltypes.map((c) => `${celltypeKindMark(c)}${c.name}`).join(",")}`).join(";")}|${active ?? ""}`;
     if (signature === this.lastCelltypeSignature) return;
     this.lastCelltypeSignature = signature;
 
@@ -89,22 +91,39 @@ export class PaletteView {
       this.celltypeList.appendChild(empty);
       return;
     }
-    for (const name of names) {
-      const row = document.createElement("div");
-      row.className = "palette-celltype-row";
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "palette-celltype" + (name === active ? " active" : "");
-      item.dataset["celltype"] = name;
-      item.textContent = name;
-      const details = document.createElement("button");
-      details.type = "button";
-      details.className = "palette-celltype-details";
-      details.dataset["celltypeDetails"] = name;
-      details.textContent = "詳細";
-      details.setAttribute("aria-label", `${name}の詳細`);
-      row.append(item, details);
-      this.celltypeList.appendChild(row);
+    const showGroupHeaders = groups.some((g) => g.namespace !== null);
+    for (const group of groups) {
+      const groupEl = document.createElement("div");
+      groupEl.className = "palette-group";
+      groupEl.dataset["namespace"] = group.namespace ?? "";
+      if (showGroupHeaders) {
+        const header = document.createElement("div");
+        header.className = "palette-group-header";
+        header.textContent = group.namespace ?? "（名前空間なし）";
+        groupEl.appendChild(header);
+      }
+      for (const celltype of group.celltypes) {
+        const name = celltype.name;
+        const row = document.createElement("div");
+        row.className = "palette-celltype-row";
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "palette-celltype" + (name === active ? " active" : "");
+        item.dataset["celltype"] = name;
+        // 種類の印を先頭に付ける。表示名・data-celltype（セルタイプ名）は変えない。
+        const mark = celltypeKindMark(celltype);
+        item.textContent = `${mark} ${name}`;
+        item.setAttribute("aria-label", `${mark === "[C]" ? "複合セルタイプ" : "通常のセルタイプ"} ${name}`);
+        const details = document.createElement("button");
+        details.type = "button";
+        details.className = "palette-celltype-details";
+        details.dataset["celltypeDetails"] = name;
+        details.textContent = "詳細";
+        details.setAttribute("aria-label", `${name}の詳細`);
+        row.append(item, details);
+        groupEl.appendChild(row);
+      }
+      this.celltypeList.appendChild(groupEl);
     }
   }
 

@@ -318,6 +318,22 @@
         color: #888888;
         font-size: 11px;
       }
+      .palette-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .palette-group + .palette-group {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid var(--border);
+      }
+      .palette-group-header {
+        font-size: 11px;
+        font-weight: 600;
+        color: #555555;
+        overflow-wrap: anywhere;
+      }
       .palette-celltype-row { display: flex; gap: 4px; }
       .palette-celltype-row .palette-celltype { flex: 1; min-width: 0; }
       .definition-source { margin-top: 12px; overflow-wrap: anywhere; user-select: text; }
