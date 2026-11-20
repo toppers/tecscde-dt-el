@@ -15,8 +15,25 @@ export interface PortTemplate {
   readonly variableArray?: boolean;
 }
 
+/** 修飾名（例: `nMruby::tBridge`、`::nA::nB::tFoo`）から名前空間部分を取り出す。無ければ undefined。 */
+export function extractNamespaceFromQualifiedName(name: string): string | undefined {
+  const trimmed = name.replace(/^::/, "");
+  const separator = trimmed.lastIndexOf("::");
+  if (separator <= 0) return undefined;
+  return normalizeNamespace(trimmed.slice(0, separator));
+}
+
+/** 名前空間文字列を正規化する（先頭・末尾の `::` を除去し、空なら undefined）。 */
+export function normalizeNamespace(namespace: string | undefined): string | undefined {
+  if (!namespace) return undefined;
+  const trimmed = namespace.replace(/^::+/, "").replace(/::+$/, "").trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export interface CelltypeRefCreateParams {
   readonly name: string;
+  /** 定義元の名前空間（先頭 `::` なし、ルート定義は undefined）。省略時は `name` の `::` から補完する。 */
+  readonly namespace?: string;
   readonly cportTemplates: readonly PortTemplate[];
   readonly eportTemplates: readonly PortTemplate[];
   readonly attributeNames: readonly string[];
@@ -51,9 +68,14 @@ export class CelltypeRef {
     readonly active: boolean,
     readonly attributeOptions: ReadonlyMap<string, readonly string[]> = new Map(),
     readonly definitionPath: string | undefined = undefined,
+    readonly namespace: string | undefined = undefined,
   ) {}
 
   static create(params: CelltypeRefCreateParams): CelltypeRef {
+    const namespace =
+      params.namespace !== undefined
+        ? normalizeNamespace(params.namespace)
+        : extractNamespaceFromQualifiedName(params.name);
     return new CelltypeRef(
       params.name,
       params.cportTemplates,
@@ -68,6 +90,7 @@ export class CelltypeRef {
       params.active ?? false,
       params.attributeOptions ?? new Map(),
       params.definitionPath,
+      namespace,
     );
   }
 

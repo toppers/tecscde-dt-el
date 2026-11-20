@@ -4,7 +4,7 @@
 
 import { alignRound } from "../model/align";
 import { Cell } from "../model/cell";
-import { CelltypeRef, type PortTemplate } from "../model/celltype";
+import { CelltypeRef, extractNamespaceFromQualifiedName, type PortTemplate } from "../model/celltype";
 import { asCellId, asJoinId, asRegionId, type CellId, type JoinId } from "../model/ids";
 import { autoRouteBars, portPosition } from "../model/geometry";
 import { Join, type Bar } from "../model/join";
@@ -453,8 +453,10 @@ export class CdlDocumentLoader {
       const eportDecls = ct.ports.filter((p) => p.kind === "entry")
         .map((p) => portDeclaration(typeName, p, source.fileName));
       const hiddenRequirePortCount = ct.ports.filter((p) => p.kind === "call" && p.isRequire).length;
+      const qualifiedName = isOrdinaryCelltype(ct) ? ct.qualifiedName : ct.name;
       const celltype = CelltypeRef.create({
         name: typeName,
+        namespace: extractNamespaceFromQualifiedName(qualifiedName),
         cportTemplates: assignDefaultPortLayout(cportDecls, "LEFT", 15),
         eportTemplates: assignDefaultPortLayout(eportDecls, "RIGHT", 15),
         attributeNames: ct.attributes,
