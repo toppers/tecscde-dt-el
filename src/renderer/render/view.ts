@@ -187,33 +187,33 @@ export class SelectionState {
     return new SelectionState(new Set(), new Set(), this.ports.filter((selected) => !samePort(selected, port)));
   }
 
-  /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（結合選択はクリアする）。 */
+  /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（結合バー選択は維持、ポート選択はクリア。6-17）。 */
   withCellToggled(id: CellId): SelectionState {
     const next = new Set(this.cellIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    return new SelectionState(next, new Set(), []);
+    return new SelectionState(next, this.joinIds, []);
   }
 
-  /** Shift+クリック相当: セルを追加する（既存のセル選択は保つ）。 */
+  /** Shift+クリック相当: セルを追加する（既存のセル・結合バー選択は維持、ポート選択はクリア。6-17）。 */
   withCellAdded(id: CellId): SelectionState {
     const next = new Set(this.cellIds);
     next.add(id);
-    return new SelectionState(next, new Set(), []);
+    return new SelectionState(next, this.joinIds, []);
   }
 
-  /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（セル・ポート選択はクリアする）。 */
+  /** Ctrl+クリック相当: 既に入っていれば外し、なければ加える（セル選択は維持、ポート選択はクリア。6-17）。 */
   withJoinToggled(id: JoinId): SelectionState {
     const next = new Set(this.joinIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    return new SelectionState(new Set(), next);
+    return new SelectionState(this.cellIds, next, []);
   }
 
-  /** Shift+クリック相当: 結合を追加する（既存の結合選択は保つ、セル・ポート選択はクリアする）。 */
+  /** Shift+クリック相当: 結合を追加する（既存のセル・結合バー選択は維持、ポート選択はクリア。6-17）。 */
   withJoinAdded(id: JoinId): SelectionState {
     const next = new Set(this.joinIds);
     next.add(id);
-    return new SelectionState(new Set(), next);
+    return new SelectionState(this.cellIds, next, []);
   }
 }
