@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CdlDocumentLoader } from "../../src/renderer/cdl/document-builder";
 import { asCellId, asJoinId, type CellId } from "../../src/renderer/model/ids";
+import { CPort } from "../../src/renderer/model/port";
 import { TecscdeDocument } from "../../src/renderer/model/document";
 import type { Command } from "../../src/renderer/commands/command";
 import { DeleteJoinCommand } from "../../src/renderer/commands";
@@ -398,13 +399,13 @@ cell tArray Cell1 {};
     // Insert (after)
     expect(h.gesture.keyDown("Insert")).toBe(true);
     expect(h.dispatched).toHaveLength(1);
-    expect(h.dispatched[0]).toBeInstanceOf(InsertPortElementCommand);
+    expect(h.dispatched[0]!.kind).toBe("InsertArrayPortElement");
     expect(h.doc().getCell(cellId)!.cports).toHaveLength(2);
 
-    // Shift+Insert (before)
-    expect(h.gesture.keyDown("Insert", { ctrl: false, shift: true, meta: false })).toBe(true);
-    expect(h.dispatched).toHaveLength(2);
-    expect(h.doc().getCell(cellId)!.cports).toHaveLength(3);
+    // Shift+Insert は内部仕様 04E 4E.2（6-3）により横取りしない
+    expect(h.gesture.keyDown("Insert", { ctrl: false, shift: true, meta: false })).toBe(false);
+    expect(h.dispatched).toHaveLength(1);
+    expect(h.doc().getCell(cellId)!.cports).toHaveLength(2);
   });
 
   it("Insert key warns when port is not an array port", () => {
@@ -440,8 +441,17 @@ cell tArray Cell1 {};
     ]).document;
 
     const cellId = asCellId("Cell1");
-    const cport0 = doc.getCell(cellId)!.cports[0]!.withSubscript(0);
-    const cport1 = doc.getCell(cellId)!.cports[0]!.withSubscript(1);
+    const base = doc.getCell(cellId)!.cports[0]!;
+    const cport0 = base.withSubscript(0);
+    const cport1 = CPort.create({
+      name: base.name,
+      signature: base.signature,
+      edgeSide: base.edgeSide,
+      offset: base.offset + 4,
+      subscript: 1,
+      arraySize: null,
+      arrayKind: "variable",
+    });
     const updatedDoc = doc.withCell(doc.getCell(cellId)!.withCPorts([cport0, cport1]));
 
     const h = harness({ doc: updatedDoc });
@@ -494,7 +504,8 @@ cell tArray Cell1 {};
     expect(h.dispatched[0]).toBeInstanceOf(DeleteCommand);
     expect(h.doc().getJoin(joinId)).toBeUndefined();
     expect(h.doc().getCell(CONTROLLER)!.findCPort("cLog")!.joinId).toBeNull();
-    expect(h.selection().isEmpty).toBe(true);
+    // 内部仕様 04F 4F.1（6-1）: ポート起点の結合解除後はポート選択を維持する
+    expect(h.selection().ports).toHaveLength(1);
   });
 
   it("deletes connected joins when entry port is selected (spec 6.3.2)", () => {
@@ -518,7 +529,8 @@ cell tArray Cell1 {};
     expect(h.dispatched[0]).toBeInstanceOf(DeleteCommand);
     expect(h.doc().getJoin(joinId)).toBeUndefined();
     expect(h.doc().getCell(LOGGER)!.findEPort("eLog")!.joinIds).toEqual([]);
-    expect(h.selection().isEmpty).toBe(true);
+    // 内部仕様 04F 4F.1（6-1）: ポート起点の結合解除後はポート選択を維持する
+    expect(h.selection().ports).toHaveLength(1);
   });
 
   it("does not delete or dispatch when port has no connected joins and cannot be deleted", () => {

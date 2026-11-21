@@ -21,10 +21,18 @@ export { ChangePaperCommand } from "./paper-commands";
 export { AutoPlaceCellsCommand, planAutoPlacement, type AutoPlacementPlan } from "./layout-commands";
 export {
   ChangePortEdgeCommand,
+  DeleteArrayPortElementsCommand,
   DeletePortElementCommand,
+  InsertArrayPortElementCommand,
   InsertPortElementCommand,
   MovePortCommand,
   MovePortsCommand,
+  prepareArrayPortElementDeletion,
+  prepareArrayPortInsertion,
+  type ArrayPortElementDeletionPlan,
+  type ArrayPortElementDeletionResult,
+  type ArrayPortInsertionPlan,
+  type ArrayPortInsertionResult,
   type PortKind,
 } from "./port-commands";
 export {
