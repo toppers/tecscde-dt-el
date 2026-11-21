@@ -12,14 +12,21 @@ import type { TecsgenInfo } from "./about-info";
 import { isUnderAny } from "../../shared/path-under";
 import { History } from "../commands/history";
 import type { Command } from "../commands/command";
-import { CopyCommand, CutCommand, PasteCommand } from "../commands";
+import {
+  buildClipboardSnapshot,
+  CopyCommand,
+  CutCommand,
+  EMPTY_CLIPBOARD_SNAPSHOT,
+  PasteCommand,
+  type ClipboardSnapshot,
+} from "../commands";
 import {
   DiagnosticsCollector,
   DiagnosticReport,
   checkIntegrity,
   type Diagnostic,
 } from "../diagnostics";
-import { serializeCellsAsCdl } from "../cdl/fragment";
+import { serializeClipboardAsCdl } from "../cdl/fragment";
 import { emptyPortTypeIndex, type PortTypeIndex } from "../cdl/port-type-index";
 import type { Cell } from "../model/cell";
 import type { CellId } from "../model/ids";
@@ -78,10 +85,10 @@ export class AppStore {
   /** モジュールB がロード時に出した一過性の診断。編集では再導出されないので保持する。 */
   private loadDiagnostics: readonly Diagnostic[] = [];
   /**
-   * 第4章4.1節: アプリ内クリップボード（コピー時点のCellスナップショット）。
+   * 第4章4.1節: アプリ内クリップボード（コピー時点のCell・内部結合スナップショット）。
    * OSクリップボードと並行して保持し、貼り付け時はこちらを優先する（外部仕様6.7.2）。
    */
-  private appClipboard: readonly Cell[] = [];
+  private appClipboard: ClipboardSnapshot = EMPTY_CLIPBOARD_SNAPSHOT;
   /**
    * 第9章9.5節: 今回のセッションで参照専用として読み込んだファイルの実パス。
    * `TecscdeDocument.referenceFiles`はbasenameのみ保持するため（8.2.2）、
@@ -409,8 +416,9 @@ export class AppStore {
     const ids = [...this.selectionState.cellIds];
     if (ids.length === 0) return;
     const doc = this.getDocument();
-    this.appClipboard = this.snapshotCells(doc, ids);
-    new CopyCommand(ids, clipboard).apply(doc);
+    const snapshot = buildClipboardSnapshot(doc, ids);
+    this.appClipboard = snapshot;
+    new CopyCommand(snapshot, clipboard).apply(doc);
   }
 
   /**
@@ -423,8 +431,9 @@ export class AppStore {
     const joinIds = [...this.selectionState.joinIds];
     if (cellIds.length === 0 && joinIds.length === 0) return;
     const doc = this.getDocument();
-    this.appClipboard = this.snapshotCells(doc, cellIds);
-    void clipboard.writeText(serializeCellsAsCdl(doc, cellIds));
+    const snapshot = buildClipboardSnapshot(doc, cellIds);
+    this.appClipboard = snapshot;
+    void clipboard.writeText(serializeClipboardAsCdl(snapshot));
     this.dispatch(new CutCommand(cellIds, joinIds));
     this.setSelection(SelectionState.empty());
   }
@@ -440,13 +449,6 @@ export class AppStore {
     const targetSource = selectedCell?.editable && selectedCell.locale && this.getDocument().sourceTemplates.has(selectedCell.locale)
       ? selectedCell.locale : undefined;
     this.dispatch(new PasteCommand(this.appClipboard, osClipboardText, targetSource));
-  }
-
-  private snapshotCells(doc: TecscdeDocument, ids: readonly CellId[]): readonly Cell[] {
-    return ids.flatMap((id) => {
-      const cell = doc.getCell(id);
-      return cell ? [cell] : [];
-    });
   }
 
   undo(): void {

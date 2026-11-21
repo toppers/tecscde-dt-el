@@ -19,31 +19,152 @@
 // 経由しない特殊呼び出しのため、この問題は生じない（`apply()`は呼び出し側が直接1回だけ呼ぶ）。
 
 import { Command } from "./command";
-import { DeleteCommand, instantiateCPorts, instantiateEPorts, DEFAULT_CELL_WIDTH_MM, DEFAULT_CELL_HEIGHT_MM } from "./cell-commands";
+import { DeleteCommand, DEFAULT_CELL_WIDTH_MM, DEFAULT_CELL_HEIGHT_MM } from "./cell-commands";
+import { CreateJoinCommand } from "./join-commands";
 import { deriveCellName } from "./support";
 import { Cell } from "../model/cell";
+import { portTemplateArrayKind, type PortTemplate } from "../model/celltype";
 import { alignRound } from "../model/align";
 import { asCellId, ROOT_REGION_ID, type CellId, type JoinId } from "../model/ids";
+import type { Join } from "../model/join";
+import { CPort, EPort } from "../model/port";
 import type { TecscdeDocument } from "../model/document";
-import { serializeCellsAsCdl, tryParseCdlFragment, type CdlFragmentCell } from "../cdl/fragment";
+import { serializeCellsAsCdl, serializeClipboardAsCdl, tryParseCdlFragment, type CdlFragmentCell } from "../cdl/fragment";
 import type { ClipboardGateway } from "../gateways/clipboard-gateway";
 
 const PASTE_OFFSET_MM = 10;
 const PASTE_ANCHOR_MM = 20;
+const ARRAY_ELEMENT_GAP_MM = 3;
+
+/** 第4章4.1節（三者監査#25）: コピー時点の不変スナップショット。単一セルでは joins は空。 */
+export interface ClipboardSnapshot {
+  readonly cells: readonly Cell[];
+  readonly joins: readonly Join[];
+}
+
+export const EMPTY_CLIPBOARD_SNAPSHOT: ClipboardSnapshot = { cells: [], joins: [] };
+
+/** コピー時点の選択セル集合から不変な ClipboardSnapshot を構築する（2個以上なら内部結合を含む）。 */
+export function buildClipboardSnapshot(doc: TecscdeDocument, cellIds: readonly CellId[]): ClipboardSnapshot {
+  const seen = new Set<CellId>();
+  const cells: Cell[] = [];
+  for (const id of cellIds) {
+    if (seen.has(id)) continue;
+    const cell = doc.getCell(id);
+    if (!cell) continue;
+    seen.add(id);
+    cells.push(cell);
+  }
+  const joins =
+    cells.length >= 2
+      ? doc.joinValues().filter((j) => seen.has(j.cellId) && seen.has(j.eportCellId))
+      : [];
+  return { cells, joins };
+}
+
+function normalizeSnapshot(input: ClipboardSnapshot | readonly Cell[]): ClipboardSnapshot {
+  return Array.isArray(input) ? { cells: input, joins: [] } : (input as ClipboardSnapshot);
+}
+
+/** コピー元セルのポート構造（辺・オフセット・配列要素数・arrayKind）を新しい未結合ポートとして複製する。 */
+function cloneUnjoinedCPorts(source: Cell): CPort[] {
+  return source.cports.map((p) =>
+    CPort.create({
+      name: p.name,
+      signature: p.signature,
+      edgeSide: p.edgeSide,
+      offset: p.offset,
+      subscript: p.subscript,
+      arraySize: p.arraySize,
+      arrayKind: p.arrayKind,
+    }),
+  );
+}
+
+function cloneUnjoinedEPorts(source: Cell): EPort[] {
+  return source.eports.map((p) =>
+    EPort.create({
+      name: p.name,
+      signature: p.signature,
+      edgeSide: p.edgeSide,
+      offset: p.offset,
+      subscript: p.subscript,
+      arraySize: p.arraySize,
+      arrayKind: p.arrayKind,
+    }),
+  );
+}
+
+/** テンプレートから新規セルのポートを展開する（固定長は N 個、可変長は必要最大添字+1 個）。 */
+function expandTemplatesForFragment<P extends CPort | EPort>(
+  templates: readonly PortTemplate[],
+  maxSubscripts: ReadonlyMap<string, number>,
+  cellWidth: number,
+  cellHeight: number,
+  factory: (params: Parameters<typeof CPort.create>[0]) => P,
+): P[] {
+  const result: P[] = [];
+  for (const t of templates) {
+    const kind = portTemplateArrayKind(t);
+    const count =
+      kind === "fixed" && t.arraySize !== null
+        ? t.arraySize
+        : kind === "variable"
+          ? Math.max(1, (maxSubscripts.get(t.name) ?? -1) + 1)
+          : null;
+    if (count === null) {
+      result.push(
+        factory({
+          name: t.name,
+          signature: t.signature,
+          edgeSide: t.edgeSide,
+          offset: t.offset,
+          subscript: t.subscript,
+          arraySize: t.arraySize,
+          arrayKind: kind,
+        }),
+      );
+      continue;
+    }
+    const edgeLen = t.edgeSide === "TOP" || t.edgeSide === "BOTTOM" ? cellWidth : cellHeight;
+    for (let i = 0; i < count; i += 1) {
+      result.push(
+        factory({
+          name: t.name,
+          signature: t.signature,
+          edgeSide: t.edgeSide,
+          offset: Math.min(edgeLen, alignRound(t.offset + i * ARRAY_ELEMENT_GAP_MM)),
+          subscript: i,
+          arraySize: t.arraySize,
+          arrayKind: kind,
+        }),
+      );
+    }
+  }
+  return result;
+}
 
 /**
- * 外部仕様6.7.2: アプリ内クリップボード（コピー時点のCellスナップショット）からの貼り付け。
- * 元の位置から`PASTE_OFFSET_MM`だけずらし、名前・結合は新規に割り当てる（結合は引き継がない）。
- * セルタイプが解決できないセルは生成しない（6.1.2と同じ方針）。
+ * 外部仕様6.7.2・内部仕様4.1節（6-16）: アプリ内クリップボードからの貼り付け。
+ * 元の位置から`PASTE_OFFSET_MM`だけずらして全セルを生成し、複数セルコピー時は
+ * スナップショットに含まれる内部結合を新セル同士へ再対応・経路再計算して復元する。
  */
-export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell[], targetSourceKey?: string): TecscdeDocument {
+export function pasteFromAppClipboard(
+  doc: TecscdeDocument,
+  input: ClipboardSnapshot | readonly Cell[],
+  targetSourceKey?: string,
+): TecscdeDocument {
+  const snapshot = normalizeSnapshot(input);
   let next = doc;
-  for (const source of cells) {
+  const idMap = new Map<CellId, CellId>();
+
+  for (const source of snapshot.cells) {
     const celltype = next.getCelltype(source.celltypeName);
     if (!celltype) continue;
     const name = deriveCellName(next, source.celltypeName);
+    const newId = asCellId(name);
     const cell = Cell.create({
-      id: asCellId(name),
+      id: newId,
       name,
       celltypeName: source.celltypeName,
       x: alignRound(source.x + PASTE_OFFSET_MM),
@@ -54,32 +175,75 @@ export function pasteFromAppClipboard(doc: TecscdeDocument, cells: readonly Cell
         !doc.sourceTemplates.get(targetSourceKey)?.scopes.some((scope) => scope.path === source.regionId)
         ? ROOT_REGION_ID : source.regionId,
       editable: true,
-      cports: instantiateCPorts(celltype.cportTemplates),
-      eports: instantiateEPorts(celltype.eportTemplates),
+      cports: cloneUnjoinedCPorts(source),
+      eports: cloneUnjoinedEPorts(source),
       attrs: { ...source.attrs },
       celltypeUnresolved: false,
       locale: targetSourceKey ?? next.editingFileName,
     });
     next = next.withCell(cell);
+    idMap.set(source.id, newId);
   }
+
+  if (snapshot.cells.length >= 2) {
+    for (const join of snapshot.joins) {
+      const newSourceId = idMap.get(join.cellId);
+      const newTargetId = idMap.get(join.eportCellId);
+      if (!newSourceId || !newTargetId) continue;
+      next = new CreateJoinCommand(
+        newSourceId,
+        join.cportName,
+        join.cportSubscript,
+        newTargetId,
+        join.eportName,
+        join.eportSubscript,
+      ).apply(next);
+    }
+  }
+
   return next;
 }
 
 /**
- * 6.7節: OSクリップボードから解析できたCDL断片からの貼り付け。断片は位置情報を持たないため、
- * `PASTE_ANCHOR_MM`を起点に`PASTE_OFFSET_MM`刻みで斜めに並べる（複数セルの重なりを避ける簡易配置）。
+ * 6.7節・4.1節（6-16）: OSクリップボードから解析できたCDL断片からの貼り付け。
+ * 断片は位置情報を持たないため、`PASTE_ANCHOR_MM`を起点に`PASTE_OFFSET_MM`刻みで斜めに並べる。
+ * 複数セルの断片に内部結合が含まれる場合は、新セル同士へ再対応・経路再計算して復元する。
  */
 export function pasteFromCdlFragment(doc: TecscdeDocument, fragments: readonly CdlFragmentCell[], targetSourceKey?: string): TecscdeDocument {
+  // 各断片セルで参照される配列ポートの最大添字を集計
+  const maxCSub = new Map<string, Map<string, number>>();
+  const maxESub = new Map<string, Map<string, number>>();
+  const recordSub = (outer: Map<string, Map<string, number>>, cellName: string, portName: string, sub: number | null) => {
+    if (sub === null) return;
+    let inner = outer.get(cellName);
+    if (!inner) {
+      inner = new Map<string, number>();
+      outer.set(cellName, inner);
+    }
+    inner.set(portName, Math.max(inner.get(portName) ?? -1, sub));
+  };
+  if (fragments.length >= 2) {
+    for (const frag of fragments) {
+      for (const j of frag.joins ?? []) {
+        recordSub(maxCSub, frag.cellName, j.cportName, j.cportSubscript);
+        recordSub(maxESub, j.targetCellName, j.eportName, j.eportSubscript);
+      }
+    }
+  }
+
   let next = doc;
   let placed = 0;
+  const nameToNewId = new Map<string, CellId>();
+
   for (const frag of fragments) {
     const celltype = next.getCelltype(frag.celltypeName);
     if (!celltype) continue;
     const name = deriveCellName(next, frag.celltypeName);
+    const newId = asCellId(name);
     const pos = PASTE_ANCHOR_MM + placed * PASTE_OFFSET_MM;
     placed += 1;
     const cell = Cell.create({
-      id: asCellId(name),
+      id: newId,
       name,
       celltypeName: frag.celltypeName,
       x: alignRound(pos),
@@ -88,36 +252,71 @@ export function pasteFromCdlFragment(doc: TecscdeDocument, fragments: readonly C
       height: DEFAULT_CELL_HEIGHT_MM,
       regionId: ROOT_REGION_ID,
       editable: true,
-      cports: instantiateCPorts(celltype.cportTemplates),
-      eports: instantiateEPorts(celltype.eportTemplates),
+      cports: expandTemplatesForFragment(
+        celltype.cportTemplates,
+        maxCSub.get(frag.cellName) ?? new Map(),
+        DEFAULT_CELL_WIDTH_MM,
+        DEFAULT_CELL_HEIGHT_MM,
+        (p) => CPort.create(p),
+      ),
+      eports: expandTemplatesForFragment(
+        celltype.eportTemplates,
+        maxESub.get(frag.cellName) ?? new Map(),
+        DEFAULT_CELL_WIDTH_MM,
+        DEFAULT_CELL_HEIGHT_MM,
+        (p) => EPort.create(p),
+      ),
       attrs: { ...frag.attrs },
       celltypeUnresolved: false,
       locale: targetSourceKey ?? next.editingFileName,
     });
     next = next.withCell(cell);
+    nameToNewId.set(frag.cellName, newId);
   }
+
+  if (fragments.length >= 2) {
+    for (const frag of fragments) {
+      const newSourceId = nameToNewId.get(frag.cellName);
+      if (!newSourceId) continue;
+      for (const j of frag.joins ?? []) {
+        const newTargetId = nameToNewId.get(j.targetCellName);
+        if (!newTargetId) continue;
+        next = new CreateJoinCommand(
+          newSourceId,
+          j.cportName,
+          j.cportSubscript,
+          newTargetId,
+          j.eportName,
+          j.eportSubscript,
+        ).apply(next);
+      }
+    }
+  }
+
   return next;
 }
 
 /**
- * 履歴を作らない特殊なコマンド（TS内部仕様4.5節）: ドキュメントは変更せず、選択セルを
- * CDL断片としてOSクリップボードへ書き込む副作用のみを行う。呼び出し側は`History.commit()`を
- * 呼ばず、`apply()`の返り値（変更なしのdoc）を捨ててよい。
+ * 履歴を作らない特殊なコマンド（TS内部仕様4.5節）: ドキュメントは変更せず、選択セル（複数時は内部結合含む）を
+ * CDL断片としてOSクリップボードへ書き込む副作用のみを行う。
  */
 export class CopyCommand extends Command {
   readonly kind = "Copy";
   override readonly summary: string;
 
   constructor(
-    private readonly cellIds: readonly CellId[],
+    private readonly source: ClipboardSnapshot | readonly CellId[],
     private readonly clipboard: Pick<ClipboardGateway, "writeText">,
   ) {
     super();
-    this.summary = `copy ${cellIds.length} cell(s)`;
+    const count = Array.isArray(source) ? source.length : (source as ClipboardSnapshot).cells.length;
+    this.summary = `copy ${count} cell(s)`;
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
-    const fragment = serializeCellsAsCdl(doc, this.cellIds);
+    const fragment = Array.isArray(this.source)
+      ? serializeCellsAsCdl(doc, this.source)
+      : serializeClipboardAsCdl(this.source as ClipboardSnapshot);
     void this.clipboard.writeText(fragment);
     return doc;
   }
@@ -125,23 +324,23 @@ export class CopyCommand extends Command {
 
 /**
  * 外部仕様6.7.2: アプリ内クリップボードを優先し、空の場合のみOSクリップボードのCDL断片を試みる。
- * `osClipboardText`はコマンド構築前に呼び出し側が`ClipboardGateway.readText()`を解決して渡す
- * （`apply()`は同期のため、非同期の読み取り自体はコマンドの外で行う——本ファイル冒頭の注記参照）。
  */
 export class PasteCommand extends Command {
   readonly kind = "Paste";
+  private readonly appSnapshot: ClipboardSnapshot;
 
   constructor(
-    private readonly appClipboard: readonly Cell[],
+    appClipboard: ClipboardSnapshot | readonly Cell[],
     private readonly osClipboardText: string | undefined,
     private readonly targetSourceKey?: string,
   ) {
     super();
+    this.appSnapshot = normalizeSnapshot(appClipboard);
   }
 
   apply(doc: TecscdeDocument): TecscdeDocument {
-    if (this.appClipboard.length > 0) {
-      return pasteFromAppClipboard(doc, this.appClipboard, this.targetSourceKey);
+    if (this.appSnapshot.cells.length > 0) {
+      return pasteFromAppClipboard(doc, this.appSnapshot, this.targetSourceKey);
     }
     if (this.osClipboardText === undefined) return doc;
     const fragment = tryParseCdlFragment(this.osClipboardText);
